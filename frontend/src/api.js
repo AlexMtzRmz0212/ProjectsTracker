@@ -2,6 +2,7 @@
 // proxies that to the Python server (see vite.config.js).
 
 const BASE = "/api";
+export const UNAUTHORIZED_EVENT = "pt-unauthorized";
 
 /** fetch wrapper: checks the status before parsing, and tolerates 204s. */
 export async function fetchApi(path, options = {}) {
@@ -11,6 +12,11 @@ export async function fetchApi(path, options = {}) {
   });
 
   if (!response.ok) {
+    // An expired owner session: let the app drop back to the public page. Login
+    // itself answers 401 for a wrong password, which is not a session problem.
+    if (response.status === 401 && !path.startsWith("/auth/")) {
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    }
     const text = await response.text();
     let message = text;
     try {
@@ -68,3 +74,24 @@ function serialize(data) {
   if (out.end instanceof Date) out.end = out.end.toISOString();
   return out;
 }
+
+/** Owner login. The session lives in an HttpOnly cookie, so JS never sees a token. */
+export const auth = {
+  me: () => fetchApi("/auth/me"),
+  login: (password) => fetchApi("/auth/login", json("POST", { password })),
+  logout: () => fetchApi("/auth/logout", { method: "POST" }),
+};
+
+/** The public "I'd use this" counter on the landing page, plus the owner's inbox
+ *  of what visitors wrote (inbox and removeMessage need the owner session). */
+export const interest = {
+  get: () => fetchApi("/interest"),
+  add: (visitorId) => fetchApi("/interest", json("POST", { visitor_id: visitorId })),
+  send: (visitorId, { email, message }) =>
+    fetchApi("/interest/message", json("POST", { visitor_id: visitorId, email, message })),
+  inbox: async () => {
+    const inbox = await fetchApi("/interest/messages");
+    return { ...inbox, messages: inbox.messages.map((m) => ({ ...m, created_at: new Date(m.created_at) })) };
+  },
+  removeMessage: (id) => fetchApi(`/interest/messages/${encodeURIComponent(id)}`, { method: "DELETE" }),
+};

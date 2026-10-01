@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../api";
+import { api as realApi } from "../api";
 import { heatmapStart } from "../lib/time";
 
 function mergeSessions(prev, incoming) {
@@ -12,8 +12,10 @@ function mergeSessions(prev, incoming) {
  * All app data and every mutation. Sessions are held as Date-parsed objects;
  * the running timer is simply the one session whose `end` is null.
  * Mutations return true on success; failures surface as a `notice` toast.
+ * `api` is the data source: the real server, or the in-memory demo on the
+ * landing page. It must stay the same object for the life of the component.
  */
-export function useTracker() {
+export function useTracker(api = realApi) {
   const [projects, setProjects] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [status, setStatus] = useState("loading"); // loading | ready | error
@@ -34,7 +36,7 @@ export function useTracker() {
     } catch {
       setStatus("error");
     }
-  }, []);
+  }, [api]);
 
   useEffect(() => {
     load();
@@ -46,7 +48,7 @@ export function useTracker() {
     } catch {
       // totals just stay slightly stale until the next refresh
     }
-  }, []);
+  }, [api]);
 
   /** Wrap a mutation: on failure show a toast and resync from the server. */
   const attempt = useCallback(
@@ -79,7 +81,7 @@ export function useTracker() {
     } finally {
       pendingRange.current = null;
     }
-  }, []);
+  }, [api]);
 
   const bumpTotal = (projectId, seconds) =>
     setProjects((prev) =>
@@ -106,7 +108,7 @@ export function useTracker() {
         setSessions((prev) => prev.map((s) => (s.id === tempId ? started : s)));
         if (current) refreshProjects();
       }),
-    [attempt, refreshProjects]
+    [api, attempt, refreshProjects]
   );
 
   const stopTimer = useCallback(
@@ -121,7 +123,7 @@ export function useTracker() {
         if (stopped) setSessions((prev) => prev.map((s) => (s.id === stopped.id ? stopped : s)));
         refreshProjects();
       }),
-    [attempt, refreshProjects]
+    [api, attempt, refreshProjects]
   );
 
   // ── Sessions ───────────────────────────────────────────────────────────────
@@ -133,7 +135,7 @@ export function useTracker() {
         setSessions((prev) => mergeSessions(prev, [created]));
         refreshProjects();
       }),
-    [attempt, refreshProjects]
+    [api, attempt, refreshProjects]
   );
 
   const updateSession = useCallback(
@@ -143,7 +145,7 @@ export function useTracker() {
         setSessions((prev) => mergeSessions(prev, [updated]));
         refreshProjects();
       }),
-    [attempt, refreshProjects]
+    [api, attempt, refreshProjects]
   );
 
   const deleteSession = useCallback(
@@ -153,7 +155,7 @@ export function useTracker() {
         await api.deleteSession(id);
         refreshProjects();
       }),
-    [attempt, refreshProjects]
+    [api, attempt, refreshProjects]
   );
 
   // ── Projects ───────────────────────────────────────────────────────────────
@@ -164,7 +166,7 @@ export function useTracker() {
         const created = await api.createProject(data);
         setProjects((prev) => [...prev, created]);
       }),
-    [attempt]
+    [api, attempt]
   );
 
   const updateProject = useCallback(
@@ -173,7 +175,7 @@ export function useTracker() {
         const updated = await api.updateProject(id, data);
         setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
       }),
-    [attempt]
+    [api, attempt]
   );
 
   const deleteProject = useCallback(
@@ -183,7 +185,7 @@ export function useTracker() {
         setSessions((prev) => prev.filter((s) => s.project_id !== id));
         await api.deleteProject(id);
       }),
-    [attempt]
+    [api, attempt]
   );
 
   const running = useMemo(() => sessions.find((s) => !s.end) ?? null, [sessions]);

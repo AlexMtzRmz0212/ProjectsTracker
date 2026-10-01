@@ -11,10 +11,18 @@ echo ============================================
 echo   PROJECTS TRACKER - DEV ENVIRONMENT
 echo ============================================
 
-:: 1. Free the ports in case a previous run is still holding them
+:: 1. Free the ports in case a previous run is still holding them.
+:: A listening socket can outlive the process netstat reports for it: when uvicorn's
+:: --reload supervisor is killed, its worker keeps the port and keeps serving old code.
+:: So stop each listener's child processes first (this also catches orphans of a PID
+:: that is already gone), then the listener itself.
 echo [1/3] Clearing ports %BACKEND_PORT% and %FRONTEND_PORT%...
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :%BACKEND_PORT% ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :%FRONTEND_PORT% ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
+for %%p in (%BACKEND_PORT% %FRONTEND_PORT%) do (
+  for /f "tokens=5" %%a in ('netstat -aon ^| findstr :%%p ^| findstr LISTENING') do (
+    powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter 'ParentProcessId=%%a' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+    taskkill /f /t /pid %%a >nul 2>&1
+  )
+)
 
 :: 2. Make sure setup has been done at least once
 echo [2/3] Validating environment...

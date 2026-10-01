@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Annotated, Literal, Optional
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, PlainSerializer
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, PlainSerializer, StringConstraints
 
 
 def _to_naive_utc(value: datetime) -> datetime:
@@ -84,3 +84,42 @@ class SessionOut(BaseModel):
 
 class TimerStart(BaseModel):
     project_id: str
+
+
+# ── Interest counter (public) ───────────────────────────────────────────────
+
+VisitorId = Annotated[str, Field(pattern=r"^[A-Za-z0-9-]{16,64}$")]
+# Deliberately loose: the point is a reply address, and the owner is the only reader.
+# Empty is allowed because an email or a note alone is enough.
+OptionalEmail = Annotated[
+    str, StringConstraints(strip_whitespace=True, max_length=254, pattern=r"^$|^[^\s@]+@[^\s@]+\.[^\s@]+$")
+]
+Note = Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)]
+
+
+class InterestIn(BaseModel):
+    visitor_id: VisitorId
+
+
+class InterestOut(BaseModel):
+    count: int
+
+
+class InterestMessageIn(BaseModel):
+    visitor_id: VisitorId
+    email: OptionalEmail = ""
+    message: Note = ""
+
+
+class InterestMessageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    visitor_id: str
+    email: str
+    message: str
+    created_at: UTCDateTime
+
+
+class InterestInboxOut(BaseModel):
+    count: int
+    messages: list[InterestMessageOut]

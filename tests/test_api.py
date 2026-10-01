@@ -183,3 +183,92 @@ def test_delete_project_cascades_sessions(client):
     remaining = client.get("/api/sessions").json()
     assert [s["project_id"] for s in remaining] == [keep["id"]]
     assert client.get("/api/timer").json() is None
+
+
+# ── Interest counter (public) ───────────────────────────────────────────────
+
+def vote(client, visitor_id):
+    return client.post("/api/interest", json={"visitor_id": visitor_id})
+
+
+def test_interest_counts_each_visitor_once(client):
+    assert client.get("/api/interest").json() == {"count": 0}
+
+    assert vote(client, "a" * 24).json() == {"count": 1}
+    assert vote(client, "a" * 24).json() == {"count": 1}  # same visitor, no change
+    assert vote(client, "b" * 24).json() == {"count": 2}
+    assert client.get("/api/interest").json() == {"count": 2}
+
+
+def test_interest_rejects_malformed_ids(client):
+    assert vote(client, "short").status_code == 422
+    assert vote(client, "has spaces and punctuation!!").status_code == 422
+    assert client.get("/api/interest").json() == {"count": 0}
+
+
+def test_interest_is_rate_limited(client, monkeypatch):
+    from backend import main
+
+    monkeypatch.setattr(main, "INTEREST_MAX_PER_WINDOW", 2)
+    assert vote(client, "a" * 24).status_code == 200
+    assert vote(client, "b" * 24).status_code == 200
+    assert vote(client, "c" * 24).status_code == 429
+    assert vote(client, "a" * 24).json() == {"count": 2}  # existing voters are unaffected
+
+
+# ── Interest notes (public write, owner read) ───────────────────────────────
+
+def write_note(client, visitor_id="a" * 24, **fields):
+    return client.post("/api/interest/message", json={"visitor_id": visitor_id, **fields})
+
+
+def test_note_is_saved_and_counts_as_interest(client):
+    res = write_note(client, email="  sam@example.com ", message="  Would track my thesis hours.  ")
+    assert res.status_code == 200
+    assert res.json() == {"count": 1}  # writing in registers the vote too
+
+    inbox = client.get("/api/interest/messages").json()
+    assert inbox["count"] == 1
+    assert len(inbox["messages"]) == 1
+    note = inbox["messages"][0]
+    assert note["email"] == "sam@example.com"  # whitespace trimmed
+    assert note["message"] == "Would track my thesis hours."
+    assert note["created_at"].endswith("Z")
+
+
+def test_note_alone_or_email_alone_is_enough(client):
+    assert write_note(client, "a" * 24, message="Just a note").status_code == 200
+    assert write_note(client, "b" * 24, email="lee@example.com").status_code == 200
+    assert len(client.get("/api/interest/messages").json()["messages"]) == 2
+
+
+def test_note_needs_something_and_a_sane_email(client):
+    assert write_note(client).status_code == 422
+    assert write_note(client, email="   ", message="  ").status_code == 422
+    assert write_note(client, email="not-an-email").status_code == 422
+    assert write_note(client, message="x" * 1001).status_code == 422
+    assert client.get("/api/interest/messages").json() == {"count": 0, "messages": []}
+
+
+def test_sending_again_replaces_the_note(client):
+    write_note(client, message="first")
+    write_note(client, message="second")
+    inbox = client.get("/api/interest/messages").json()
+    assert inbox["count"] == 1
+    assert [m["message"] for m in inbox["messages"]] == ["second"]
+
+
+def test_notes_are_rate_limited_but_replacements_are_not(client, monkeypatch):
+    from backend import main
+
+    monkeypatch.setattr(main, "INTEREST_MESSAGES_MAX_PER_WINDOW", 1)
+    assert write_note(client, "a" * 24, message="one").status_code == 200
+    assert write_note(client, "b" * 24, message="two").status_code == 429
+    assert write_note(client, "a" * 24, message="one, edited").status_code == 200
+
+
+def test_owner_can_delete_a_note_but_the_vote_stays(client):
+    write_note(client, message="please remove me")
+    assert client.delete(f"/api/interest/messages/{'a' * 24}").status_code == 204
+    assert client.get("/api/interest/messages").json() == {"count": 1, "messages": []}
+    assert client.delete(f"/api/interest/messages/{'a' * 24}").status_code == 404

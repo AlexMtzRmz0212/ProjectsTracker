@@ -47,3 +47,25 @@ class Session(Base):
     note: Mapped[str] = mapped_column(String(280), default="")
 
     project: Mapped[Project] = relationship(back_populates="sessions")
+
+
+class InterestVote(Base):
+    """One anonymous "I'd use this" from the public landing page. `visitor_id` is a
+    random id the browser makes up, so clicking twice doesn't count twice."""
+
+    __tablename__ = "interest_votes"
+
+    visitor_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
+class InterestMessage(Base):
+    """What a visitor chose to send after pressing "I'd use this": an email to reply
+    to, a note, or both. One per visitor_id; sending again replaces it."""
+
+    __tablename__ = "interest_messages"
+
+    visitor_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    email: Mapped[str] = mapped_column(String(254), default="")
+    message: Mapped[str] = mapped_column(String(1000), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)

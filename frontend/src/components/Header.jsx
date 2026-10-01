@@ -1,9 +1,12 @@
-import { Moon, Plus, Square, Sun, Timer } from "lucide-react";
+import { Inbox, LogOut, Moon, Plus, Square, Sun, Timer } from "lucide-react";
 import { Button } from "./Modal";
 import { tint } from "../lib/palette";
 import { fmtClock } from "../lib/time";
 
-export default function Header({ runningProject, elapsed, onStop, onNewProject, theme, onToggleTheme }) {
+export default function Header({
+  runningProject, elapsed, onStop, onNewProject, theme, onToggleTheme, onSignOut, signOutLabel = "Sign out",
+  onInbox, inboxUnread = 0,
+}) {
   return (
     <header className="sticky top-0 z-30 border-b-[3px] border-double border-line-strong bg-bg">
       <div className="mx-auto flex h-14 max-w-7xl items-center gap-2 px-4 sm:h-16 sm:gap-3 sm:px-6">
@@ -20,6 +23,20 @@ export default function Header({ runningProject, elapsed, onStop, onNewProject, 
           <Plus size={16} strokeWidth={2.5} />
           <span className="hidden md:inline">New project</span>
         </Button>
+        {onInbox && (
+          <Button
+            onClick={onInbox}
+            className="relative w-9 shrink-0 px-0"
+            aria-label={inboxUnread ? `Interest, ${inboxUnread} new` : "Interest"}
+          >
+            <Inbox size={17} />
+            {inboxUnread > 0 && (
+              <span className="figures absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center bg-accent px-1 text-[10px] font-semibold leading-none text-bg">
+                {inboxUnread}
+              </span>
+            )}
+          </Button>
+        )}
         <Button
           onClick={onToggleTheme}
           className="w-9 shrink-0 px-0"
@@ -27,6 +44,11 @@ export default function Header({ runningProject, elapsed, onStop, onNewProject, 
         >
           {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
         </Button>
+        {onSignOut && (
+          <Button onClick={onSignOut} className="w-9 shrink-0 px-0" aria-label={signOutLabel} title={signOutLabel}>
+            <LogOut size={17} />
+          </Button>
+        )}
       </div>
     </header>
   );

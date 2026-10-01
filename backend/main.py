@@ -2,8 +2,10 @@
 ProjectsTracker — FastAPI backend
 =================================
 Run:  uvicorn backend.main:app --reload --port 8001
-Every route lives under /api so the Vite dev proxy and a future Vercel deploy
-can share the same paths.
+Every route lives under /api so the Vite dev proxy and the Vercel deploy share
+the same paths. Only /api/health, /api/auth/*, /api/interest and
+/api/interest/message are public; everything else, including reading what
+visitors wrote (/api/interest/messages), needs the owner's session (see auth.py).
 """
 
 from collections import defaultdict
@@ -12,20 +14,28 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Response, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 
-from . import models, schemas
+from . import auth, models, schemas
 from .database import engine, get_db
-from .models import Project, Session, utcnow
+from .models import InterestMessage, InterestVote, Project, Session, utcnow
 
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="ProjectsTracker", version="1.0.0")
-api = APIRouter(prefix="/api")
+public = APIRouter(prefix="/api")
+api = APIRouter(prefix="/api", dependencies=[Depends(auth.require_owner)])
 
 # Manual entries may not end in the future; a little slack absorbs clock skew
 # between the browser and the server.
 FUTURE_TOLERANCE = timedelta(minutes=1)
+
+# The public interest counter can't tell people apart, so it caps how fast new
+# votes are accepted overall: a script can't pump thousands in a few minutes.
+INTEREST_WINDOW = timedelta(minutes=10)
+INTEREST_MAX_PER_WINDOW = 60
+INTEREST_MESSAGES_MAX_PER_WINDOW = 20
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -79,7 +89,7 @@ def _project_out(project: Project, total_seconds: int = 0) -> schemas.ProjectOut
 # ─────────────────────────────────────────────────────────────────────────────
 #region Projects
 
-@api.get("/health")
+@public.get("/health")
 def health():
     return {"ok": True}
 
@@ -204,5 +214,86 @@ def stop_timer(db: DbSession = Depends(get_db)):
     return current
 
 #endregion
+# ─────────────────────────────────────────────────────────────────────────────
+#region Interest counter (public)
 
+def _interest_count(db: DbSession) -> int:
+    return db.scalar(select(func.count()).select_from(InterestVote)) or 0
+
+
+@public.get("/interest", response_model=schemas.InterestOut)
+def get_interest(db: DbSession = Depends(get_db)):
+    return {"count": _interest_count(db)}
+
+
+def _recent(db: DbSession, model) -> int:
+    """Rows of `model` created inside the rate-limit window."""
+    return db.scalar(
+        select(func.count()).select_from(model).where(model.created_at > utcnow() - INTEREST_WINDOW)
+    ) or 0
+
+
+def _register_vote(db: DbSession, visitor_id: str) -> None:
+    """Count this visitor once. Repeating a visitor_id changes nothing."""
+    if db.get(InterestVote, visitor_id) is not None:
+        return
+    if _recent(db, InterestVote) >= INTEREST_MAX_PER_WINDOW:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Lots of votes right now. Try again in a few minutes.")
+    db.add(InterestVote(visitor_id=visitor_id))
+    try:
+        db.commit()
+    except IntegrityError:  # the same visitor raced themselves; they're counted either way
+        db.rollback()
+
+
+@public.post("/interest", response_model=schemas.InterestOut)
+def add_interest(body: schemas.InterestIn, db: DbSession = Depends(get_db)):
+    """Register one "I'd use this"."""
+    _register_vote(db, body.visitor_id)
+    return {"count": _interest_count(db)}
+
+
+@public.post("/interest/message", response_model=schemas.InterestOut)
+def send_interest_message(body: schemas.InterestMessageIn, db: DbSession = Depends(get_db)):
+    """Leave the owner a way to reply and/or a note. Writing in counts as interest
+    too, so this works even if the plain vote never reached the server."""
+    if not body.email and not body.message:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Add an email or a note")
+    _register_vote(db, body.visitor_id)
+
+    existing = db.get(InterestMessage, body.visitor_id)
+    if existing is not None:  # sending again replaces the earlier note
+        existing.email, existing.message, existing.created_at = body.email, body.message, utcnow()
+    else:
+        if _recent(db, InterestMessage) >= INTEREST_MESSAGES_MAX_PER_WINDOW:
+            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Lots of notes right now. Try again in a few minutes.")
+        db.add(InterestMessage(visitor_id=body.visitor_id, email=body.email, message=body.message))
+    try:
+        db.commit()
+    except IntegrityError:  # a double submit from the same visitor: the first one stands
+        db.rollback()
+    return {"count": _interest_count(db)}
+
+
+@api.get("/interest/messages", response_model=schemas.InterestInboxOut)
+def list_interest_messages(db: DbSession = Depends(get_db)):
+    """Owner only: the vote count and everything visitors have written, newest first."""
+    rows = db.scalars(select(InterestMessage).order_by(InterestMessage.created_at.desc())).all()
+    return {"count": _interest_count(db), "messages": rows}
+
+
+@api.delete("/interest/messages/{visitor_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_interest_message(visitor_id: str, db: DbSession = Depends(get_db)):
+    """Owner only: erase one visitor's note and email. Their vote still counts."""
+    row = db.get(InterestMessage, visitor_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Message not found")
+    db.delete(row)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+#endregion
+
+app.include_router(public)
+app.include_router(auth.router)
 app.include_router(api)
