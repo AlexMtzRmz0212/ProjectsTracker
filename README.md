@@ -6,18 +6,33 @@ with the time you worked, and a year-long activity heatmap.
 
 ## Features
 
-- **Project cards**: color + icon identity, big ▶/■ timer button, live clock, total time and a
-  7-day sparkline. Mark a project *done* to tuck it into a collapsible section.
+- **One screen, three tabs**: *Projects*, *Calendar* and *Stats* each fit the window, so there is no
+  page scrolling; a list only scrolls inside its own box when it really has more than fits. The
+  landing page works the same way (*Try it*, *How it works*, *Ask for your own*).
+- **Status board**: every status is a column and every project a card with a big ▶/■ timer button,
+  live clock, today and total time, a 7-day sparkline, and its open to-dos. Drag a card to another
+  column to change its status. Touch screens can't drag, so each card's menu has *Move to*, and phones
+  show one status at a time.
+- **Statuses**: a list you manage yourself (the **Statuses** button on the Projects tab): Active, On
+  hold, Idea, ... Each project has one. Tick *Finished* on the statuses that mean it's over: projects
+  there lose their timer. A fresh database starts with Active and Done.
+- **Notes and to-dos per project**: click a project's name to open it. It holds a checklist of
+  to-dos, free-form notes (saved as you leave the box) and the sessions logged on it, on three tabs.
+  Cards show how many to-dos are open and a notebook mark when there are notes.
 - **One timer at a time**: starting a project stops whatever was running. Timers live on the
   server, so they survive reloads and keep counting with the tab closed. The running timer is
   always in the header pill and the browser tab title.
-- **Manual entries**: log time after the fact (quick 15m–4h chips, overnight sessions supported),
-  edit or delete any session.
-- **Month calendar**: each day "fills" with stacked project colors proportional to time worked.
-  Click a day to see its sessions.
-- **Activity heatmap**: the last 53 weeks, filterable by project. Click a square to jump the
-  calendar there.
-- **Stats strip**: today, this week, streak, active projects.
+- **Session notes**: write a note while the timer runs (the notebook button on the timer pill in the
+  header) or when you add time by hand. Both end up on the same session.
+- **Manual entries**: log time after the fact without fiddling with clock pickers. Say which day it
+  ended, then type any of start, end or duration (`9`, `5pm`, `1h30`, `90`) and the others follow, or
+  tap a quick-duration chip or *now*. Overnight sessions are supported. Edit or delete any session.
+- **Month calendar** (Calendar tab): each day "fills" with stacked project colors proportional to
+  time worked. Click a day to see its sessions.
+- **Activity heatmap** (Stats tab): up to 53 weeks, as many as fit the width, filterable by project.
+  Click a square to jump the calendar there.
+- **Stats strip**: today, this week, streak, open projects, and the open project that has gone longest
+  without a session ("most neglected").
 - Light/dark theme, responsive down to phone width.
 
 ## Quick start
@@ -104,7 +119,9 @@ it with a `Z`, and the browser groups by local day.
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/projects` | List projects with `total_seconds` (closed sessions) |
-| POST / PATCH / DELETE | `/projects[/{id}]` | Create / edit / delete (deletes its sessions) |
+| POST / PATCH / DELETE | `/projects[/{id}]` | Create / edit / delete (deletes its sessions and to-dos). Carries `status_id` and `notes` |
+| GET / POST / PATCH / DELETE | `/todos[/{id}]` | A project's to-dos: `{project_id, text}`, then `{text?, done?}`. GET lists everyone's |
+| GET / POST / PATCH / DELETE | `/statuses[/{id}]` | Manage statuses (`is_done` marks the finished ones). Refuses (409) to delete a status in use or to leave no unfinished status |
 | GET | `/sessions?start=&end=` | Sessions overlapping a range |
 | POST / PATCH / DELETE | `/sessions[/{id}]` | Manual add / edit / delete |
 | GET | `/timer` | The running session, or `null` |
@@ -122,7 +139,8 @@ it with a `Z`, and the browser groups by local day.
 
 ```
 ProjectsTracker/
-├── backend/            FastAPI app (main.py), models, schemas, database setup
+├── backend/            FastAPI app (main.py), models, schemas, database setup (bootstrap.py
+│                       also upgrades a database made by an older version)
 ├── tests/              pytest suite for the API
 ├── frontend/
 │   └── src/
@@ -134,8 +152,9 @@ ProjectsTracker/
 │       ├── hooks/            useTracker (state + mutations), useNow (live clock),
 │       │                     useTheme, useInterest (visitors), useInbox (owner)
 │       ├── lib/              time math (per-day splitting, streaks, formatting), palette
-│       └── components/       Header, StatsStrip, ProjectCard/Grid, MonthCalendar,
-│                             DayPanel, Heatmap, ProjectModal, SessionModal, InterestInbox, …
+│       └── components/       Header, TabBar, ProjectBoard (status columns, drag and drop),
+│                             StatsStrip, MonthCalendar, DayPanel, Heatmap, ProjectModal,
+│                             ProjectDetail (notes and to-dos), StatusModal, SessionModal, …
 ├── dev.bat             launcher
 └── requirements*.txt
 ```
@@ -143,5 +162,5 @@ ProjectsTracker/
 ## Not in v1 (yet)
 
 - Multiple users: login is a single owner password, and data is not split per account
-- Tags, goals or budgets per project
+- Goals or budgets per project
 - CSV export

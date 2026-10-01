@@ -2,56 +2,111 @@ import { useState } from "react";
 import { Check, Moon, Trash2, TriangleAlert } from "lucide-react";
 import Modal, { Button } from "./Modal";
 import { iconFor, inkText, tint } from "../lib/palette";
-import { dayKey, fmtHM, fromInputs, toDateInput, toTimeInput } from "../lib/time";
+import {
+  dayKey, fmtDurationInput, fmtHM, parseClock, parseDuration, toDateInput, toTimeInput,
+} from "../lib/time";
 
 const QUICK_MINUTES = [15, 30, 45, 60, 90, 120, 180, 240];
+const MINUTE = 60_000;
+const DAY = 86_400_000;
 const fieldClass =
   "h-10 w-full min-w-0 border-0 border-b border-line-strong bg-transparent px-0 outline-none transition-colors focus:border-b-2 focus:border-accent-2 focus-visible:outline-none";
 const timeFieldClass = `${fieldClass} figures text-[15px]`;
 const labelClass = "mb-1 block text-xs font-semibold text-muted";
 
-function initialTimes(session, date, now) {
-  if (session) {
-    return { date: toDateInput(session.start), start: toTimeInput(session.start), end: toTimeInput(session.end) };
-  }
-  if (dayKey(date) === dayKey(now)) {
-    // Today: the hour that just ended, snapped to 5 minutes
-    const end = new Date(now);
-    end.setSeconds(0, 0);
-    end.setMinutes(Math.floor(end.getMinutes() / 5) * 5);
-    const start = new Date(end.getTime() - 3600_000);
-    return { date: toDateInput(start), start: toTimeInput(start), end: toTimeInput(end) };
-  }
-  return { date: toDateInput(date), start: "09:00", end: "10:00" };
+const atMinute = (day, minutes) =>
+  new Date(day.getFullYear(), day.getMonth(), day.getDate(), Math.floor(minutes / 60), minutes % 60);
+const flooredMinute = (date) => new Date(Math.floor(date.getTime() / MINUTE) * MINUTE);
+
+/** Where a new entry starts out: the hour that just ended (today), or an hour ending at 18:00. */
+function initialSpan(session, date) {
+  if (session) return { start: session.start, end: session.end };
+  const today = dayKey(date) === dayKey(new Date());
+  const end = today ? new Date(Math.floor(Date.now() / (5 * MINUTE)) * 5 * MINUTE) : atMinute(date, 18 * 60);
+  return { start: new Date(end.getTime() - 60 * MINUTE), end };
 }
 
-/** Log time after the fact, or edit an existing session. */
-export default function SessionModal({ session, projectId, date, projects, now, onClose, onSave, onDelete }) {
-  const init = initialTimes(session, date, now);
+/**
+ * Log time after the fact, or edit an existing session.
+ *
+ * You say when it ended and how long it lasted; the start follows. Type any of the
+ * three (start, end, duration) and the others keep up: start and end give the
+ * duration, a duration moves the start. The end is the anchor because time is
+ * usually logged just after the fact ("2h, finished now"), so one tap on a chip does it.
+ */
+export default function SessionModal({ session, projectId, date, projects, onClose, onSave, onDelete }) {
+  const first = initialSpan(session, date);
   const [pid, setPid] = useState(session?.project_id ?? projectId ?? projects[0]?.id);
-  const [dateStr, setDateStr] = useState(init.date);
-  const [startStr, setStartStr] = useState(init.start);
-  const [endStr, setEndStr] = useState(init.end);
+  const [start, setStart] = useState(first.start);
+  const [end, setEnd] = useState(first.end);
   const [note, setNote] = useState(session?.note ?? "");
   const [saving, setSaving] = useState(false);
+  // The field being typed in keeps its raw text; the others are shown from start and end
+  const [typing, setTyping] = useState({ field: null, text: "" });
 
   const project = projects.find((p) => p.id === pid);
   const color = project?.color ?? "var(--accent-2)";
+  const minutes = Math.round((end - start) / MINUTE);
+  const crossesMidnight = dayKey(start) !== dayKey(end);
+  const inFuture = end > new Date(Date.now() + MINUTE);
+  const valid = Boolean(project && minutes > 0 && !inFuture);
 
-  const filled = dateStr && startStr && endStr;
-  const start = filled ? fromInputs(dateStr, startStr) : null;
-  let end = filled ? fromInputs(dateStr, endStr) : null;
-  // An end time at or before the start means the session ran past midnight
-  const overnight = filled && end <= start;
-  if (overnight) end = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1, end.getHours(), end.getMinutes());
-  const duration = filled ? (end - start) / 1000 : 0;
-  const inFuture = filled && end > new Date(Date.now() + 60_000);
-  const valid = Boolean(project && filled && duration > 0 && !inFuture);
-
-  const setDuration = (minutes) => {
-    if (!start) return;
-    setEndStr(toTimeInput(new Date(start.getTime() + minutes * 60_000)));
+  const shown = {
+    start: toTimeInput(start),
+    end: toTimeInput(end),
+    duration: minutes > 0 ? fmtDurationInput(minutes) : "",
   };
+
+  // ── Edits. Each keeps one end fixed and moves the rest ──────────────────────
+
+  const setEndTime = (m) => {
+    // The end keeps its day; a time before the start can only mean the next day
+    let next = atMinute(end, m);
+    if (next <= start) next = new Date(next.getTime() + DAY);
+    setEnd(next);
+  };
+  const setStartTime = (m) => {
+    // The start is the latest moment with that clock time before the end
+    let next = atMinute(end, m);
+    if (next >= end) next = new Date(next.getTime() - DAY);
+    setStart(next);
+  };
+  const setDuration = (mins) => setStart(new Date(end.getTime() - mins * MINUTE));
+  const setDay = (day) => {
+    const shift = atMinute(day, end.getHours() * 60 + end.getMinutes()) - end;
+    setStart(new Date(start.getTime() + shift));
+    setEnd(new Date(end.getTime() + shift));
+  };
+  const endNow = () => {
+    const now = flooredMinute(new Date());
+    setStart(new Date(now.getTime() - Math.max(minutes, 1) * MINUTE));
+    setEnd(now);
+  };
+
+  const parsers = {
+    start: [parseClock, setStartTime],
+    end: [parseClock, setEndTime],
+    duration: [parseDuration, setDuration],
+  };
+  const field = (name) => ({
+    value: typing.field === name ? typing.text : shown[name],
+    onFocus: (e) => {
+      setTyping({ field: name, text: shown[name] });
+      e.target.select();
+    },
+    onChange: (e) => {
+      setTyping({ field: name, text: e.target.value });
+      const [parse, apply] = parsers[name];
+      const parsed = parse(e.target.value);
+      if (parsed !== null) apply(parsed);
+    },
+    onBlur: () => setTyping({ field: null, text: "" }),
+  });
+
+  const today = new Date();
+  const endDay = dayKey(end);
+  const isToday = endDay === dayKey(today);
+  const isYesterday = endDay === dayKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1));
 
   const submit = async (e) => {
     e?.preventDefault();
@@ -114,34 +169,71 @@ export default function SessionModal({ session, projectId, date, projects, now, 
           className="flex items-center justify-center gap-3 border-l-[3px] py-4"
           style={{ borderLeftColor: color, background: tint(color, 10) }}
         >
-          <span className="figures text-4xl font-semibold tracking-tight">{fmtHM(Math.max(duration, 0))}</span>
-          {overnight && (
+          <span className="figures text-4xl font-semibold tracking-tight">{fmtHM(Math.max(minutes * 60, 0))}</span>
+          {crossesMidnight && minutes > 0 && (
             <span className="inline-flex items-center gap-1 font-serif text-xs italic text-muted">
-              <Moon size={12} /> next day
+              <Moon size={12} /> started the day before
             </span>
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
-          <label className="col-span-2 sm:col-span-1">
-            <span className={labelClass}>Date</span>
-            <input type="date" value={dateStr} onChange={(e) => setDateStr(e.target.value)} max={toDateInput(now)} className={timeFieldClass} />
-          </label>
+        <fieldset>
+          <legend className={labelClass}>Day it ended</legend>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <DayChip active={isToday} onClick={() => setDay(today)}>
+              Today
+            </DayChip>
+            <DayChip
+              active={isYesterday}
+              onClick={() => setDay(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1))}
+            >
+              Yesterday
+            </DayChip>
+            <label className="flex items-center gap-2">
+              <span className="sr-only">Pick another day</span>
+              <input
+                type="date"
+                value={toDateInput(end)}
+                max={toDateInput(today)}
+                onChange={(e) => e.target.value && setDay(new Date(`${e.target.value}T00:00:00`))}
+                className={`figures h-7 border-0 border-b-2 bg-transparent text-[13px] outline-none ${
+                  isToday || isYesterday ? "border-transparent text-muted" : "border-text"
+                }`}
+              />
+            </label>
+          </div>
+        </fieldset>
+
+        <div className="grid grid-cols-3 gap-x-4">
           <label>
             <span className={labelClass}>Start</span>
-            <input type="time" value={startStr} onChange={(e) => setStartStr(e.target.value)} className={timeFieldClass} />
+            <input {...field("start")} inputMode="text" autoComplete="off" placeholder="9:00" className={timeFieldClass} />
           </label>
           <label>
-            <span className={labelClass}>End</span>
-            <input type="time" value={endStr} onChange={(e) => setEndStr(e.target.value)} className={timeFieldClass} />
+            <span className={labelClass}>
+              End{" "}
+              <button
+                type="button"
+                onClick={endNow}
+                className="ml-1 font-normal text-accent-2 underline underline-offset-2 hover:text-text"
+              >
+                now
+              </button>
+            </span>
+            <input {...field("end")} inputMode="text" autoComplete="off" placeholder="10:30" className={timeFieldClass} />
+          </label>
+          <label>
+            <span className={labelClass}>Duration</span>
+            <input {...field("duration")} inputMode="text" autoComplete="off" placeholder="1h 30m" className={timeFieldClass} />
           </label>
         </div>
+        <p className="-mt-2 text-xs text-faint">Type times like 9, 9:30 or 5pm, and durations like 90, 1h30 or 1.5h.</p>
 
         <div>
           <span className={labelClass}>Quick duration</span>
           <div className="grid grid-cols-4 border-t border-l border-rule sm:grid-cols-8">
             {QUICK_MINUTES.map((m) => {
-              const active = duration === m * 60;
+              const active = minutes === m;
               return (
                 <button
                   key={m}
@@ -178,5 +270,20 @@ export default function SessionModal({ session, projectId, date, projects, now, 
         <button type="submit" hidden />
       </form>
     </Modal>
+  );
+}
+
+function DayChip({ active, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`inline-flex h-7 items-center border-b-2 text-[13px] transition-colors ${
+        active ? "border-text text-text" : "border-transparent text-muted hover:text-text"
+      }`}
+    >
+      {children}
+    </button>
   );
 }

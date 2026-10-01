@@ -47,6 +47,16 @@ export const api = {
   updateProject: (id, data) => fetchApi(`/projects/${id}`, json("PATCH", data)),
   deleteProject: (id) => fetchApi(`/projects/${id}`, { method: "DELETE" }),
 
+  listStatuses: () => fetchApi("/statuses"),
+  createStatus: (data) => fetchApi("/statuses", json("POST", data)),
+  updateStatus: (id, data) => fetchApi(`/statuses/${id}`, json("PATCH", data)),
+  deleteStatus: (id) => fetchApi(`/statuses/${id}`, { method: "DELETE" }),
+
+  listTodos: () => fetchApi("/todos"),
+  createTodo: (data) => fetchApi("/todos", json("POST", data)),
+  updateTodo: (id, data) => fetchApi(`/todos/${id}`, json("PATCH", data)),
+  deleteTodo: (id) => fetchApi(`/todos/${id}`, { method: "DELETE" }),
+
   listSessions: async ({ start, end } = {}) => {
     const params = new URLSearchParams();
     if (start) params.set("start", start.toISOString());

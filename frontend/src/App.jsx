@@ -103,11 +103,13 @@ export default function App() {
   // Without a login (local dev) the button still leaves the tracker, so the landing page stays reachable
   if (phase === "owner") {
     return (
-      <Tracker
-        api={api}
-        onSignOut={signOut}
-        signOutLabel={authRequired ? "Sign out" : "Back to the public page"}
-      />
+      <div className="h-dvh min-h-[34rem]">
+        <Tracker
+          api={api}
+          onSignOut={signOut}
+          signOutLabel={authRequired ? "Sign out" : "Back to the public page"}
+        />
+      </div>
     );
   }
 

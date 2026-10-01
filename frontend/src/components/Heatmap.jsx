@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
+import FilterTab from "./FilterTab";
 import { iconFor, inkText } from "../lib/palette";
 import { HEATMAP_WEEKS, dayKey, daySeconds, fmtHM, heatmapStart } from "../lib/time";
 
@@ -18,12 +19,32 @@ function shade(level, color) {
   return `color-mix(in srgb, ${color} ${MIX[level]}%, var(--surface-2))`;
 }
 
+const CELL = 12; // the smallest a square gets before a week is dropped
+const GAP = 3;
+const LABEL_COLUMN = 26;
+
 export default function Heatmap({ byDay, projects, projectsById, today, selected, onSelect }) {
   const [filter, setFilter] = useState("all");
   const [tip, setTip] = useState(null);
   const scroller = useRef(null);
+  const [fit, setFit] = useState(HEATMAP_WEEKS);
 
-  const filterProject = filter === "all" ? null : projectsById.get(filter);
+  // Show as many weeks as fit across, newest on the right, so it never scrolls sideways
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const measure = () => {
+      const room = el.clientWidth - LABEL_COLUMN + GAP;
+      setFit(Math.max(8, Math.min(HEATMAP_WEEKS, Math.floor(room / (CELL + GAP)))));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // The page-level category/status filter can hide the project picked here; fall back to "All"
+  const filterProject = filter === "all" ? null : projectsById.get(filter) ?? null;
   // "All" is drawn in plain ink; a filtered project in its own ink.
   const color = filterProject ? inkText(filterProject.color) : "var(--text)";
 
@@ -32,8 +53,8 @@ export default function Heatmap({ byDay, projects, projectsById, today, selected
     const start = heatmapStart(today);
     return Array.from({ length: HEATMAP_WEEKS }, (_, w) =>
       Array.from({ length: 7 }, (_, d) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + w * 7 + d))
-    );
-  }, [today]);
+    ).slice(-fit);
+  }, [today, fit]);
 
   const stats = useMemo(() => {
     let total = 0;
@@ -50,12 +71,6 @@ export default function Heatmap({ byDay, projects, projectsById, today, selected
     }
     return { total, active, best };
   }, [weeks, byDay, filterProject, today]);
-
-  // Start scrolled to the most recent weeks on narrow screens.
-  useEffect(() => {
-    const el = scroller.current;
-    if (el) el.scrollLeft = el.scrollWidth;
-  }, []);
 
   // The tooltip is position:fixed, so drop it as soon as anything scrolls.
   useEffect(() => {
@@ -74,9 +89,11 @@ export default function Heatmap({ byDay, projects, projectsById, today, selected
   };
 
   return (
-    <section className="py-5">
+    <section className="pt-4 pb-1">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 className="font-serif text-[17px] font-semibold">The past year</h2>
+        <h2 className="font-serif text-[17px] font-semibold">
+          {fit === HEATMAP_WEEKS ? "The past year" : `The last ${fit} weeks`}
+        </h2>
         <p className="font-serif text-[13px] italic text-muted">
           {fmtHM(stats.total)} logged. {stats.active} active {stats.active === 1 ? "day" : "days"}.
           {stats.best.date && ` Best day ${fmtHM(stats.best.secs)} on ${format(stats.best.date, "d MMMM")}.`}
@@ -85,14 +102,14 @@ export default function Heatmap({ byDay, projects, projectsById, today, selected
 
       {projects.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1" role="radiogroup" aria-label="Filter by project">
-          <FilterTab active={filter === "all"} onClick={() => setFilter("all")} color="var(--text)">
+          <FilterTab active={!filterProject} onClick={() => setFilter("all")} color="var(--text)">
             All
           </FilterTab>
           {projects.map((p) => {
             const Icon = iconFor(p.icon);
             const ink = inkText(p.color);
             return (
-              <FilterTab key={p.id} active={filter === p.id} onClick={() => setFilter(p.id)} color={ink} title={p.name}>
+              <FilterTab key={p.id} active={filterProject?.id === p.id} onClick={() => setFilter(p.id)} color={ink} title={p.name}>
                 <Icon size={13} style={{ color: ink }} />
                 <span className="max-w-[9rem] truncate">{p.name}</span>
               </FilterTab>
@@ -101,11 +118,11 @@ export default function Heatmap({ byDay, projects, projectsById, today, selected
         </div>
       )}
 
-      <div ref={scroller} className="mt-4 overflow-x-auto pb-1" onMouseLeave={() => setTip(null)}>
+      <div ref={scroller} className="mt-3" onMouseLeave={() => setTip(null)}>
         <div
-          className="grid min-w-[760px] gap-[3px]"
+          className="grid gap-[3px]"
           style={{
-            gridTemplateColumns: `26px repeat(${HEATMAP_WEEKS}, minmax(0, 1fr))`,
+            gridTemplateColumns: `${LABEL_COLUMN}px repeat(${weeks.length}, minmax(0, 1fr))`,
             gridTemplateRows: "14px repeat(7, auto)",
             gridAutoFlow: "column",
           }}
@@ -153,7 +170,7 @@ export default function Heatmap({ byDay, projects, projectsById, today, selected
         </div>
       </div>
 
-      <div className="mt-3 flex items-center justify-end gap-1 text-[11px] text-faint">
+      <div className="mt-2 flex items-center justify-end gap-1 text-[11px] text-faint">
         <span className="mr-0.5">Less</span>
         {MIX.map((_, level) => (
           <span key={level} className="size-2.5" style={{ background: shade(level, color) }} />
@@ -173,19 +190,3 @@ export default function Heatmap({ byDay, projects, projectsById, today, selected
   );
 }
 
-function FilterTab({ active, onClick, color, title, children }) {
-  return (
-    <button
-      role="radio"
-      aria-checked={active}
-      onClick={onClick}
-      title={title}
-      className={`inline-flex h-7 items-center gap-1.5 border-b-2 text-[13px] transition-colors ${
-        active ? "text-text" : "border-transparent text-muted hover:text-text"
-      }`}
-      style={active ? { borderColor: color } : undefined}
-    >
-      {children}
-    </button>
-  );
-}

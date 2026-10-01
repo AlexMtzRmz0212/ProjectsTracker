@@ -1,11 +1,13 @@
+import { differenceInCalendarDays } from "date-fns";
 import { daySeconds, dayKey, fmtHM } from "../lib/time";
 
-// Tile dividers: two columns on phones, four in a row from lg.
+// Tile dividers: two columns on phones (the last tile spans both), five in a row from lg.
 const TILE_EDGES = [
   "border-r border-b lg:border-b-0",
   "border-b lg:border-r lg:border-b-0",
   "border-r",
-  "",
+  "lg:border-r",
+  "col-span-2 border-t lg:col-span-1 lg:border-t-0",
 ];
 
 function Tile({ index, label, value, unit, children }) {
@@ -39,7 +41,30 @@ export function SplitBar({ byProject, projectsById, className = "h-1.5" }) {
   );
 }
 
-export default function StatsStrip({ byDay, today, weekStart, streakDays, projects, projectsById, runningProjectId }) {
+/** The open project that has gone longest without a session: the one most likely forgotten. */
+function NeglectedTile({ today, neglected, onOpen }) {
+  const days = neglected ? Math.max(0, differenceInCalendarDays(today, neglected.since)) : 0;
+  return (
+    <Tile index={4} label="Most neglected" value={neglected ? (days === 0 ? "Today" : days) : "–"} unit={neglected && days > 0 ? (days === 1 ? "day idle" : "days idle") : ""}>
+      {neglected ? (
+        <button
+          type="button"
+          onClick={() => onOpen(neglected.project.id)}
+          className="flex min-w-0 cursor-pointer items-center gap-1.5 text-xs hover:underline focus-visible:underline"
+          title={`${neglected.project.name}, ${neglected.never ? "never worked on" : `last worked ${neglected.since.toDateString()}`}`}
+        >
+          <span className="size-2.5 shrink-0" style={{ background: neglected.project.color }} />
+          <span className="truncate">{neglected.project.name}</span>
+          {neglected.never && <span className="shrink-0 font-serif italic text-muted">never worked</span>}
+        </button>
+      ) : (
+        <span className="h-px w-full bg-rule" />
+      )}
+    </Tile>
+  );
+}
+
+export default function StatsStrip({ byDay, today, weekStart, streakDays, openProjects, neglected, onOpenProject, projectsById, runningProjectId }) {
   const todayEntry = byDay.get(dayKey(today));
   const week = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + i);
@@ -51,10 +76,9 @@ export default function StatsStrip({ byDay, today, weekStart, streakDays, projec
     const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6 + i);
     return { date: d, on: daySeconds(byDay, d) >= 60 };
   });
-  const active = projects.filter((p) => p.status === "active");
 
   return (
-    <section className="grid grid-cols-2 border-b border-line lg:grid-cols-4">
+    <section className="grid grid-cols-2 border-b border-line lg:grid-cols-5">
       <Tile index={0} label="Today" value={fmtHM(todayEntry?.total ?? 0)}>
         <SplitBar byProject={todayEntry?.byProject} projectsById={projectsById} />
       </Tile>
@@ -88,10 +112,10 @@ export default function StatsStrip({ byDay, today, weekStart, streakDays, projec
         </div>
       </Tile>
 
-      <Tile index={3} label="Active" value={active.length} unit={active.length === 1 ? "project" : "projects"}>
+      <Tile index={3} label="Open" value={openProjects.length} unit={openProjects.length === 1 ? "project" : "projects"}>
         <div className="flex flex-wrap items-center gap-1.5 overflow-hidden">
-          {active.length === 0 && <span className="h-px w-full bg-rule" />}
-          {active.slice(0, 12).map((p) => (
+          {openProjects.length === 0 && <span className="h-px w-full bg-rule" />}
+          {openProjects.slice(0, 12).map((p) => (
             <span
               key={p.id}
               title={p.name}
@@ -101,6 +125,8 @@ export default function StatsStrip({ byDay, today, weekStart, streakDays, projec
           ))}
         </div>
       </Tile>
+
+      <NeglectedTile today={today} neglected={neglected} onOpen={onOpenProject} />
     </section>
   );
 }

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 /** Bottom sheet on phones, centered paper slip on larger screens. Esc / backdrop close it. */
-export default function Modal({ title, onClose, children, footer }) {
+export default function Modal({ title, onClose, children, footer, wide }) {
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && onClose();
     document.addEventListener("keydown", onKey);
@@ -22,7 +22,7 @@ export default function Modal({ title, onClose, children, footer }) {
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="fade-in relative flex max-h-[92dvh] w-full max-w-lg flex-col border border-line-strong bg-surface"
+        className={`fade-in relative flex max-h-[92dvh] w-full flex-col border border-line-strong bg-surface ${wide ? "max-w-2xl" : "max-w-lg"}`}
       >
         <div className="flex items-center justify-between gap-3 border-b-[3px] border-double border-line-strong py-3 pl-5 pr-3 sm:pl-6">
           <h2 className="font-serif text-lg font-semibold">{title}</h2>

@@ -66,6 +66,24 @@ export function daySeconds(byDay, date, projectId) {
   return projectId ? day.byProject.get(projectId) ?? 0 : day.total;
 }
 
+/** The open project nobody has worked on for longest: { project, since, never } or null.
+ *  "Last worked" is the end of its latest session (now, if its timer is running); a project with
+ *  no sessions in the loaded window counts from when it was created. */
+export function mostNeglected(projects, sessions, now) {
+  const last = new Map();
+  for (const s of sessions) {
+    const at = s.end ?? now;
+    if (!last.has(s.project_id) || at > last.get(s.project_id)) last.set(s.project_id, at);
+  }
+  let found = null;
+  for (const project of projects) {
+    const worked = last.get(project.id);
+    const since = worked ?? new Date(project.created_at);
+    if (!found || since < found.since) found = { project, since, never: !worked };
+  }
+  return found;
+}
+
 /** Consecutive days with at least a minute logged, ending today (or yesterday
  *  if nothing has been logged yet today, so the streak isn't "lost" at 00:01). */
 export function streak(byDay, today) {
@@ -130,4 +148,45 @@ export function fromInputs(dateStr, timeStr) {
   const [y, mo, d] = dateStr.split("-").map(Number);
   const [h, mi] = timeStr.split(":").map(Number);
   return new Date(y, mo - 1, d, h, mi);
+}
+
+// ── Typed time entry ─────────────────────────────────────────────────────────
+
+/** "9", "930", "9:30", "21.15", "9am", "9:30 pm" → minutes since midnight, or null. */
+export function parseClock(text) {
+  const m = /^(\d{1,2})(?:[:.]?(\d{2}))?\s*(a|p)?m?$/i.exec(String(text).trim());
+  if (!m) return null;
+  let hours = Number(m[1]);
+  const minutes = m[2] ? Number(m[2]) : 0;
+  if (minutes > 59) return null;
+  if (m[3]) {
+    if (hours < 1 || hours > 12) return null;
+    hours = (hours % 12) + (m[3].toLowerCase() === "p" ? 12 : 0);
+  }
+  return hours < 24 ? hours * 60 + minutes : null;
+}
+
+/** "1h 30m", "1h30", "1.5h", "90", "45m", "1:30" → minutes, or null. A bare number is minutes. */
+export function parseDuration(text) {
+  const t = String(text).trim().toLowerCase().replace(",", ".");
+  let minutes = null;
+  let m;
+  if ((m = /^(\d+(?:\.\d+)?)\s*h(?:ours?|rs?)?(?:\s*(\d+)\s*(?:m(?:in\w*)?)?)?$/.exec(t))) {
+    minutes = Number(m[1]) * 60 + (m[2] ? Number(m[2]) : 0);
+  } else if ((m = /^(\d+)\s*m(?:in\w*)?$/.exec(t))) {
+    minutes = Number(m[1]);
+  } else if ((m = /^(\d+):([0-5]\d)$/.exec(t))) {
+    minutes = Number(m[1]) * 60 + Number(m[2]);
+  } else if (/^\d+$/.test(t)) {
+    minutes = Number(t);
+  }
+  minutes = minutes === null ? null : Math.round(minutes);
+  return minutes && minutes > 0 && minutes <= 24 * 60 ? minutes : null;
+}
+
+/** 90 → "1h 30m", for showing a duration in a text field. */
+export function fmtDurationInput(minutes) {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h ? (m ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
 }

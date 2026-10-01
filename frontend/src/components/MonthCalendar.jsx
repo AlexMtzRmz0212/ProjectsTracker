@@ -26,7 +26,7 @@ export default function MonthCalendar({ cursor, onCursor, selected, onSelect, by
   const selectedKey = dayKey(selected);
 
   return (
-    <section className="py-5 lg:pl-6">
+    <section>
       <div className="flex items-center gap-2">
         <h2 className="font-serif text-[17px] font-semibold">
           {format(cursor, "MMMM")} <span className="figures font-normal text-muted">{format(cursor, "yyyy")}</span>

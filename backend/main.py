@@ -17,11 +17,12 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 
-from . import auth, models, schemas
+from . import auth, schemas
+from .bootstrap import init_db
 from .database import engine, get_db
-from .models import InterestMessage, InterestVote, Project, Session, utcnow
+from .models import InterestMessage, InterestVote, Project, Session, Status, Todo, utcnow
 
-models.Base.metadata.create_all(bind=engine)
+init_db(engine)
 
 app = FastAPI(title="ProjectsTracker", version="1.0.0")
 public = APIRouter(prefix="/api")
@@ -53,6 +54,42 @@ def _get_session(db: DbSession, session_id: str) -> Session:
     if session is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
     return session
+
+
+def _get_status(db: DbSession, status_id: str) -> Status:
+    found = db.get(Status, status_id)
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Status not found")
+    return found
+
+
+def _first_open_status(db: DbSession) -> Status:
+    found = db.scalars(select(Status).where(Status.is_done.is_(False)).order_by(Status.sort_order)).first()
+    if found is None:  # the status routes never allow this
+        raise HTTPException(status.HTTP_409_CONFLICT, "Add a status that isn't marked done first")
+    return found
+
+
+def _next_order(db: DbSession, model) -> int:
+    return (db.scalar(select(func.max(model.sort_order))) or 0) + 1
+
+
+def _ensure_unique_name(db: DbSession, model, name: str, label: str, except_id: Optional[str] = None) -> None:
+    """Two statuses with the same name can't be told apart in the UI."""
+    query = select(model.id).where(func.lower(model.name) == name.lower())
+    if except_id is not None:
+        query = query.where(model.id != except_id)
+    if db.scalar(query) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"There is already a {label} called “{name}”")
+
+
+def _stop_timers(db: DbSession, condition) -> None:
+    """A finished project has no timer: stop the running one if it belongs to a project matching `condition`."""
+    current = _running(db)
+    if current is not None and db.scalar(
+        select(Project.id).where(Project.id == current.project_id).where(condition)
+    ) is not None:
+        current.end = utcnow()
 
 
 def _running(db: DbSession) -> Optional[Session]:
@@ -103,8 +140,9 @@ def list_projects(db: DbSession = Depends(get_db)):
 
 @api.post("/projects", response_model=schemas.ProjectOut, status_code=status.HTTP_201_CREATED)
 def create_project(body: schemas.ProjectCreate, db: DbSession = Depends(get_db)):
-    next_order = (db.scalar(select(func.max(Project.sort_order))) or 0) + 1
-    project = Project(**body.model_dump(), sort_order=next_order)
+    data = body.model_dump()
+    data["status_id"] = _get_status(db, data["status_id"]).id if data["status_id"] else _first_open_status(db).id
+    project = Project(**data, sort_order=_next_order(db, Project))
     db.add(project)
     db.commit()
     db.refresh(project)
@@ -114,7 +152,15 @@ def create_project(body: schemas.ProjectCreate, db: DbSession = Depends(get_db))
 @api.patch("/projects/{project_id}", response_model=schemas.ProjectOut)
 def update_project(project_id: str, body: schemas.ProjectUpdate, db: DbSession = Depends(get_db)):
     project = _get_project(db, project_id)
-    for field, value in body.model_dump(exclude_unset=True).items():
+    changes = body.model_dump(exclude_unset=True)
+    if changes.get("notes", "") is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Notes can't be null")
+    if "status_id" in changes:
+        if changes["status_id"] is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A project always has a status")
+        if _get_status(db, changes["status_id"]).is_done:
+            _stop_timers(db, Project.id == project.id)
+    for field, value in changes.items():
         setattr(project, field, value)
     db.commit()
     db.refresh(project)
@@ -124,6 +170,110 @@ def update_project(project_id: str, body: schemas.ProjectUpdate, db: DbSession =
 @api.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_project(project_id: str, db: DbSession = Depends(get_db)):
     db.delete(_get_project(db, project_id))  # sessions go with it (ORM cascade)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+#endregion
+# ─────────────────────────────────────────────────────────────────────────────
+#region Statuses
+
+def _open_statuses_left(db: DbSession, without_id: str) -> int:
+    return db.scalar(
+        select(func.count()).select_from(Status).where(Status.is_done.is_(False), Status.id != without_id)
+    ) or 0
+
+
+@api.get("/statuses", response_model=list[schemas.StatusOut])
+def list_statuses(db: DbSession = Depends(get_db)):
+    return db.scalars(select(Status).order_by(Status.sort_order, Status.name)).all()
+
+
+@api.post("/statuses", response_model=schemas.StatusOut, status_code=status.HTTP_201_CREATED)
+def create_status(body: schemas.StatusCreate, db: DbSession = Depends(get_db)):
+    _ensure_unique_name(db, Status, body.name, "status")
+    created = Status(**body.model_dump(), sort_order=_next_order(db, Status))
+    db.add(created)
+    db.commit()
+    db.refresh(created)
+    return created
+
+
+@api.patch("/statuses/{status_id}", response_model=schemas.StatusOut)
+def update_status(status_id: str, body: schemas.StatusUpdate, db: DbSession = Depends(get_db)):
+    current = _get_status(db, status_id)
+    changes = body.model_dump(exclude_unset=True)
+    if changes.get("name") is not None:
+        _ensure_unique_name(db, Status, changes["name"], "status", except_id=current.id)
+    if changes.get("is_done") and not current.is_done:
+        # New projects need somewhere to start, so one open status must always remain
+        if _open_statuses_left(db, current.id) == 0:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Keep at least one status that isn't marked done")
+        _stop_timers(db, Project.status_id == current.id)
+    for field, value in changes.items():
+        if value is not None:
+            setattr(current, field, value)
+    db.commit()
+    db.refresh(current)
+    return current
+
+
+@api.delete("/statuses/{status_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_status(status_id: str, db: DbSession = Depends(get_db)):
+    current = _get_status(db, status_id)
+    in_use = db.scalar(select(func.count()).select_from(Project).where(Project.status_id == current.id)) or 0
+    if in_use:
+        noun, pronoun = ("projects", "them") if in_use != 1 else ("project", "it")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"{in_use} {noun} still use this status. Move {pronoun} to another status first.",
+        )
+    if not current.is_done and _open_statuses_left(db, current.id) == 0:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Keep at least one status that isn't marked done")
+    db.delete(current)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+#endregion
+# ─────────────────────────────────────────────────────────────────────────────
+#region To-dos
+
+def _get_todo(db: DbSession, todo_id: str) -> Todo:
+    todo = db.get(Todo, todo_id)
+    if todo is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "To-do not found")
+    return todo
+
+
+@api.get("/todos", response_model=list[schemas.TodoOut])
+def list_todos(db: DbSession = Depends(get_db)):
+    """Every project's to-dos at once; there are few, and the app shows counts on the list."""
+    return db.scalars(select(Todo).order_by(Todo.sort_order, Todo.created_at)).all()
+
+
+@api.post("/todos", response_model=schemas.TodoOut, status_code=status.HTTP_201_CREATED)
+def create_todo(body: schemas.TodoCreate, db: DbSession = Depends(get_db)):
+    _get_project(db, body.project_id)
+    todo = Todo(**body.model_dump(), sort_order=_next_order(db, Todo))
+    db.add(todo)
+    db.commit()
+    db.refresh(todo)
+    return todo
+
+
+@api.patch("/todos/{todo_id}", response_model=schemas.TodoOut)
+def update_todo(todo_id: str, body: schemas.TodoUpdate, db: DbSession = Depends(get_db)):
+    todo = _get_todo(db, todo_id)
+    for field, value in body.model_dump(exclude_unset=True).items():
+        if value is not None:
+            setattr(todo, field, value)
+    db.commit()
+    db.refresh(todo)
+    return todo
+
+
+@api.delete("/todos/{todo_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_todo(todo_id: str, db: DbSession = Depends(get_db)):
+    db.delete(_get_todo(db, todo_id))
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

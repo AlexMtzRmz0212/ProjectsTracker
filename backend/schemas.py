@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Optional
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, PlainSerializer, StringConstraints
 
@@ -24,7 +24,33 @@ UTCDateTime = Annotated[
 ]
 
 HexColor = Annotated[str, Field(pattern=r"^#[0-9a-fA-F]{6}$")]
-Status = Literal["active", "done"]
+NOTES_MAX = 20_000
+Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)]
+
+
+# ── Statuses ────────────────────────────────────────────────────────────────
+
+class StatusCreate(BaseModel):
+    name: Label
+    color: HexColor = "#56606b"
+    is_done: bool = False
+
+
+class StatusUpdate(BaseModel):
+    name: Optional[Label] = None
+    color: Optional[HexColor] = None
+    is_done: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+class StatusOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    color: str
+    is_done: bool
+    sort_order: int
 
 
 # ── Projects ────────────────────────────────────────────────────────────────
@@ -33,13 +59,16 @@ class ProjectCreate(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=80)]
     color: HexColor = "#8b5cf6"
     icon: Annotated[str, Field(min_length=1, max_length=40)] = "folder"
+    status_id: Optional[str] = None  # omitted: the first open status
+    notes: Annotated[str, Field(max_length=NOTES_MAX)] = ""
 
 
 class ProjectUpdate(BaseModel):
     name: Optional[Annotated[str, Field(min_length=1, max_length=80)]] = None
     color: Optional[HexColor] = None
     icon: Optional[Annotated[str, Field(min_length=1, max_length=40)]] = None
-    status: Optional[Status] = None
+    status_id: Optional[str] = None
+    notes: Optional[Annotated[str, Field(max_length=NOTES_MAX)]] = None
     sort_order: Optional[int] = None
 
 
@@ -50,10 +79,38 @@ class ProjectOut(BaseModel):
     name: str
     color: str
     icon: str
-    status: Status
+    status_id: str
+    notes: str
     sort_order: int
     created_at: UTCDateTime
     total_seconds: int = 0  # closed sessions only; the client adds a running timer live
+
+
+# ── To-dos ──────────────────────────────────────────────────────────────────
+
+TodoText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+
+
+class TodoCreate(BaseModel):
+    project_id: str
+    text: TodoText
+
+
+class TodoUpdate(BaseModel):
+    text: Optional[TodoText] = None
+    done: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+class TodoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    project_id: str
+    text: str
+    done: bool
+    sort_order: int
+    created_at: UTCDateTime
 
 
 # ── Sessions ────────────────────────────────────────────────────────────────

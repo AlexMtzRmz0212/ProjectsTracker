@@ -16,7 +16,7 @@ export default function DayPanel({ date, sessions, byDay, projectsById, now, onA
     .sort((a, b) => a.start - b.start);
 
   return (
-    <section className="border-t border-line py-5 lg:pl-6">
+    <section className="border-t border-line pt-5 lg:border-t-0 lg:pt-0">
       <div className="flex items-center gap-3">
         <h2 className="min-w-0 truncate font-serif text-[17px] font-semibold">
           <span className="sm:hidden">{format(date, "EEE d MMM")}</span>

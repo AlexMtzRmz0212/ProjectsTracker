@@ -1,20 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { format, isSameMonth, startOfMonth, startOfWeek } from "date-fns";
-import { RotateCw, ServerOff } from "lucide-react";
+import { CalendarDays, ChartColumn, Columns3, RotateCw, ServerOff, SlidersHorizontal } from "lucide-react";
 import { useTracker } from "./hooks/useTracker";
 import { useTheme } from "./hooks/useTheme";
 import { useInbox } from "./hooks/useInbox";
 import { useNow } from "./hooks/useNow";
 import {
-  aggregateByDay, dayKey, daySeconds, fmtClock, fmtHM, fmtTime, sessionSeconds, streak, withLive,
+  aggregateByDay, dayKey, daySeconds, fmtClock, fmtHM, fmtTime, mostNeglected, sessionSeconds, streak, withLive,
 } from "./lib/time";
 import Header from "./components/Header";
 import StatsStrip from "./components/StatsStrip";
-import ProjectGrid from "./components/ProjectGrid";
+import ProjectBoard from "./components/ProjectBoard";
+import TabBar from "./components/TabBar";
 import MonthCalendar from "./components/MonthCalendar";
 import DayPanel from "./components/DayPanel";
 import Heatmap from "./components/Heatmap";
 import ProjectModal from "./components/ProjectModal";
+import StatusModal from "./components/StatusModal";
+import ProjectDetail from "./components/ProjectDetail";
 import SessionModal from "./components/SessionModal";
 import ConfirmDialog from "./components/ConfirmDialog";
 import InterestInbox from "./components/InterestInbox";
@@ -39,6 +42,9 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
 
   const [cursor, setCursor] = useState(() => new Date());
   const [selected, setSelected] = useState(() => new Date());
+  const [tab, setTab] = useState("projects"); // projects | calendar | stats
+  const [statusesOpen, setStatusesOpen] = useState(false);
+  const [detailId, setDetailId] = useState(null); // the project whose notes and to-dos are open
   const [projectModal, setProjectModal] = useState(null); // { project? }
   const [sessionModal, setSessionModal] = useState(null); // { session? , projectId?, date? }
   const [confirm, setConfirm] = useState(null); // { kind: "project" | "session", item }
@@ -46,10 +52,22 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   // Projects saved with a v1 neon color are shown in the nearest ledger ink.
   const projects = useMemo(() => t.projects.map((p) => ({ ...p, color: inkFor(p.color) })), [t.projects]);
   const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
+  const statusesById = useMemo(() => new Map(t.statuses.map((s) => [s.id, s])), [t.statuses]);
+  const isOpen = (p) => !statusesById.get(p.status_id)?.is_done;
+
+  const openProjects = useMemo(() => projects.filter(isOpen), [projects, statusesById]);
+  // Only re-evaluated once per day (and when sessions change): "days idle" doesn't move by the second
+  const neglected = useMemo(() => mostNeglected(openProjects, t.sessions, new Date(`${todayKey}T23:59:59`)), [openProjects, t.sessions, todayKey]);
+
   const baseByDay = useMemo(() => aggregateByDay(t.sessions), [t.sessions]);
   const byDay = useMemo(() => withLive(baseByDay, t.running, now), [baseByDay, t.running, now]);
   const elapsed = t.running ? sessionSeconds(t.running, now) : 0;
   const runningProject = t.running ? projectsById.get(t.running.project_id) : null;
+  const openTodoCounts = useMemo(() => {
+    const counts = new Map();
+    for (const todo of t.todos) if (!todo.done) counts.set(todo.project_id, (counts.get(todo.project_id) ?? 0) + 1);
+    return counts;
+  }, [t.todos]);
 
   // Pull older sessions when the calendar is paged back past the loaded year.
   const { ensureRange } = t;
@@ -64,14 +82,31 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     document.title = runningProject ? `${fmtClock(elapsed)} · ${runningProject.name}` : "ProjectsTracker";
   }, [demo, runningProject, elapsed]);
 
-  const selectDay = (d, scroll) => {
+  const selectDay = (d) => {
     setSelected(d);
     if (!isSameMonth(d, cursor)) setCursor(d);
-    if (scroll) document.getElementById("calendar")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const weekStart = startOfWeek(today, { weekStartsOn: 1 });
+  const todaySecs = daySeconds(byDay, today);
+  const weekSecs = Array.from({ length: 7 }, (_, i) =>
+    daySeconds(byDay, new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + i))
+  ).reduce((a, b) => a + b, 0);
+
+  /** Edit a project. Finishing it ends its timer, here and (via the server) in the data. */
+  const saveProject = async (id, data) => {
+    if (statusesById.get(data.status_id)?.is_done && t.running?.project_id === id) await t.stopTimer();
+    return t.updateProject(id, data);
+  };
+
+  /** A drag on the board, or "Move to" in a card's menu. */
+  const moveProject = async (id, statusId) => {
+    if (statusesById.get(statusId)?.is_done && t.running?.project_id === id) await t.stopTimer();
+    return t.moveProject(id, statusId);
   };
 
   const openAddTime = (projectId, date) =>
-    projects.some((p) => p.status === "active")
+    projects.some(isOpen)
       ? setSessionModal({ projectId, date: date ?? today })
       : setProjectModal({});
 
@@ -86,104 +121,184 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
         const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6 + i);
         return { label: format(d, "EEE d"), secs: daySeconds(byDay, d, p.id) };
       }),
+      openTodos: openTodoCounts.get(p.id) ?? 0,
+      onOpen: () => setDetailId(p.id),
       onToggleTimer: () => (isRunning ? t.stopTimer() : t.startTimer(p.id)),
       onAddTime: () => openAddTime(p.id),
       onEdit: () => setProjectModal({ project: p }),
-      onToggleDone: () => {
-        if (isRunning) t.stopTimer();
-        t.updateProject(p.id, { status: p.status === "active" ? "done" : "active" });
-      },
       onDelete: () => setConfirm({ kind: "project", item: p }),
     };
   };
 
+  const detailProject = detailId ? projectsById.get(detailId) : null;
   const pickableProjects = projects.filter(
-    (p) => p.status === "active" || p.id === sessionModal?.session?.project_id || p.id === sessionModal?.projectId
+    (p) => isOpen(p) || p.id === sessionModal?.session?.project_id || p.id === sessionModal?.projectId
   );
 
   if (t.status === "error") return <ServerDown onRetry={t.reload} />;
 
+  const tabs = [
+    { id: "projects", label: "Projects", icon: Columns3 },
+    { id: "calendar", label: "Calendar", icon: CalendarDays },
+    { id: "stats", label: "Stats", icon: ChartColumn },
+  ];
+
   return (
     <>
-      <Header
-        runningProject={runningProject}
-        elapsed={elapsed}
-        onStop={t.stopTimer}
-        onNewProject={() => setProjectModal({})}
-        theme={theme}
-        onToggleTheme={toggleTheme}
-        onSignOut={onSignOut}
-        signOutLabel={signOutLabel}
-        onInbox={demo ? undefined : () => setInboxOpen(true)}
-        inboxUnread={inbox.unread}
-      />
+      <div className="flex h-full min-h-0 flex-col">
+        <Header
+          runningProject={runningProject}
+          runningSession={t.running}
+          onSaveNote={(note) => t.updateSession(t.running.id, { note })}
+          elapsed={elapsed}
+          onStop={t.stopTimer}
+          onNewProject={() => setProjectModal({})}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          onSignOut={onSignOut}
+          signOutLabel={signOutLabel}
+          onInbox={demo ? undefined : () => setInboxOpen(true)}
+          inboxUnread={inbox.unread}
+        />
 
-      <main className="mx-auto max-w-7xl px-4 pb-10 sm:px-6">
-        {t.status === "loading" ? (
-          <Skeleton />
-        ) : (
-          <>
-            <StatsStrip
-              byDay={byDay}
-              today={today}
-              weekStart={startOfWeek(today, { weekStartsOn: 1 })}
-              streakDays={streak(byDay, today)}
-              projects={projects}
-              projectsById={projectsById}
-              runningProjectId={t.running?.project_id}
-            />
+        <TabBar
+          tabs={tabs}
+          value={tab}
+          onChange={setTab}
+          label="Sections"
+          className="mx-auto w-full max-w-7xl shrink-0 px-2 sm:px-5"
+          right={
+            <>
+              <span className="figures hidden whitespace-nowrap text-xs text-muted sm:inline">
+                Today <span className="font-semibold text-text">{fmtHM(todaySecs)}</span>
+                <span className="mx-2 text-faint">·</span>
+                Week <span className="font-semibold text-text">{fmtHM(weekSecs)}</span>
+              </span>
+              {tab === "projects" && t.status === "ready" && (
+                <button
+                  onClick={() => setStatusesOpen(true)}
+                  className="inline-flex h-8 items-center gap-1.5 px-2 text-[13px] text-muted transition-colors hover:bg-surface-2 hover:text-text"
+                >
+                  <SlidersHorizontal size={14} /> <span className="max-sm:sr-only">Statuses</span>
+                </button>
+              )}
+            </>
+          }
+        />
 
-            <div className="grid grid-cols-1 items-start border-b border-line lg:grid-cols-[minmax(0,1fr)_420px]">
-              <ProjectGrid projects={projects} cardProps={cardProps} onCreate={() => setProjectModal({})} />
-
-              <div id="calendar" className="scroll-mt-20 border-t border-line lg:self-stretch lg:border-t-0 lg:border-l lg:border-l-rule">
-                <MonthCalendar
-                  cursor={cursor}
-                  onCursor={setCursor}
-                  selected={selected}
-                  onSelect={(d) => selectDay(d)}
-                  byDay={byDay}
-                  projectsById={projectsById}
-                  today={today}
-                />
-                <DayPanel
-                  date={selected}
-                  sessions={t.sessions}
-                  byDay={byDay}
-                  projectsById={projectsById}
-                  now={now}
-                  onAdd={() => openAddTime(undefined, selected)}
-                  onEdit={(s) => setSessionModal({ session: s })}
-                  onDelete={(s) => setConfirm({ kind: "session", item: s })}
-                  onStop={t.stopTimer}
-                />
-              </div>
+        <main
+          role="tabpanel"
+          id={`panel-${tab}`}
+          aria-labelledby={`tab-${tab}`}
+          className="mx-auto min-h-0 w-full max-w-7xl flex-1 overflow-y-auto px-4 py-3 sm:px-6"
+        >
+          {t.status === "loading" ? (
+            <Skeleton />
+          ) : tab === "projects" ? (
+            projects.length === 0 ? (
+              <EmptyBoard onCreate={() => setProjectModal({})} />
+            ) : (
+              <ProjectBoard
+                projects={projects}
+                statuses={t.statuses}
+                cardProps={cardProps}
+                onMove={moveProject}
+                onCreate={(statusId) => setProjectModal({ statusId })}
+              />
+            )
+          ) : tab === "calendar" ? (
+            <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,32rem)_minmax(0,1fr)] lg:gap-10">
+              <MonthCalendar
+                cursor={cursor}
+                onCursor={setCursor}
+                selected={selected}
+                onSelect={selectDay}
+                byDay={byDay}
+                projectsById={projectsById}
+                today={today}
+              />
+              <DayPanel
+                date={selected}
+                sessions={t.sessions}
+                byDay={byDay}
+                projectsById={projectsById}
+                now={now}
+                onAdd={() => openAddTime(undefined, selected)}
+                onEdit={(s) => setSessionModal({ session: s })}
+                onDelete={(s) => setConfirm({ kind: "session", item: s })}
+                onStop={t.stopTimer}
+              />
             </div>
-
-            <Heatmap
-              byDay={byDay}
-              projects={projects}
-              projectsById={projectsById}
-              today={today}
-              selected={selected}
-              onSelect={(d) => selectDay(d, true)}
-            />
-          </>
-        )}
-      </main>
+          ) : (
+            <>
+              <StatsStrip
+                byDay={byDay}
+                today={today}
+                weekStart={weekStart}
+                streakDays={streak(byDay, today)}
+                openProjects={openProjects}
+                neglected={neglected}
+                onOpenProject={setDetailId}
+                projectsById={projectsById}
+                runningProjectId={t.running?.project_id}
+              />
+              <Heatmap
+                byDay={byDay}
+                projects={projects}
+                projectsById={projectsById}
+                today={today}
+                selected={selected}
+                onSelect={(d) => {
+                  selectDay(d);
+                  setTab("calendar");
+                }}
+              />
+            </>
+          )}
+        </main>
+      </div>
 
       <Toast notice={t.notice} onDismiss={t.dismissNotice} />
 
       {inboxOpen && <InterestInbox inbox={inbox} onClose={() => setInboxOpen(false)} />}
 
+      {statusesOpen && (
+        <StatusModal projects={projects} statuses={t.statuses} ops={t.statusOps} onClose={() => setStatusesOpen(false)} />
+      )}
+
+      {detailProject && (
+        <ProjectDetail
+          project={detailProject}
+          status={statusesById.get(detailProject.status_id)}
+          todos={t.todos.filter((x) => x.project_id === detailProject.id)}
+          sessions={t.sessions
+            .filter((x) => x.project_id === detailProject.id)
+            .sort((a, b) => b.start - a.start)}
+          isRunning={t.running?.project_id === detailProject.id}
+          elapsed={elapsed}
+          totalSeconds={detailProject.total_seconds + (t.running?.project_id === detailProject.id ? elapsed : 0)}
+          now={now}
+          onClose={() => setDetailId(null)}
+          onEdit={() => {
+            setDetailId(null);
+            setProjectModal({ project: detailProject });
+          }}
+          onToggleTimer={() =>
+            t.running?.project_id === detailProject.id ? t.stopTimer() : t.startTimer(detailProject.id)
+          }
+          onSaveNotes={(notes) => saveProject(detailProject.id, { notes })}
+          todoOps={t.todoOps}
+        />
+      )}
+
       {projectModal && (
         <ProjectModal
           project={projectModal.project}
+          statuses={t.statuses}
+          defaultStatusId={projectModal.statusId}
           usedColors={projects.map((p) => p.color)}
           onClose={() => setProjectModal(null)}
-          onSave={(data) =>
-            projectModal.project ? t.updateProject(projectModal.project.id, data) : t.createProject(data)
-          }
+          onSave={(data) => (projectModal.project ? saveProject(projectModal.project.id, data) : t.createProject(data))}
         />
       )}
 
@@ -193,7 +308,6 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           projectId={sessionModal.projectId}
           date={sessionModal.date ?? today}
           projects={pickableProjects}
-          now={now}
           onClose={() => setSessionModal(null)}
           onSave={(data) =>
             sessionModal.session ? t.updateSession(sessionModal.session.id, data) : t.addSession(data)
@@ -241,32 +355,28 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
 
 function Skeleton() {
   return (
-    <div className="animate-pulse" aria-label="Loading">
-      <div className="grid grid-cols-2 border-b border-line lg:grid-cols-4">
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="space-y-2 py-4 pr-4">
-            <div className="h-3 w-16 bg-surface-2" />
-            <div className="h-7 w-24 bg-surface-2" />
-          </div>
-        ))}
-      </div>
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_420px]">
-        <div className="py-5 lg:pr-6">
-          <div className="mb-2 ml-11 h-5 w-24 bg-surface-2" />
-          <div className="border-t border-rule">
-            {[0, 1, 2, 3, 4].map((i) => (
-              <div key={i} className="ledger-row">
-                <span className="ledger-margin" />
-                <span className="ledger-name">
-                  <span className="h-3.5 w-40 bg-surface-2" />
-                </span>
-              </div>
-            ))}
-          </div>
+    <div className="grid animate-pulse gap-3 sm:grid-cols-3" aria-label="Loading">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="border border-line bg-surface-2/40 p-3">
+          <div className="h-5 w-24 bg-surface-2" />
+          <div className="mt-3 h-24 bg-surface-2" />
+          <div className="mt-2 h-24 bg-surface-2" />
         </div>
-        <div className="py-5 lg:border-l lg:border-rule lg:pl-6">
-          <div className="h-80 bg-surface-2" />
-        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Nothing yet: the one thing to do is make the first project. */
+function EmptyBoard({ onCreate }) {
+  return (
+    <div className="grid h-full min-h-[16rem] place-items-center border border-dashed border-line-strong p-6 text-center">
+      <div>
+        <p className="font-serif text-lg font-semibold">No projects yet</p>
+        <p className="mt-1 text-[13px] text-muted">Each project becomes a card you can start a timer on.</p>
+        <Button variant="primary" onClick={onCreate} className="mt-4">
+          Create your first project
+        </Button>
       </div>
     </div>
   );

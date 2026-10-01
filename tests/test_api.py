@@ -9,8 +9,18 @@ def now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def make_project(client, name="Website", color="#8b5cf6", icon="code"):
-    res = client.post("/api/projects", json={"name": name, "color": color, "icon": icon})
+def make_project(client, name="Website", color="#8b5cf6", icon="code", **fields):
+    res = client.post("/api/projects", json={"name": name, "color": color, "icon": icon, **fields})
+    assert res.status_code == 201, res.text
+    return res.json()
+
+
+def statuses_by_name(client):
+    return {s["name"]: s for s in client.get("/api/statuses").json()}
+
+
+def make_status(client, name="Paused", **fields):
+    res = client.post("/api/statuses", json={"name": name, **fields})
     assert res.status_code == 201, res.text
     return res.json()
 
@@ -20,17 +30,17 @@ def make_project(client, name="Website", color="#8b5cf6", icon="code"):
 def test_project_crud(client):
     a = make_project(client, "Alpha")
     b = make_project(client, "Beta", color="#10b981")
-    assert a["status"] == "active"
+    assert a["status_id"] == statuses_by_name(client)["Active"]["id"]  # new projects start open
+    assert a["notes"] == ""
     assert b["sort_order"] > a["sort_order"]
 
     listed = client.get("/api/projects").json()
     assert [p["name"] for p in listed] == ["Alpha", "Beta"]
     assert listed[0]["total_seconds"] == 0
 
-    res = client.patch(f"/api/projects/{a['id']}", json={"name": "Alpha 2", "status": "done"})
+    res = client.patch(f"/api/projects/{a['id']}", json={"name": "Alpha 2"})
     assert res.status_code == 200
     assert res.json()["name"] == "Alpha 2"
-    assert res.json()["status"] == "done"
 
     assert client.delete(f"/api/projects/{a['id']}").status_code == 204
     assert [p["name"] for p in client.get("/api/projects").json()] == ["Beta"]
@@ -40,6 +50,150 @@ def test_project_validation(client):
     assert client.post("/api/projects", json={"name": ""}).status_code == 422
     assert client.post("/api/projects", json={"name": "X", "color": "red"}).status_code == 422
     assert client.patch("/api/projects/missing", json={"name": "X"}).status_code == 404
+
+
+# ── Notes and to-dos ────────────────────────────────────────────────────────
+
+def test_project_notes(client):
+    p = make_project(client, notes="first thoughts")
+    assert p["notes"] == "first thoughts"
+    res = client.patch(f"/api/projects/{p['id']}", json={"notes": "line one\nline two"})
+    assert res.json()["notes"] == "line one\nline two"
+    assert client.patch(f"/api/projects/{p['id']}", json={"notes": ""}).json()["notes"] == ""  # can be cleared
+    assert client.patch(f"/api/projects/{p['id']}", json={"notes": None}).status_code == 422
+    assert client.patch(f"/api/projects/{p['id']}", json={"notes": "x" * 20_001}).status_code == 422
+    assert client.patch(f"/api/projects/{p['id']}", json={"name": "Renamed"}).json()["notes"] == ""  # untouched by other edits
+
+
+def make_todo(client, project_id, text="Write the intro"):
+    res = client.post("/api/todos", json={"project_id": project_id, "text": text})
+    assert res.status_code == 201, res.text
+    return res.json()
+
+
+def test_todo_crud(client):
+    p = make_project(client)
+    a = make_todo(client, p["id"], "  First  ")
+    b = make_todo(client, p["id"], "Second")
+    assert a["text"] == "First" and a["done"] is False
+    assert b["sort_order"] > a["sort_order"]
+    assert [t["text"] for t in client.get("/api/todos").json()] == ["First", "Second"]
+
+    res = client.patch(f"/api/todos/{a['id']}", json={"done": True})
+    assert res.json()["done"] is True and res.json()["text"] == "First"
+    assert client.patch(f"/api/todos/{a['id']}", json={"done": False, "text": "First, edited"}).json()["done"] is False
+
+    assert client.delete(f"/api/todos/{b['id']}").status_code == 204
+    assert [t["text"] for t in client.get("/api/todos").json()] == ["First, edited"]
+    assert client.delete(f"/api/todos/{b['id']}").status_code == 404
+
+
+def test_todo_validation(client):
+    p = make_project(client)
+    assert client.post("/api/todos", json={"project_id": p["id"], "text": "   "}).status_code == 422
+    assert client.post("/api/todos", json={"project_id": p["id"], "text": "x" * 201}).status_code == 422
+    assert client.post("/api/todos", json={"project_id": "nope", "text": "Hi"}).status_code == 404
+    assert client.patch("/api/todos/missing", json={"done": True}).status_code == 404
+
+
+def test_deleting_a_project_deletes_its_todos(client):
+    p = make_project(client)
+    keep = make_project(client, "Keep")
+    make_todo(client, p["id"])
+    kept = make_todo(client, keep["id"], "Stays")
+    assert client.delete(f"/api/projects/{p['id']}").status_code == 204
+    assert [t["id"] for t in client.get("/api/todos").json()] == [kept["id"]]
+
+
+def test_running_session_note_can_be_edited(client):
+    p = make_project(client)
+    run = client.post("/api/timer/start", json={"project_id": p["id"]}).json()
+    res = client.patch(f"/api/sessions/{run['id']}", json={"note": "drafting the intro"})
+    assert res.status_code == 200
+    assert res.json()["note"] == "drafting the intro" and res.json()["end"] is None  # still running
+    stopped = client.post("/api/timer/stop").json()
+    assert stopped["note"] == "drafting the intro"
+
+
+# ── Statuses ────────────────────────────────────────────────────────────────
+
+def test_default_statuses(client):
+    listed = client.get("/api/statuses").json()
+    assert [(s["name"], s["is_done"]) for s in listed] == [("Active", False), ("Done", True)]
+
+
+def test_project_status_changes(client):
+    p = make_project(client)
+    paused = make_status(client, "Paused")
+    done = statuses_by_name(client)["Done"]
+
+    res = client.patch(f"/api/projects/{p['id']}", json={"status_id": paused["id"]})
+    assert res.json()["status_id"] == paused["id"]
+    assert make_project(client, "Idea", status_id=paused["id"])["status_id"] == paused["id"]
+
+    assert client.patch(f"/api/projects/{p['id']}", json={"status_id": done["id"]}).status_code == 200
+    assert client.patch(f"/api/projects/{p['id']}", json={"status_id": None}).status_code == 422
+    assert client.patch(f"/api/projects/{p['id']}", json={"status_id": "nope"}).status_code == 404
+    assert client.post("/api/projects", json={"name": "X", "status_id": "nope"}).status_code == 404
+
+
+def test_finishing_a_project_stops_its_timer(client):
+    p = make_project(client)
+    other = make_project(client, "Other")
+    done = statuses_by_name(client)["Done"]
+    client.post("/api/timer/start", json={"project_id": p["id"]})
+
+    # Finishing some other project leaves the timer alone
+    client.patch(f"/api/projects/{other['id']}", json={"status_id": done["id"]})
+    assert client.get("/api/timer").json() is not None
+
+    client.patch(f"/api/projects/{p['id']}", json={"status_id": done["id"]})
+    assert client.get("/api/timer").json() is None
+
+
+def test_marking_a_status_done_stops_timers_in_it(client):
+    paused = make_status(client, "Paused")
+    p = make_project(client, status_id=paused["id"])
+    client.post("/api/timer/start", json={"project_id": p["id"]})
+    assert client.patch(f"/api/statuses/{paused['id']}", json={"is_done": True}).json()["is_done"] is True
+    assert client.get("/api/timer").json() is None
+
+
+def test_status_in_use_cannot_be_deleted(client):
+    paused = make_status(client, "Paused")
+    p = make_project(client, status_id=paused["id"])
+    res = client.delete(f"/api/statuses/{paused['id']}")
+    assert res.status_code == 409 and "1 project still use" in res.json()["detail"]
+
+    client.patch(f"/api/projects/{p['id']}", json={"status_id": statuses_by_name(client)["Active"]["id"]})
+    assert client.delete(f"/api/statuses/{paused['id']}").status_code == 204
+    assert client.delete(f"/api/statuses/{paused['id']}").status_code == 404
+
+
+def test_one_open_status_must_remain(client):
+    active = statuses_by_name(client)["Active"]
+    assert client.delete(f"/api/statuses/{active['id']}").status_code == 409
+    assert client.patch(f"/api/statuses/{active['id']}", json={"is_done": True}).status_code == 409
+
+    # With a second open status, either can go
+    idea = make_status(client, "Idea")
+    assert client.patch(f"/api/statuses/{active['id']}", json={"is_done": True}).status_code == 200
+    assert client.delete(f"/api/statuses/{idea['id']}").status_code == 409  # now the only open one
+    # A finished status can always be deleted when unused
+    assert client.delete(f"/api/statuses/{statuses_by_name(client)['Done']['id']}").status_code == 204
+
+
+def test_new_projects_default_to_the_first_open_status(client):
+    active = statuses_by_name(client)["Active"]
+    idea = make_status(client, "Idea")
+    client.patch(f"/api/statuses/{active['id']}", json={"sort_order": 99})  # Idea now sorts first among open ones
+    assert make_project(client)["status_id"] == idea["id"]
+
+
+def test_status_validation(client):
+    assert client.post("/api/statuses", json={"name": "done"}).status_code == 409
+    assert client.post("/api/statuses", json={"name": ""}).status_code == 422
+    assert client.patch("/api/statuses/missing", json={"name": "X"}).status_code == 404
 
 
 # ── Timer ───────────────────────────────────────────────────────────────────

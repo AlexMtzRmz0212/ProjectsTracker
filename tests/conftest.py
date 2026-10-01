@@ -11,6 +11,7 @@ os.environ["DATABASE_URL"] = f"sqlite:///{Path(_tmp_dir) / 'test.db'}"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from backend.bootstrap import init_db  # noqa: E402
 from backend.database import Base, engine  # noqa: E402
 from backend.main import app  # noqa: E402
 
@@ -18,6 +19,6 @@ from backend.main import app  # noqa: E402
 @pytest.fixture()
 def client():
     Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
+    init_db(engine)
     with TestClient(app) as c:
         yield c
