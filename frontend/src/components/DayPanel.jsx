@@ -1,0 +1,142 @@
+import { format } from "date-fns";
+import { CalendarPlus, Moon, Pencil, Plus, Square, Trash2 } from "lucide-react";
+import { iconFor, inkText } from "../lib/palette";
+import { dayKey, fmtHM, fmtTime, sessionSeconds } from "../lib/time";
+import { SplitBar } from "./StatsStrip";
+
+/** The selected day as a time card: In, Out, Project, Hours. */
+export default function DayPanel({ date, sessions, byDay, projectsById, now, onAdd, onEdit, onDelete, onStop }) {
+  const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+  const entry = byDay.get(dayKey(date));
+  const total = entry?.total ?? 0;
+
+  const daySessions = sessions
+    .filter((s) => projectsById.has(s.project_id) && s.start < dayEnd && (s.end ?? now) > dayStart)
+    .sort((a, b) => a.start - b.start);
+
+  return (
+    <section className="border-t border-line py-5 lg:pl-6">
+      <div className="flex items-center gap-3">
+        <h2 className="min-w-0 truncate font-serif text-[17px] font-semibold">
+          <span className="sm:hidden">{format(date, "EEE d MMM")}</span>
+          <span className="max-sm:hidden">{format(date, "EEEE d MMMM")}</span>{" "}
+          <span className="figures font-normal text-muted">{format(date, "yyyy")}</span>
+        </h2>
+        <span className="figures ml-auto shrink-0 text-[15px] font-semibold">{fmtHM(total)}</span>
+        <button
+          onClick={onAdd}
+          className="grid size-8 shrink-0 place-items-center border border-line-strong text-muted transition-colors hover:border-text hover:text-text"
+          aria-label="Add a session on this day"
+          title="Add time"
+        >
+          <Plus size={16} />
+        </button>
+      </div>
+
+      {total > 0 && (
+        <div className="mt-3">
+          <SplitBar byProject={entry.byProject} projectsById={projectsById} className="h-1" />
+        </div>
+      )}
+
+      {daySessions.length === 0 ? (
+        <button
+          onClick={onAdd}
+          className="mt-3 flex w-full items-center justify-center gap-2 border border-dashed border-line-strong py-6 text-[13px] text-muted transition-colors hover:border-text hover:text-text"
+        >
+          <CalendarPlus size={17} />
+          <span>
+            No time logged. <span className="font-semibold text-text underline underline-offset-2">Add time</span>
+          </span>
+        </button>
+      ) : (
+        <table className="mt-3 w-full border-collapse text-[13px]">
+          <thead>
+            <tr className="border-b border-rule text-left font-serif text-xs italic text-muted">
+              <th className="py-1 pr-3 font-normal">In</th>
+              <th className="py-1 pr-3 font-normal">Out</th>
+              <th className="py-1 pr-3 font-normal">Project</th>
+              <th className="py-1 text-right font-normal">Hours</th>
+              <th className="w-0 py-1">
+                <span className="sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {daySessions.map((s) => {
+              const project = projectsById.get(s.project_id);
+              const Icon = iconFor(project.icon);
+              const running = !s.end;
+              const crossesMidnight = s.start < dayStart || (s.end ?? now) > dayEnd;
+              return (
+                <tr key={s.id} className="group h-9 border-b border-rule">
+                  <td className="figures pr-3 whitespace-nowrap">{fmtTime(s.start)}</td>
+                  <td className="figures pr-3 whitespace-nowrap">
+                    {running ? (
+                      <span className="inline-flex items-center gap-1.5 font-semibold text-accent">
+                        <span className="blink-dot size-1.5 rounded-full bg-accent" aria-hidden="true" />
+                        now
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1">
+                        {fmtTime(s.end)}
+                        {crossesMidnight && <Moon size={11} className="text-muted" aria-label="Crosses midnight" />}
+                      </span>
+                    )}
+                  </td>
+                  <td className="w-full max-w-0 pr-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Icon size={14} className="shrink-0" style={{ color: inkText(project.color) }} aria-hidden="true" />
+                      <span className="truncate">{project.name}</span>
+                      {/* the note only takes what the project name leaves over */}
+                      {s.note && (
+                        <span className="min-w-0 flex-1 basis-0 truncate font-serif text-xs italic text-muted">{s.note}</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className={`figures text-right whitespace-nowrap ${running ? "font-semibold" : ""}`}>
+                    {fmtHM(sessionSeconds(s, now))}
+                  </td>
+                  <td className="pl-2">
+                    <div className="flex justify-end gap-0.5 transition-opacity sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100">
+                      {running ? (
+                        <RowButton label="Stop timer" onClick={onStop}>
+                          <Square size={12} fill="currentColor" />
+                        </RowButton>
+                      ) : (
+                        <>
+                          <RowButton label="Edit session" onClick={() => onEdit(s)}>
+                            <Pencil size={14} />
+                          </RowButton>
+                          <RowButton label="Delete session" onClick={() => onDelete(s)} danger>
+                            <Trash2 size={14} />
+                          </RowButton>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
+function RowButton({ label, onClick, danger, children }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className={`grid size-7 place-items-center text-muted transition-colors hover:bg-surface-2 ${
+        danger ? "hover:text-danger" : "hover:text-text"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}

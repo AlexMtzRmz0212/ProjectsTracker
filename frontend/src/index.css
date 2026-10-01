@@ -1,0 +1,238 @@
+@import "tailwindcss";
+
+/* ── Theme tokens ───────────────────────────────────────────────────────────
+   Semantic colors live in CSS variables so light/dark is one attribute flip
+   (<html data-theme="...">). Tailwind utilities (bg-surface, text-muted, …)
+   read them through @theme inline.
+
+   Light is buff ledger paper written in iron-gall ink; dark is the green cloth
+   of a ledger cover. --rule is the feint ruling between entries and --margin
+   the red double rule down the left of every ledger page. */
+
+:root,
+:root[data-theme="dark"] {
+  --bg: #131a16;
+  --surface: #19231d;
+  --surface-2: #22312a;
+  --surface-3: #2d3e35;
+  --line: rgb(236 228 204 / 0.14);
+  --line-strong: rgb(236 228 204 / 0.26);
+  --rule: rgb(143 179 160 / 0.3);
+  --margin: #e0584b;
+  --text: #ece4cc;
+  --muted: #a7a58f;
+  --faint: #80887a;
+  --accent: #e0584b;
+  --accent-2: #8fb0d4;
+  --danger: #ef6a5c;
+  --scrim: rgb(5 8 6 / 0.62);
+  /* Project inks are mid-tones; lift them toward the text color when they are
+     drawn as lines or glyphs on the dark cover (see inkText in lib/palette.js). */
+  --ink-lift: 32%;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #f2ead4;
+  --surface: #f8f2df;
+  --surface-2: #e7dcc0;
+  --surface-3: #dbcfae;
+  --line: rgb(60 48 30 / 0.16);
+  --line-strong: rgb(60 48 30 / 0.3);
+  --rule: #a9c2b0;
+  --margin: #bf3a30;
+  --text: #1e2433;
+  --muted: #5f5c55;
+  --faint: #6f6856;
+  --accent: #bf3a30;
+  --accent-2: #2f5d8a;
+  --danger: #a8281f;
+  --scrim: rgb(30 36 51 / 0.45);
+  --ink-lift: 0%;
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-rule: var(--rule);
+  --color-margin: var(--margin);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-danger: var(--danger);
+  /* Libre Franklin (Franklin Gothic) for the forms; Besley (Clarendon) for the
+     entries: names, headings and every figure. */
+  --font-sans: "Libre Franklin Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Besley Variable", Georgia, serif;
+  --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+html {
+  overflow-x: clip;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent-2) 30%, transparent);
+}
+
+/* In the base layer so a component can swap the ring for its own focus style */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--accent-2);
+    outline-offset: 2px;
+  }
+}
+
+/* Tabular digits keep live timers from jittering as they tick */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@layer components {
+  /* Ledger figures: Clarendon numerals that line up in columns */
+  .figures {
+    font-family: var(--font-serif);
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
+  /* ── Ledger rows ────────────────────────────────────────────────────────
+     One project per row. The margin cell carries the red double rule, so it
+     stretches to the full row height and the rule runs unbroken down the page.
+     Phones: two lines (name + timer, then figures). sm+: one line of columns. */
+  .ledger-row {
+    display: grid;
+    grid-template-columns: 2rem minmax(0, 1fr) auto 2rem;
+    grid-template-areas:
+      "m name timer menu"
+      "m figs figs figs";
+    column-gap: 0.75rem;
+    align-items: center;
+    border-bottom: 1px solid var(--rule);
+  }
+  .ledger-margin {
+    grid-area: m;
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-right: 3px double var(--margin);
+  }
+  .ledger-name {
+    grid-area: name;
+    min-width: 0;
+    min-height: 2.5rem;
+    display: flex;
+    align-items: center;
+  }
+  .ledger-timer {
+    grid-area: timer;
+  }
+  .ledger-menu {
+    grid-area: menu;
+    justify-self: end;
+  }
+  .ledger-figs {
+    grid-area: figs;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 1rem;
+    padding-bottom: 0.5rem;
+  }
+
+  @media (min-width: 640px) {
+    .ledger-row {
+      grid-template-columns: 2rem minmax(0, 1fr) 4.25rem 4.5rem 5.25rem 7.25rem 2rem;
+      grid-template-areas: "m name today week total timer menu";
+    }
+    .ledger-name {
+      min-height: 2.25rem;
+    }
+    .ledger-figs {
+      display: contents;
+    }
+    .ledger-today,
+    .ledger-week,
+    .ledger-total {
+      justify-self: end;
+      text-align: right;
+    }
+    .ledger-today {
+      grid-area: today;
+    }
+    .ledger-week {
+      grid-area: week;
+    }
+    .ledger-total {
+      grid-area: total;
+    }
+  }
+
+  /* Ledger totals are closed with a double rule under the figure */
+  .double-rule {
+    border-bottom: 3px double var(--text);
+  }
+}
+
+/* ── Motion: only the live dot moves on its own ──────────────────────────── */
+
+@keyframes blink-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.blink-dot {
+  animation: blink-dot 1.6s ease-in-out infinite;
+}
+
+.fade-in {
+  animation: fade-in 0.15s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Thin, theme-aware scrollbars (heatmap strip, modals) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-3) transparent;
+}
+
+/* Native date/time pickers: make the icon visible in dark mode */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  opacity: 0.6;
+  cursor: pointer;
+}
+:root[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator,
+:root[data-theme="dark"] input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
