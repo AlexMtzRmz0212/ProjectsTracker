@@ -5,10 +5,12 @@ import { useTracker } from "./hooks/useTracker";
 import { useTheme } from "./hooks/useTheme";
 import { useInbox } from "./hooks/useInbox";
 import { useNow } from "./hooks/useNow";
+import { usePomodoro } from "./hooks/usePomodoro";
 import {
-  aggregateByDay, dayKey, daySeconds, fmtClock, fmtHM, fmtTime, mostNeglected, sessionSeconds, streak, withLive,
+  aggregateByDay, dayKey, daySeconds, fmtCountdown, fmtHM, fmtTime, mostNeglected, sessionSeconds, streak, withLive,
 } from "./lib/time";
 import Header from "./components/Header";
+import PomodoroDrawer from "./components/PomodoroDrawer";
 import StatsStrip from "./components/StatsStrip";
 import ProjectBoard from "./components/ProjectBoard";
 import TabBar from "./components/TabBar";
@@ -39,6 +41,8 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   // Keyed on the date string so "today" only changes identity at midnight, not every tick
   const today = useMemo(() => new Date(`${todayKey}T00:00:00`), [todayKey]);
   const [theme, toggleTheme] = useTheme();
+  const pomodoro = usePomodoro({ running: t.running, startTimer: t.startTimer, stopTimer: t.stopTimer, scope: demo ? "demo" : "app" });
+  const [pomodoroOpen, setPomodoroOpen] = useState(false);
 
   const [cursor, setCursor] = useState(() => new Date());
   const [selected, setSelected] = useState(() => new Date());
@@ -75,12 +79,19 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     ensureRange(startOfWeek(startOfMonth(cursor), { weekStartsOn: 1 }));
   }, [cursor, ensureRange]);
 
-  // Live timer in the browser tab, so it's visible from anywhere. The demo is
+  const breakProject = projectsById.get(pomodoro.breakProjectId) ?? null;
+
+  // The countdown in the browser tab, so it's visible from anywhere. The demo is
   // embedded in a page of its own, so it leaves the tab title alone.
+  const { phase, focusRemaining, breakRemaining } = pomodoro;
   useEffect(() => {
     if (demo) return;
-    document.title = runningProject ? `${fmtClock(elapsed)} · ${runningProject.name}` : "ProjectsTracker";
-  }, [demo, runningProject, elapsed]);
+    document.title =
+      phase === "focus" && runningProject ? `${fmtCountdown(focusRemaining)} · ${runningProject.name}`
+      : phase === "break" ? `Break ${fmtCountdown(breakRemaining)}`
+      : phase === "ready" ? "Break over · ProjectsTracker"
+      : "ProjectsTracker";
+  }, [demo, phase, runningProject, focusRemaining, breakRemaining]);
 
   const selectDay = (d) => {
     setSelected(d);
@@ -150,7 +161,8 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           runningProject={runningProject}
           runningSession={t.running}
           onSaveNote={(note) => t.updateSession(t.running.id, { note })}
-          elapsed={elapsed}
+          pomodoro={pomodoro}
+          breakProject={breakProject}
           onStop={t.stopTimer}
           onNewProject={() => setProjectModal({})}
           theme={theme}
@@ -258,6 +270,14 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
         </main>
       </div>
 
+      <PomodoroDrawer
+        open={pomodoroOpen}
+        onOpenChange={setPomodoroOpen}
+        settings={pomodoro.settings}
+        onChange={pomodoro.setSettings}
+        onReset={pomodoro.resetSettings}
+      />
+
       <Toast notice={t.notice} onDismiss={t.dismissNotice} />
 
       {inboxOpen && <InterestInbox inbox={inbox} onClose={() => setInboxOpen(false)} />}
@@ -287,6 +307,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
             t.running?.project_id === detailProject.id ? t.stopTimer() : t.startTimer(detailProject.id)
           }
           onSaveNotes={(notes) => saveProject(detailProject.id, { notes })}
+          onSaveSessionNote={(id, note) => t.updateSession(id, { note })}
           todoOps={t.todoOps}
         />
       )}

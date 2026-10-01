@@ -12,7 +12,7 @@ const RECENT = 8;
  *  Everything saves as you go; closing the window saves a note you were still typing. */
 export default function ProjectDetail({
   project, status, todos, sessions, isRunning, elapsed, totalSeconds, now,
-  onClose, onEdit, onToggleTimer, onSaveNotes, todoOps,
+  onClose, onEdit, onToggleTimer, onSaveNotes, onSaveSessionNote, todoOps,
 }) {
   const Icon = iconFor(project.icon);
   const finished = status.is_done;
@@ -80,7 +80,7 @@ export default function ProjectDetail({
             <Notes key={project.id} value={project.notes} onSave={onSaveNotes} />
           </div>
           <div hidden={tab !== "sessions"}>
-            <RecentSessions sessions={sessions} now={now} />
+            <RecentSessions sessions={sessions} now={now} onSaveNote={onSaveSessionNote} />
           </div>
         </div>
       </div>
@@ -229,7 +229,34 @@ function Notes({ value, onSave }) {
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
 
-function RecentSessions({ sessions, now }) {
+/** What was done in one session. Saves on blur or Enter; the same note the timer's note button writes. */
+function SessionNote({ session, onSave }) {
+  const [draft, setDraft] = useState(session.note);
+  useEffect(() => setDraft(session.note), [session.note]);
+  const ready = !String(session.id).startsWith("temp-"); // the server hasn't answered yet
+
+  const commit = () => {
+    const note = draft.trim();
+    setDraft(note);
+    if (note !== session.note) onSave(session.id, note);
+  };
+
+  return (
+    <input
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+      disabled={!ready}
+      maxLength={280}
+      placeholder="What did you do?"
+      aria-label={`Note for the session on ${format(session.start, "d MMM")} at ${fmtTime(session.start)}`}
+      className="mt-1 h-8 w-full bg-transparent px-2 font-serif text-[13px] italic outline-none transition-colors placeholder:text-faint hover:bg-surface-2/60 focus:bg-surface-2 disabled:opacity-50"
+    />
+  );
+}
+
+function RecentSessions({ sessions, now, onSaveNote }) {
   const [all, setAll] = useState(false);
   if (sessions.length === 0) {
     return <p className="py-6 text-center font-serif text-sm italic text-muted">No time logged on this project yet.</p>;
@@ -238,17 +265,20 @@ function RecentSessions({ sessions, now }) {
 
   return (
     <section>
+      <p className="mb-2 font-serif text-xs italic text-muted">Write what you did on any session. Saves when you click away.</p>
       <ul className="border-t border-rule">
         {shown.map((s) => (
-          <li key={s.id} className="flex items-baseline gap-3 border-b border-rule py-2 text-[13px]">
-            <span className="figures w-24 shrink-0 text-muted">{format(s.start, "EEE d MMM")}</span>
-            <span className="figures hidden w-44 shrink-0 whitespace-nowrap text-muted sm:block">
-              {fmtTime(s.start)}
-              {" – "}
-              {s.end ? fmtTime(s.end) : "now"}
-            </span>
-            <span className="figures w-14 shrink-0 text-right font-semibold">{fmtHM(sessionSeconds(s, now))}</span>
-            <span className="min-w-0 flex-1 truncate font-serif text-xs italic text-muted">{s.note}</span>
+          <li key={s.id} className="border-b border-rule py-2">
+            <div className="flex items-baseline gap-3 text-[13px]">
+              <span className="figures w-24 shrink-0 text-muted">{format(s.start, "EEE d MMM")}</span>
+              <span className="figures min-w-0 flex-1 whitespace-nowrap text-muted sm:flex-none sm:w-44">
+                {fmtTime(s.start)}
+                {" – "}
+                {s.end ? fmtTime(s.end) : "now"}
+              </span>
+              <span className="figures w-14 shrink-0 text-right font-semibold">{fmtHM(sessionSeconds(s, now))}</span>
+            </div>
+            <SessionNote session={s} onSave={onSaveNote} />
           </li>
         ))}
       </ul>

@@ -116,6 +116,12 @@ export function fmtClock(seconds) {
   return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
 }
 
+/** 25:00 · 04:09 (minutes can run past 59: a 90-minute focus reads 90:00) */
+export function fmtCountdown(seconds) {
+  const s = Math.max(0, Math.ceil(seconds));
+  return `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
+}
+
 /** 2h 15m · 45m · <1m · 0m */
 export function fmtHM(seconds) {
   if (seconds < 60) return seconds > 0 ? "<1m" : "0m";
