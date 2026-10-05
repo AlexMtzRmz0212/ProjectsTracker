@@ -24,6 +24,7 @@ def init_db(engine: Engine) -> None:
     models.Base.metadata.create_all(bind=engine)
     _add_project_columns(engine)
     _add_todo_columns(engine)
+    _add_status_columns(engine)
     _add_pomodoro_columns(engine)
     with DbSession(engine) as db:
         _seed_statuses(db)
@@ -61,11 +62,22 @@ def _add_project_columns(engine: Engine) -> None:
 
 
 def _add_todo_columns(engine: Engine) -> None:
-    """to-dos made before completed_at existed get NULL: when they were ticked off isn't known."""
-    if "completed_at" not in {c["name"] for c in inspect(engine).get_columns("todos")}:
-        column_type = models.Todo.__table__.c.completed_at.type.compile(dialect=engine.dialect)
-        with engine.begin() as conn:
+    """to-dos made before completed_at existed get NULL: when they were ticked off isn't known.
+    parent_id is NULL for to-dos made before sub-to-dos existed: they are all top-level."""
+    columns = {c["name"] for c in inspect(engine).get_columns("todos")}
+    with engine.begin() as conn:
+        if "completed_at" not in columns:
+            column_type = models.Todo.__table__.c.completed_at.type.compile(dialect=engine.dialect)
             conn.execute(text(f"ALTER TABLE todos ADD COLUMN completed_at {column_type}"))
+        if "parent_id" not in columns:
+            conn.execute(text("ALTER TABLE todos ADD COLUMN parent_id VARCHAR REFERENCES todos(id) ON DELETE CASCADE"))
+
+
+def _add_status_columns(engine: Engine) -> None:
+    """Statuses made before is_pinned existed are not pinned."""
+    if "is_pinned" not in {c["name"] for c in inspect(engine).get_columns("statuses")}:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE statuses ADD COLUMN is_pinned BOOLEAN NOT NULL DEFAULT FALSE"))
 
 
 def _add_pomodoro_columns(engine: Engine) -> None:

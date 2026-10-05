@@ -23,6 +23,8 @@ const completion = (todo, data) =>
  */
 export function useTracker(api = realApi) {
   const [projects, setProjects] = useState([]);
+  const projectsRef = useRef(projects); // what a drag on the board reads, so the callback needn't change with it
+  projectsRef.current = projects;
   const [statuses, setStatuses] = useState([]);
   const [todos, setTodos] = useState([]);
   const [sessions, setSessions] = useState([]);
@@ -221,12 +223,31 @@ export function useTracker(api = realApi) {
     [api, attempt]
   );
 
-  /** Move a project to another status (a drag on the board). Shows at once; a failure resyncs. */
+  /** Drop a project into a status's column (a drag on the board), at `index` among the cards that
+   *  are there (the end when it isn't given). The column's cards trade the sort_order values they
+   *  already hold, so nothing outside it is touched. Shows at once; a failure resyncs. */
   const moveProject = useCallback(
-    (id, statusId) =>
+    (id, statusId, index) =>
       attempt(async () => {
-        setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, status_id: statusId } : p)));
-        await api.updateProject(id, { status_id: statusId });
+        const all = projectsRef.current;
+        const moved = all.find((p) => p.id === id);
+        if (!moved) return;
+        const column = all.filter((p) => p.status_id === statusId && !p.archived_at && p.id !== id);
+        const at = index == null ? column.length : Math.min(Math.max(index, 0), column.length);
+        const ordered = [...column.slice(0, at), moved, ...column.slice(at)];
+        const slots = [...column, moved].map((p) => p.sort_order).sort((a, b) => a - b);
+        const changes = new Map();
+        ordered.forEach((p, i) => {
+          const patch = {};
+          if (p.sort_order !== slots[i]) patch.sort_order = slots[i];
+          if (p.id === id && p.status_id !== statusId) patch.status_id = statusId;
+          if (Object.keys(patch).length) changes.set(p.id, patch);
+        });
+        if (changes.size === 0) return;
+        setProjects((prev) =>
+          prev.map((p) => (changes.has(p.id) ? { ...p, ...changes.get(p.id) } : p)).sort((a, b) => a.sort_order - b.sort_order)
+        );
+        await Promise.all([...changes].map(([pid, patch]) => api.updateProject(pid, patch)));
       }),
     [api, attempt]
   );
@@ -281,7 +302,10 @@ export function useTracker(api = realApi) {
     update: (id, data) =>
       attempt(async () => {
         const updated = await api.updateStatus(id, data);
-        setStatuses((prev) => prev.map((x) => (x.id === id ? updated : x)));
+        // Pinning one unpins the rest, on the server too
+        setStatuses((prev) =>
+          prev.map((x) => (x.id === id ? updated : data.is_pinned && x.is_pinned ? { ...x, is_pinned: false } : x))
+        );
         // Marking a status finished stops a timer running in it, on the server: resync to see that
         if (data.is_done === true) load();
       }),
@@ -290,19 +314,16 @@ export function useTracker(api = realApi) {
         await api.deleteStatus(id);
         setStatuses((prev) => prev.filter((x) => x.id !== id));
       }),
-    /** Swap places with the neighbour above (-1) or below (+1). */
-    move: (id, direction) =>
+    /** Put the statuses in the order of `ids` (all of them, top first). Shows at once; a failure resyncs. */
+    reorder: (ids) =>
       attempt(async () => {
-        const i = statuses.findIndex((x) => x.id === id);
-        const a = statuses[i];
-        const b = statuses[i + direction];
-        if (!a || !b) return;
-        const [ua, ub] = await Promise.all([
-          api.updateStatus(a.id, { sort_order: b.sort_order }),
-          api.updateStatus(b.id, { sort_order: a.sort_order }),
-        ]);
-        setStatuses((prev) =>
-          prev.map((x) => (x.id === ua.id ? ua : x.id === ub.id ? ub : x)).sort((p, q) => p.sort_order - q.sort_order)
+        const byId = new Map(statuses.map((x) => [x.id, x]));
+        // The same sort_order values, handed out again in the new order
+        const slots = statuses.map((x) => x.sort_order).sort((a, b) => a - b);
+        const next = ids.map((id, i) => ({ ...byId.get(id), sort_order: slots[i] }));
+        setStatuses(next);
+        await Promise.all(
+          next.filter((x) => x.sort_order !== byId.get(x.id).sort_order).map((x) => api.updateStatus(x.id, { sort_order: x.sort_order }))
         );
       }),
   };
@@ -310,9 +331,9 @@ export function useTracker(api = realApi) {
   // ── To-dos ─────────────────────────────────────────────────────────────────
 
   const todoOps = {
-    add: (projectId, text) =>
+    add: (projectId, text, parentId = null) =>
       attempt(async () => {
-        const created = await api.createTodo({ project_id: projectId, text });
+        const created = await api.createTodo({ project_id: projectId, text, parent_id: parentId });
         setTodos((prev) => [...prev, created]);
       }),
     // Ticking and deleting show at once; a failure resyncs from the server (see attempt)
@@ -325,9 +346,23 @@ export function useTracker(api = realApi) {
           prev.map((x) => (x.id === id && x.done === saved.done ? { ...x, completed_at: saved.completed_at } : x))
         );
       }),
+    /** Put these to-dos (one list: a project's open ones, a to-do's sub-to-dos...) in the order of
+     *  `ids`. They trade the sort_order values they already hold, so other lists keep their places.
+     *  Shows at once; a failure resyncs. */
+    reorder: (ids) =>
+      attempt(async () => {
+        const byId = new Map(todos.map((x) => [x.id, x]));
+        const slots = ids.map((id) => byId.get(id).sort_order).sort((a, b) => a - b);
+        const changed = new Map(ids.map((id, i) => [id, slots[i]]).filter(([id, order]) => byId.get(id).sort_order !== order));
+        if (changed.size === 0) return;
+        setTodos((prev) =>
+          prev.map((x) => (changed.has(x.id) ? { ...x, sort_order: changed.get(x.id) } : x)).sort((a, b) => a.sort_order - b.sort_order)
+        );
+        await Promise.all([...changed].map(([id, order]) => api.updateTodo(id, { sort_order: order })));
+      }),
     remove: (id) =>
       attempt(async () => {
-        setTodos((prev) => prev.filter((x) => x.id !== id));
+        setTodos((prev) => prev.filter((x) => x.id !== id && x.parent_id !== id)); // its sub-to-dos go with it
         await api.deleteTodo(id);
       }),
   };

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
+import { Check, Flag, GripVertical, Pin, Plus, Trash2 } from "lucide-react";
 import Modal, { Button } from "./Modal";
 import { ON_INK, PROJECT_COLORS, inkFor } from "../lib/palette";
+import { useReorder } from "../hooks/useReorder";
 
 /** Edit the list of statuses projects can have. Changes save as you make them;
  *  there is no Save button. */
@@ -12,6 +13,8 @@ export default function StatusModal({ projects, statuses, ops, onClose }) {
   const openCount = statuses.filter((s) => !s.is_done).length;
   const usedBy = (id) => projects.filter((p) => p.status_id === id).length;
   const lastOpen = "Keep at least one status that isn't finished.";
+
+  const reorder = useReorder(statuses.map((s) => s.id), ops.reorder);
 
   const add = async (e) => {
     e.preventDefault();
@@ -38,20 +41,36 @@ export default function StatusModal({ projects, statuses, ops, onClose }) {
       }
     >
       <p className="text-xs text-muted">
-        Where a project stands. The project list is grouped by these, in this order. Tick Finished on the ones that
-        mean it's over: those projects lose their timer and fold away.
+        Where a project stands. The project list is grouped by these, in this order: drag a handle to rearrange them.
+        Flag the ones that mean it's over: those projects lose their timer and fold away. Pin one to keep its column on
+        the board when you Hide all.
       </p>
 
-      <ul className="mt-3 border-t border-rule">
+      <ul className={`mt-3 border-t border-rule ${reorder.held ? "select-none" : ""}`}>
         {statuses.map((item, i) => {
           const used = usedBy(item.id);
+          const sortRow = reorder.rowProps(i);
           const finishBlock = !item.is_done && openCount === 1 ? lastOpen : null;
           const deleteBlock = used
             ? `${used} ${used === 1 ? "project uses" : "projects use"} this status. Move ${used === 1 ? "it" : "them"} first.`
             : finishBlock;
           return (
-            <li key={item.id} className="border-b border-rule">
+            <li
+              key={item.id}
+              {...sortRow}
+              className={`border-b border-rule ${sortRow.className ?? "bg-surface"}`}
+            >
               <div className="flex items-center gap-1.5 py-1">
+                <button
+                  {...reorder.gripProps(item.id, i)}
+                  aria-label={`Move ${item.name}: drag, or use the up and down arrow keys`}
+                  title="Drag to reorder"
+                  className={`-ml-1 grid h-8 w-5 shrink-0 touch-none place-items-center text-faint transition-colors hover:text-text ${
+                    reorder.held === item.id ? "cursor-grabbing text-text" : "cursor-grab"
+                  }`}
+                >
+                  <GripVertical size={15} />
+                </button>
                 <button
                   onClick={() => setPickingFor(pickingFor === item.id ? null : item.id)}
                   className="grid size-8 shrink-0 place-items-center transition-colors hover:bg-surface-2"
@@ -63,34 +82,44 @@ export default function StatusModal({ projects, statuses, ops, onClose }) {
 
                 <NameInput value={item.name} onCommit={(name) => ops.update(item.id, { name })} />
 
-                <label
-                  className="flex shrink-0 cursor-pointer items-center gap-1.5 px-1 text-xs text-muted"
-                  title={finishBlock ?? "Projects with this status are finished: no timer, folded away"}
+                <button
+                  onClick={() => ops.update(item.id, { is_done: !item.is_done })}
+                  disabled={Boolean(finishBlock)}
+                  aria-pressed={item.is_done}
+                  aria-label={`Mark ${item.name} as finished`}
+                  title={
+                    finishBlock ??
+                    (item.is_done
+                      ? "Finished: projects here have no timer and are folded away. Click to undo"
+                      : "Flag as finished: projects here lose their timer and fold away")
+                  }
+                  className={`grid size-8 shrink-0 place-items-center transition-colors enabled:hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-30 ${
+                    item.is_done ? "text-text" : "text-faint enabled:hover:text-text"
+                  }`}
                 >
-                  <input
-                    type="checkbox"
-                    checked={item.is_done}
-                    disabled={Boolean(finishBlock)}
-                    onChange={(e) => ops.update(item.id, { is_done: e.target.checked })}
-                    className="size-3.5 accent-(--text)"
-                  />
-                  Finished
-                </label>
+                  <Flag size={14} fill={item.is_done ? "currentColor" : "none"} />
+                </button>
+
+                <button
+                  onClick={() => ops.update(item.id, { is_pinned: !item.is_pinned })}
+                  aria-pressed={Boolean(item.is_pinned)}
+                  aria-label={`Keep ${item.name} on the board when hiding all columns`}
+                  title={
+                    item.is_pinned
+                      ? "Stays on the board when you Hide all. Click to unpin"
+                      : "Pin: keep this column on the board when you Hide all"
+                  }
+                  className={`grid size-8 shrink-0 place-items-center transition-colors hover:bg-surface-2 ${
+                    item.is_pinned ? "text-text" : "text-faint hover:text-text"
+                  }`}
+                >
+                  <Pin size={14} fill={item.is_pinned ? "currentColor" : "none"} />
+                </button>
 
                 <span className="figures w-6 shrink-0 text-right text-xs text-faint" title={`${used} in use`}>
                   {used}
                 </span>
 
-                <IconButton label={`Move ${item.name} up`} disabled={i === 0} onClick={() => ops.move(item.id, -1)}>
-                  <ChevronUp size={16} />
-                </IconButton>
-                <IconButton
-                  label={`Move ${item.name} down`}
-                  disabled={i === statuses.length - 1}
-                  onClick={() => ops.move(item.id, 1)}
-                >
-                  <ChevronDown size={16} />
-                </IconButton>
                 <IconButton
                   label={`Delete ${item.name}`}
                   title={deleteBlock ?? `Delete ${item.name}`}

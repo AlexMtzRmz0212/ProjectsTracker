@@ -21,6 +21,7 @@ import Heatmap from "./components/Heatmap";
 import ProjectModal from "./components/ProjectModal";
 import StatusModal from "./components/StatusModal";
 import ProjectDetail from "./components/ProjectDetail";
+import ProjectSearch from "./components/ProjectSearch";
 import SessionModal from "./components/SessionModal";
 import ConfirmDialog from "./components/ConfirmDialog";
 import InterestInbox from "./components/InterestInbox";
@@ -52,6 +53,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   const [tab, setTab] = useState("projects"); // projects | feed | calendar | stats
   const [statusesOpen, setStatusesOpen] = useState(false);
   const [detailId, setDetailId] = useState(null); // the project whose notes and to-dos are open
+  const [searchOpen, setSearchOpen] = useState(false);
   const [projectModal, setProjectModal] = useState(null); // { project? }
   const [sessionModal, setSessionModal] = useState(null); // { session? , projectId?, date? }
   const [confirm, setConfirm] = useState(null); // { kind: "session", item }; projects are deleted on the board's trash can
@@ -129,6 +131,22 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
       : "ProjectsTracker";
   }, [demo, phase, runningProject, clock, focusRemaining, breakRemaining]);
 
+  // Ctrl+F (⌘F on a Mac) opens the project search instead of the browser's find. The demo sits on a
+  // public page, where taking that shortcut over would be rude, so it only has the button. With another
+  // window open on top of the board it is left to the browser too.
+  useEffect(() => {
+    if (demo) return;
+    const onKey = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== "f") return;
+      if (!searchOpen && document.querySelector('[role="dialog"]')) return;
+      e.preventDefault();
+      if (searchOpen) document.getElementById("project-search")?.select();
+      else setSearchOpen(true);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [demo, searchOpen]);
+
   const selectDay = (d) => {
     setSelected(d);
     if (!isSameMonth(d, cursor)) setCursor(d);
@@ -149,9 +167,9 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   };
 
   /** A card dragged to another column on the board. */
-  const moveProject = async (id, statusId) => {
+  const moveProject = async (id, statusId, index) => {
     if (statusesById.get(statusId)?.is_done && t.running?.project_id === id) await t.stopTimer();
-    return t.moveProject(id, statusId);
+    return t.moveProject(id, statusId, index);
   };
 
   /** A card dropped on the archive drawer. Archiving ends its timer, here and (via the server) in the data. */
@@ -221,6 +239,9 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           pomodorosToday={pomodorosToday}
           onStop={t.stopTimer}
           onNewProject={() => setProjectModal({})}
+          onSearch={() => setSearchOpen(true)}
+          locked={Boolean(detailProject)}
+          searchHint={demo ? undefined : /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘F" : "Ctrl F"}
           theme={theme}
           onToggleTheme={toggleTheme}
           onSignOut={onSignOut}
@@ -365,6 +386,18 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
       {statusesOpen && (
         // All projects, archived too: an archived project still holds on to its status
         <StatusModal projects={projects} statuses={t.statuses} ops={t.statusOps} onClose={() => setStatusesOpen(false)} />
+      )}
+
+      {searchOpen && (
+        <ProjectSearch
+          projects={projects}
+          statusesById={statusesById}
+          onClose={() => setSearchOpen(false)}
+          onPick={(id) => {
+            setSearchOpen(false);
+            setDetailId(id);
+          }}
+        />
       )}
 
       {detailProject && (

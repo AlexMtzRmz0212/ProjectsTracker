@@ -40,6 +40,7 @@ class StatusUpdate(BaseModel):
     name: Optional[Label] = None
     color: Optional[HexColor] = None
     is_done: Optional[bool] = None
+    is_pinned: Optional[bool] = None
     sort_order: Optional[int] = None
 
 
@@ -50,6 +51,7 @@ class StatusOut(BaseModel):
     name: str
     color: str
     is_done: bool
+    is_pinned: bool = False
     sort_order: int
 
 
@@ -96,6 +98,7 @@ TodoText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1,
 class TodoCreate(BaseModel):
     project_id: str
     text: TodoText
+    parent_id: Optional[str] = None
 
 
 class TodoUpdate(BaseModel):
@@ -109,6 +112,7 @@ class TodoOut(BaseModel):
 
     id: str
     project_id: str
+    parent_id: Optional[str] = None
     text: str
     done: bool
     sort_order: int

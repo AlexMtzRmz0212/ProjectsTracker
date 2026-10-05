@@ -7,8 +7,9 @@ import { Button } from "./Modal";
 import ArchiveDrawer from "./ArchiveDrawer";
 
 /**
- * Every status as a column, every project as a card. Drag a card onto another column
- * to change its status, down onto the archive tab at the bottom of the screen to put it away, or up
+ * Every status as a column, every project as a card. Drag a card up or down its column to put it
+ * in a new place, onto another column to change its status (it lands where you drop it), down onto
+ * the archive tab at the bottom of the screen to put it away, or up
  * to the trash can that drops in at the top to delete it. A mouse drags straight away; a
  * finger holds the card for a moment first, so columns still scroll. Phones show one
  * status at a time, and the chips on top take drops.
@@ -20,7 +21,8 @@ export default function ProjectBoard({
 }) {
   const [phoneStatus, setPhoneStatus] = useState(null);
   const shownOnPhone = statuses.some((s) => s.id === phoneStatus) ? phoneStatus : statuses[0]?.id;
-  const [hidden, toggleHidden] = useHiddenStatuses(statuses);
+  const [hidden, toggleHidden, setAllHidden] = useHiddenStatuses(statuses);
+  const keptName = (statuses.find((s) => s.is_pinned) ?? statuses[0])?.name; // the column Hide all leaves
 
   // The trash can. `trashed` is the card last dropped in it; it outlives the question
   // so the slip keeps its words while it slides away.
@@ -31,7 +33,7 @@ export default function ProjectBoard({
 
   const { root, drag, ghost, press, endSwallow } = useCardDrag({
     onPickUp: () => setAsking(false),
-    onDrop: (id, target) => {
+    onDrop: (id, target, index) => {
       const project = projects.find((p) => p.id === id);
       if (!project || !target) return false;
       if (target === "trash") {
@@ -43,7 +45,9 @@ export default function ProjectBoard({
         onArchive(project.id);
         return false; // the card is gone from its column at once, so there is nothing to animate
       }
-      if (project.status_id !== target) onMove(project.id, target);
+      // Dropped on a status chip (phones), there is no column to place it in: it joins the end, and
+      // a card already in that status stays where it is
+      if (index != null || project.status_id !== target) onMove(project.id, target, index);
       return false;
     },
   });
@@ -52,6 +56,45 @@ export default function ProjectBoard({
   const trashPhase = dragId !== null ? (over === "trash" ? "hot" : "ready") : confirming ? "confirm" : "hidden";
   const ghostProject = drag && projects.find((p) => p.id === drag.id);
   const statusesById = new Map(statuses.map((s) => [s.id, s]));
+
+  // While a card is held it already sits in the slot it would drop into (back home when the pointer
+  // is over no column), and the cards around it step aside.
+  const held = drag?.phase === "drag" ? ghostProject : null;
+  const inStatus = (id) => projects.filter((p) => p.status_id === id);
+  const slot = held
+    ? statuses.some((s) => s.id === drag.target)
+      ? { statusId: drag.target, index: drag.index ?? inStatus(drag.target).filter((p) => p.id !== held.id).length }
+      : { statusId: held.status_id, index: inStatus(held.status_id).findIndex((p) => p.id === held.id) }
+    : null;
+  const cardsOf = (id) => {
+    const cards = inStatus(id);
+    if (!held) return cards;
+    const rest = cards.filter((p) => p.id !== held.id);
+    if (slot.statusId === id) rest.splice(slot.index, 0, held);
+    return rest;
+  };
+
+  // The cards slide to their new places rather than jumping. A card's place is measured within its
+  // column's scroll, so scrolling the column isn't mistaken for a move.
+  const placed = useRef(new Map());
+  useLayoutEffect(() => {
+    if (!held) {
+      placed.current = new Map();
+      return;
+    }
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const next = new Map();
+    root.current.querySelectorAll("[data-card]").forEach((node) => {
+      const list = node.parentElement;
+      const y = node.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
+      const before = placed.current.get(node.dataset.card);
+      next.set(node.dataset.card, { list, y });
+      if (!reduce && before && before.list === list && Math.abs(before.y - y) > 1) {
+        node.animate([{ transform: `translateY(${before.y - y}px)` }, { transform: "none" }], { duration: 160, easing: "ease-out" });
+      }
+    });
+    placed.current = next;
+  });
 
   return (
     <div ref={root} className="flex h-full min-h-[16rem] flex-col gap-3 pb-5">
@@ -95,7 +138,31 @@ export default function ProjectBoard({
       {/* Larger screens: which statuses get a column. Phones already show one at a time. */}
       {statuses.length > 1 && (
         <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-0.5 max-md:hidden" role="group" aria-label="Show columns">
-          <span className="font-serif text-xs italic text-faint">Show</span>
+          <button
+            onClick={() => setAllHidden(hidden.size === 0)}
+            aria-label={hidden.size === 0 ? `Hide all columns but ${keptName}` : "Show all columns"}
+            title={hidden.size === 0 ? `Hide every column but ${keptName}` : "Show every column"}
+            className="flex font-serif text-xs italic text-faint transition-colors hover:text-text"
+          >
+            {/* The word rolls like a counter wheel, while "all" stays put. Both words share one cell, so
+                the row doesn't shift; the idle one waits above or below, out of sight. */}
+            <span className="inline-grid overflow-hidden px-px leading-5" aria-hidden="true">
+              {[
+                ["Show", hidden.size > 0, "-translate-y-full"],
+                ["Hide", hidden.size === 0, "translate-y-full"],
+              ].map(([text, on, away]) => (
+                <span
+                  key={text}
+                  className={`col-start-1 row-start-1 transition-transform duration-500 ease-[cubic-bezier(0.65,0,0.35,1)] ${
+                    on ? "" : away
+                  }`}
+                >
+                  {text}
+                </span>
+              ))}
+            </span>
+            <span className="leading-5" aria-hidden="true">&nbsp;all</span>
+          </button>
           {statuses.map((s) => {
             const shown = !hidden.has(s.id);
             const onlyOne = shown && statuses.length - hidden.size === 1;
@@ -124,15 +191,16 @@ export default function ProjectBoard({
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] gap-3 md:auto-cols-[minmax(15rem,1fr)] md:grid-flow-col md:grid-cols-none md:overflow-x-auto">
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] gap-3 md:auto-cols-[minmax(0,21rem)] md:grid-flow-col md:grid-cols-none md:[justify-content:center]">
         {statuses.map((status) => {
-          const cards = projects.filter((p) => p.status_id === status.id);
+          const cards = inStatus(status.id);
+          const shown = cardsOf(status.id);
           return (
             <section
               key={status.id}
               aria-label={`${status.name}, ${cards.length} ${cards.length === 1 ? "project" : "projects"}`}
               data-drop={status.id}
-              className={`min-h-0 flex-col border bg-surface-2/40 transition-colors ${
+              className={`column-in min-h-0 flex-col border bg-surface-2/40 transition-colors ${
                 status.id === shownOnPhone ? "flex" : "max-md:hidden"
               } ${hidden.has(status.id) ? "md:hidden" : "md:flex"} ${over === status.id ? "border-text bg-surface-2" : "border-line"}`}
             >
@@ -153,8 +221,8 @@ export default function ProjectBoard({
 
               {/* `relative` so the cards' sr-only (absolutely positioned) spans are clipped by this
                   scroll, not left to stretch the whole page past the end of the column */}
-              <ul className="relative min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
-                {cards.map((p) => (
+              <ul className="relative min-h-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden p-2">
+                {shown.map((p) => (
                   <BoardCard
                     key={p.id}
                     project={p}
@@ -164,7 +232,7 @@ export default function ProjectBoard({
                     {...cardProps(p)}
                   />
                 ))}
-                {cards.length === 0 && (
+                {shown.length === 0 && (
                   <li className="grid place-items-center border border-dashed border-line-strong px-3 py-6 text-center text-[13px] text-faint">
                     <span className="max-md:hidden">Drop a project here</span>
                     <span className="md:hidden">Nothing here</span>
@@ -229,10 +297,7 @@ function useHiddenStatuses(statuses) {
   const hidden = new Set(stored.filter((id) => statuses.some((s) => s.id === id)));
   if (hidden.size >= statuses.length) hidden.clear();
 
-  const toggle = (id) => {
-    const next = new Set(hidden);
-    if (next.has(id)) next.delete(id);
-    else if (statuses.length - next.size > 1) next.add(id);
+  const save = (next) => {
     setStored([...next]);
     try {
       localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next]));
@@ -240,7 +305,18 @@ function useHiddenStatuses(statuses) {
       // storage blocked: the choice still holds until the page is reloaded
     }
   };
-  return [hidden, toggle];
+  const toggle = (id) => {
+    const next = new Set(hidden);
+    if (next.has(id)) next.delete(id);
+    else if (statuses.length - next.size > 1) next.add(id);
+    save(next);
+  };
+  // Hiding "all" leaves the pinned column (the first one when none is pinned), as one always stays
+  const setAll = (hide) => {
+    const kept = statuses.find((s) => s.is_pinned) ?? statuses[0];
+    save(new Set(hide ? statuses.filter((s) => s !== kept).map((s) => s.id) : []));
+  };
+  return [hidden, toggle, setAll];
 }
 
 const HOLD_MS = 350; // a finger has to rest this long on a card to pick it up
@@ -250,8 +326,11 @@ const TOUCH_SLOP = 8; // a finger that moves this far before the hold is scrolli
 /**
  * Drag and drop on pointer events, so mice, fingers and pens all work. Drop targets are
  * elements with `data-drop` (a status id, "archive" or "trash"), found under the pointer as it
- * moves. `drag` is { id, phase: "drag" | "swallow", target, width, offsetX, offsetY }.
- * The ghost is moved straight through its ref, not through React, on every move.
+ * moves. Over a column, `index` is the place among its other cards (`[data-card]`) the pointer
+ * is at; over anything else it is null. `drag` is
+ * { id, phase: "drag" | "swallow", target, index, width, offsetX, offsetY }.
+ * The ghost is moved straight through its ref, not through React, on every move. Holding the
+ * pointer near the top or bottom edge of a column scrolls it.
  */
 function useCardDrag({ onPickUp, onDrop }) {
   const root = useRef(null);
@@ -286,6 +365,7 @@ function useCardDrag({ onPickUp, onDrop }) {
     const s = live.current;
     if (!s) return;
     clearTimeout(s.timer);
+    cancelAnimationFrame(s.raf);
     s.detach();
     live.current = null;
     document.body.style.cursor = "";
@@ -311,6 +391,40 @@ function useCardDrag({ onPickUp, onDrop }) {
       width: rect.width,
       active: false,
       target: null,
+      index: null,
+    };
+
+    /** What the pointer is over now: the drop target and, in a column, the place among its cards. */
+    const track = () => {
+      const zone = document.elementFromPoint(s.x, s.y)?.closest("[data-drop]");
+      const target = zone?.dataset.drop ?? null;
+      let index = null;
+      if (zone?.matches("section")) {
+        index = [...zone.querySelectorAll("[data-card]")]
+          .filter((card) => card.dataset.card !== id)
+          .filter((card) => {
+            const r = card.getBoundingClientRect();
+            return r.top + r.height / 2 < s.y;
+          }).length;
+      }
+      if (target !== s.target || index !== s.index) {
+        s.target = target;
+        s.index = index;
+        setDrag((d) => d && { ...d, target, index });
+      }
+    };
+
+    const EDGE = 48; // px from a column's top or bottom where holding the card scrolls it
+    const autoscroll = () => {
+      const list = s.target && document.querySelector(`section[data-drop="${s.target}"] ul`);
+      if (list) {
+        const r = list.getBoundingClientRect();
+        const speed = s.y < r.top + EDGE ? s.y - (r.top + EDGE) : s.y > r.bottom - EDGE ? s.y - (r.bottom - EDGE) : 0;
+        const before = list.scrollTop;
+        if (speed) list.scrollTop += Math.max(-14, Math.min(14, speed / 4));
+        if (list.scrollTop !== before) track();
+      }
+      s.raf = requestAnimationFrame(autoscroll);
     };
 
     const pickUp = () => {
@@ -318,7 +432,8 @@ function useCardDrag({ onPickUp, onDrop }) {
       if (s.touch) navigator.vibrate?.(10);
       document.body.style.cursor = "grabbing";
       handlers.current.onPickUp();
-      setDrag({ id, phase: "drag", target: null, width: s.width, offsetX: s.offsetX, offsetY: s.offsetY });
+      setDrag({ id, phase: "drag", target: null, index: null, width: s.width, offsetX: s.offsetX, offsetY: s.offsetY });
+      s.raf = requestAnimationFrame(autoscroll);
     };
 
     const onMove = (ev) => {
@@ -332,16 +447,12 @@ function useCardDrag({ onPickUp, onDrop }) {
         return;
       }
       place();
-      const target = document.elementFromPoint(s.x, s.y)?.closest("[data-drop]")?.dataset.drop ?? null;
-      if (target !== s.target) {
-        s.target = target;
-        setDrag((d) => d && { ...d, target });
-      }
+      track();
     };
 
     const onUp = (ev) => {
       if (ev.pointerId !== s.pointerId) return;
-      const { active, target } = s;
+      const { active, target, index } = s;
       release();
       if (!active) return;
       // The pointer comes up over whatever was under the card; that isn't a click
@@ -352,7 +463,7 @@ function useCardDrag({ onPickUp, onDrop }) {
       window.addEventListener("click", swallowClick, { capture: true, once: true });
       setTimeout(() => window.removeEventListener("click", swallowClick, { capture: true }), 0);
 
-      if (handlers.current.onDrop(id, target)) {
+      if (handlers.current.onDrop(id, target, index)) {
         const can = document.querySelector('[data-drop="trash"]')?.getBoundingClientRect();
         if (can && ghost.current) {
           ghost.current.style.setProperty("--to-x", `${can.left + can.width / 2 - s.x}px`);
@@ -405,6 +516,7 @@ function BoardCard({
 
   return (
     <li
+      data-card={project.id}
       onPointerDown={onPointerDown}
       className={`cursor-grab select-none border border-l-[3px] bg-surface transition-opacity [-webkit-touch-callout:none] active:cursor-grabbing ${
         dragging ? "opacity-40" : ""
@@ -437,7 +549,7 @@ function BoardCard({
         <CardMenu name={name} onAddTime={onAddTime} onEdit={onEdit} />
       </div>
 
-      <div className="flex items-center gap-3 px-3 pt-1.5 text-xs text-muted">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pt-1.5 text-xs text-muted">
         <span className="font-serif italic">Today</span>
         <span className={`figures -ml-2 ${todaySeconds ? "text-text" : ""}`}>{fmtHM(todaySeconds)}</span>
         <span className="font-serif italic">Total</span>
@@ -455,7 +567,7 @@ function BoardCard({
             <span className="sr-only">Has notes</span>
           </span>
         )}
-        <Sparkline className="ml-auto" days={lastSeven} color={color} />
+        <Sparkline className="ml-auto shrink-0" days={lastSeven} color={color} />
       </div>
 
       <div className="px-3 pb-2.5 pt-2">

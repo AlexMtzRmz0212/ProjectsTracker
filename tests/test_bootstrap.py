@@ -119,6 +119,21 @@ def test_projects_made_before_skipped_at_keep_working(tmp_path):
         assert conn.execute(text("SELECT skipped_at FROM projects WHERE id = 'p1'")).scalar() is None
 
 
+def test_statuses_made_before_is_pinned_keep_working(tmp_path):
+    """A database whose statuses table predates is_pinned gets the column; old rows are not pinned."""
+    engine = create_engine(f"sqlite:///{tmp_path / 'old-statuses.db'}")
+    init_db(engine)
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE statuses DROP COLUMN is_pinned"))
+
+    init_db(engine)
+    init_db(engine)  # repeatable
+
+    assert "is_pinned" in {c["name"] for c in inspect(engine).get_columns("statuses")}
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM statuses WHERE is_pinned")).scalar() == 0
+
+
 def test_projects_made_before_archived_at_keep_working(tmp_path):
     """A database whose projects table predates archived_at gets the column; old rows stay NULL (on the board)."""
     engine = create_engine(f"sqlite:///{tmp_path / 'old-projects-archive.db'}")

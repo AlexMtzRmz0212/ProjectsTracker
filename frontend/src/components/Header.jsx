@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { Coffee, Inbox, LogOut, Moon, NotebookPen, Pause, Play, Plus, SkipForward, Square, Sun, Timer } from "lucide-react";
+import { Coffee, Inbox, LogOut, Moon, NotebookPen, Pause, Play, Plus, Search, SkipForward, Square, Sun, Timer } from "lucide-react";
 import { Button } from "./Modal";
 import { tint } from "../lib/palette";
 import { fmtClock, fmtCountdown, fmtHM } from "../lib/time";
 
 export default function Header({
   runningProject, runningSession, elapsed, heldProject, heldSeconds, onSaveNote, pomodoro, pomodorosToday = 0, onStop, onNewProject, theme, onToggleTheme,
-  onSignOut, signOutLabel = "Sign out", onInbox, inboxUnread = 0,
+  onSignOut, signOutLabel = "Sign out", onInbox, inboxUnread = 0, onSearch, searchHint, locked = false,
 }) {
   return (
-    <header className="relative z-30 shrink-0 border-b-[3px] border-double border-line-strong bg-bg">
+    <header data-app-header className="relative z-30 shrink-0 border-b-[3px] border-double border-line-strong bg-bg">
       <div className="mx-auto flex h-14 max-w-7xl items-center gap-2 px-4 sm:h-16 sm:gap-3 sm:px-6">
         <div className="flex shrink-0 items-center gap-2">
           <Timer size={20} className="text-text" aria-hidden="true" />
@@ -30,36 +30,48 @@ export default function Header({
           />
         </div>
 
-        <Button variant="outline" onClick={onNewProject} className="shrink-0 px-2.5 sm:px-3.5" aria-label="New project">
-          <Plus size={16} strokeWidth={2.5} />
-          <span className="hidden md:inline">New project</span>
-        </Button>
-        {onInbox && (
+        {/* With a project open over the board only the timers above stay live: the rest is dimmed and inert */}
+        <div className={`flex shrink-0 items-center gap-2 transition-opacity sm:gap-3 ${locked ? "opacity-40" : ""}`} inert={locked}>
           <Button
-            onClick={onInbox}
-            className="relative w-9 shrink-0 px-0"
-            aria-label={inboxUnread ? `Interest, ${inboxUnread} new` : "Interest"}
+            onClick={onSearch}
+            className="shrink-0 px-2.5 sm:px-3"
+            aria-label={searchHint ? `Find a project (${searchHint})` : "Find a project"}
+            title={searchHint ? `Find a project (${searchHint})` : "Find a project"}
           >
-            <Inbox size={17} />
-            {inboxUnread > 0 && (
-              <span className="figures absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center bg-accent px-1 text-[10px] font-semibold leading-none text-bg">
-                {inboxUnread}
-              </span>
-            )}
+            <Search size={16} />
+            {searchHint && <span className="figures hidden text-xs font-normal text-faint lg:inline">{searchHint}</span>}
           </Button>
-        )}
-        <Button
-          onClick={onToggleTheme}
-          className="w-9 shrink-0 px-0"
-          aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-        >
-          {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
-        </Button>
-        {onSignOut && (
-          <Button onClick={onSignOut} className="w-9 shrink-0 px-0" aria-label={signOutLabel} title={signOutLabel}>
-            <LogOut size={17} />
+          <Button variant="outline" onClick={onNewProject} className="shrink-0 px-2.5 sm:px-3.5" aria-label="New project">
+            <Plus size={16} strokeWidth={2.5} />
+            <span className="hidden md:inline">New project</span>
           </Button>
-        )}
+          {onInbox && (
+            <Button
+              onClick={onInbox}
+              className="relative w-9 shrink-0 px-0"
+              aria-label={inboxUnread ? `Interest, ${inboxUnread} new` : "Interest"}
+            >
+              <Inbox size={17} />
+              {inboxUnread > 0 && (
+                <span className="figures absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center bg-accent px-1 text-[10px] font-semibold leading-none text-bg">
+                  {inboxUnread}
+                </span>
+              )}
+            </Button>
+          )}
+          <Button
+            onClick={onToggleTheme}
+            className="w-9 shrink-0 px-0"
+            aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          >
+            {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
+          </Button>
+          {onSignOut && (
+            <Button onClick={onSignOut} className="w-9 shrink-0 px-0" aria-label={signOutLabel} title={signOutLabel}>
+              <LogOut size={17} />
+            </Button>
+          )}
+        </div>
       </div>
     </header>
   );

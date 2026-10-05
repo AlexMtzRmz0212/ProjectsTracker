@@ -212,6 +212,16 @@ body {
   animation: fade-in 0.15s ease-out both;
 }
 
+/* A board column settling in; it plays again whenever the column is switched back on */
+@keyframes column-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.column-in {
+  animation: column-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 /* ── Trash can (ProjectBoard) ──────────────────────────────────────────────
    Drops in at the top while a card is dragged (ready), opens its lid and turns
    red when the card is over it (hot), then swallows the card and unrolls the

@@ -20,9 +20,9 @@ function mulberry32(seed) {
 }
 
 const STATUSES = [
-  { id: "demo-t1", name: "Active", color: "#3a744b", is_done: false },
-  { id: "demo-t2", name: "On hold", color: "#8f6416", is_done: false },
-  { id: "demo-t3", name: "Done", color: "#56606b", is_done: true },
+  { id: "demo-t1", name: "Active", color: "#3a744b", is_done: false, is_pinned: false },
+  { id: "demo-t2", name: "On hold", color: "#8f6416", is_done: false, is_pinned: false },
+  { id: "demo-t3", name: "Done", color: "#56606b", is_done: true, is_pinned: false },
 ];
 
 // Each project works in its own slice of the day, so sample days never show two
@@ -120,7 +120,7 @@ function seed(now) {
     projects.push(project);
     (def.todos ?? []).forEach(([text, done], k) => {
       todos.push({
-        id: `demo-d${todos.length + 1}`, project_id: project.id, text, done, completed_at: null,
+        id: `demo-d${todos.length + 1}`, project_id: project.id, parent_id: null, text, done, completed_at: null,
         sort_order: todos.length + 1, created_at: new Date(now.getTime() - (20 - k) * DAY).toISOString(),
       });
     });
@@ -305,7 +305,7 @@ export function createDemoApi() {
       uniqueName(statuses, data.name, "status");
       const created = {
         id: `demo-t${seq++}`, name: data.name, color: data.color ?? "#56606b",
-        is_done: Boolean(data.is_done), sort_order: nextOrder(statuses),
+        is_done: Boolean(data.is_done), is_pinned: false, sort_order: nextOrder(statuses),
       };
       statuses = [...statuses, created];
       return { ...created };
@@ -318,7 +318,8 @@ export function createDemoApi() {
         stopTimerIf((p) => p.status_id === id);
       }
       const next = { ...current, ...data };
-      statuses = statuses.map((s) => (s.id === id ? next : s));
+      // Only one status is pinned: pinning this one unpins the rest
+      statuses = statuses.map((s) => (s.id === id ? next : data.is_pinned ? { ...s, is_pinned: false } : s));
       return { ...next };
     },
     deleteStatus: async (id) => {
@@ -333,13 +334,17 @@ export function createDemoApi() {
       return null;
     },
 
-    listTodos: async () => todos.map((x) => ({ ...x })),
+    listTodos: async () => [...todos].sort((a, b) => a.sort_order - b.sort_order).map((x) => ({ ...x })),
     createTodo: async (data) => {
       project(data.project_id);
       const text = data.text.trim();
       if (!text) throw httpError(422, "Write something first");
+      const parent = data.parent_id ? todo(data.parent_id) : null;
+      if (parent && (parent.project_id !== data.project_id || parent.parent_id)) {
+        throw httpError(422, "A sub-to-do goes under a top-level to-do of the same project");
+      }
       const created = {
-        id: `demo-d${seq++}`, project_id: data.project_id, text, done: false, completed_at: null,
+        id: `demo-d${seq++}`, project_id: data.project_id, parent_id: parent?.id ?? null, text, done: false, completed_at: null,
         sort_order: Math.max(0, ...todos.map((x) => x.sort_order)) + 1, created_at: new Date().toISOString(),
       };
       todos = [...todos, created];
@@ -354,7 +359,7 @@ export function createDemoApi() {
     },
     deleteTodo: async (id) => {
       todo(id);
-      todos = todos.filter((x) => x.id !== id);
+      todos = todos.filter((x) => x.id !== id && x.parent_id !== id);
       return null;
     },
 

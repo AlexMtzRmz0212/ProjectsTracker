@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
-import { ArchiveRestore, Check, ChevronDown, ListChecks, NotebookText, History, Pencil, Play, Plus, Square, Trash2 } from "lucide-react";
+import { ArchiveRestore, Check, ChevronDown, GripVertical, ListChecks, NotebookText, History, Pencil, Play, Plus, Square, Trash2 } from "lucide-react";
 import Modal, { Button } from "./Modal";
 import TabBar from "./TabBar";
 import { ON_INK, inkFor, iconFor } from "../lib/palette";
 import { fmtClock, fmtHM, fmtTime, sessionSeconds } from "../lib/time";
+import { useReorder } from "../hooks/useReorder";
 
 const RECENT = 8;
 
@@ -21,9 +22,9 @@ export default function ProjectDetail({
   const openTodos = todos.filter((t) => !t.done).length;
 
   return (
-    <Modal title={project.name} wide onClose={onClose}>
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+    <Modal title={project.name} wide contained belowHeader onClose={onClose}>
+      <div className="flex min-h-0 flex-1 flex-col gap-4">
+        <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
           <span className="grid size-8 shrink-0 place-items-center" style={{ background: project.color, color: ON_INK }}>
             <Icon size={17} />
           </span>
@@ -82,15 +83,16 @@ export default function ProjectDetail({
           ]}
         />
 
-        {/* Every panel stays mounted so a half-typed note isn't lost by switching tabs */}
-        <div className="min-h-[19rem]">
-          <div hidden={tab !== "todos"}>
+        {/* Every panel stays mounted so a half-typed note isn't lost by switching tabs.
+            Everything above stays put; only the open panel's own list scrolls. */}
+        <div className="flex min-h-[19rem] flex-1 flex-col">
+          <div className={tab === "todos" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
             <TodoList todos={todos} projectId={project.id} ops={todoOps} />
           </div>
-          <div hidden={tab !== "notes"}>
+          <div className={tab === "notes" ? "min-h-0 flex-1 overflow-y-auto" : "hidden"}>
             <Notes key={project.id} value={project.notes} onSave={onSaveNotes} />
           </div>
-          <div hidden={tab !== "sessions"}>
+          <div className={tab === "sessions" ? "min-h-0 flex-1 overflow-y-auto" : "hidden"}>
             <RecentSessions sessions={sessions} todos={todos} now={now} onSaveNote={onSaveSessionNote} />
           </div>
         </div>
@@ -104,8 +106,43 @@ export default function ProjectDetail({
 function TodoList({ todos, projectId, ops }) {
   const [draft, setDraft] = useState("");
   const [showDone, setShowDone] = useState(false);
-  const open = todos.filter((t) => !t.done);
-  const done = todos.filter((t) => t.done);
+  const [collapsed, setCollapsed] = useState(() => new Set()); // parents whose sub-to-dos are folded away
+  // Sub-to-dos sit under their parent; one whose parent is gone is shown as a top-level to-do
+  const ids = new Set(todos.map((t) => t.id));
+  const subsOf = new Map();
+  for (const t of todos) {
+    if (t.parent_id && ids.has(t.parent_id)) subsOf.set(t.parent_id, [...(subsOf.get(t.parent_id) ?? []), t]);
+  }
+  const top = todos.filter((t) => !t.parent_id || !ids.has(t.parent_id));
+  const open = top.filter((t) => !t.done);
+  const done = top.filter((t) => t.done);
+  // Open and finished to-dos are rearranged separately, each only among its own
+  const openOrder = useReorder(open.map((t) => t.id), ops.reorder);
+  const doneOrder = useReorder(done.map((t) => t.id), ops.reorder);
+  const toggle = (id) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  const rowProps = (t, i, order) => ({
+    todo: t,
+    sort: { row: order.rowProps(i), grip: order.gripProps(t.id, i), held: order.held === t.id },
+    ops,
+    projectId,
+    showTime: sharesDay(t),
+    sharesDay,
+    subs: subsOf.get(t.id) ?? [],
+    folded: collapsed.has(t.id),
+    onToggle: () => toggle(t.id),
+  });
+  // Days that more than one to-do was added on: those show the time too, to tell them apart
+  const dayCounts = new Map();
+  for (const t of todos) {
+    const day = dayKey(t);
+    if (day) dayCounts.set(day, (dayCounts.get(day) ?? 0) + 1);
+  }
+  const sharesDay = (t) => dayCounts.get(dayKey(t)) > 1;
 
   const add = async (e) => {
     e.preventDefault();
@@ -116,8 +153,8 @@ function TodoList({ todos, projectId, ops }) {
   };
 
   return (
-    <section>
-      <form onSubmit={add} className="flex items-center gap-2 border-b border-line-strong focus-within:border-text">
+    <section className="flex min-h-0 flex-1 flex-col">
+      <form onSubmit={add} className="flex shrink-0 items-center gap-2 border-b border-line-strong focus-within:border-text">
         <Plus size={15} className="shrink-0 text-muted" aria-hidden="true" />
         <input
           value={draft}
@@ -129,9 +166,10 @@ function TodoList({ todos, projectId, ops }) {
         />
       </form>
 
+      <div data-scroll className="min-h-0 flex-1 overflow-y-auto">
       <ul>
-        {open.map((t) => (
-          <TodoRow key={t.id} todo={t} ops={ops} />
+        {open.map((t, i) => (
+          <TodoRow key={t.id} {...rowProps(t, i, openOrder)} />
         ))}
       </ul>
 
@@ -147,20 +185,30 @@ function TodoList({ todos, projectId, ops }) {
           </button>
           {showDone && (
             <ul>
-              {done.map((t) => (
-                <TodoRow key={t.id} todo={t} ops={ops} />
+              {done.map((t, i) => (
+                <TodoRow key={t.id} {...rowProps(t, i, doneOrder)} />
               ))}
             </ul>
           )}
         </>
       )}
+      </div>
     </section>
   );
 }
 
-function TodoRow({ todo, ops }) {
+/** The calendar day a to-do was added, in local time; null if the server sent no date. */
+const dayKey = (todo) => (todo.created_at ? format(new Date(todo.created_at), "yyyy-MM-dd") : null);
+
+function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], folded = false, onToggle, isSub = false }) {
   const [draft, setDraft] = useState(todo.text);
   useEffect(() => setDraft(todo.text), [todo.text]);
+  const [adding, setAdding] = useState(false);
+  const [subDraft, setSubDraft] = useState("");
+  const created = todo.created_at ? new Date(todo.created_at) : null;
+  const subsDone = subs.filter((s) => s.done).length;
+  const showSubs = subs.length > 0 && !folded;
+  const subOrder = useReorder(subs.map((x) => x.id), ops.reorder);
 
   // An emptied line goes back to what it was; delete is the trash button
   const commit = () => {
@@ -169,34 +217,143 @@ function TodoRow({ todo, ops }) {
     ops.update(todo.id, { text });
   };
 
+  const addSub = async (e) => {
+    e.preventDefault();
+    const text = subDraft.trim();
+    if (!text) return;
+    setSubDraft("");
+    if (!(await ops.add(projectId, text, todo.id))) setSubDraft(text);
+  };
+
+  const openAdd = () => {
+    setAdding(true);
+    if (folded) onToggle();
+  };
+
+  const reveal = "sm:opacity-0 sm:focus:opacity-100 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100";
+
   return (
-    <li className="group flex items-center gap-2.5 border-b border-rule">
-      <input
-        type="checkbox"
-        checked={todo.done}
-        onChange={(e) => ops.update(todo.id, { done: e.target.checked })}
-        aria-label={`Mark "${todo.text}" ${todo.done ? "not done" : "done"}`}
-        className="size-4 shrink-0 cursor-pointer accent-(--text)"
-      />
-      <input
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-        maxLength={200}
-        aria-label="To-do"
-        className={`h-9 min-w-0 flex-1 bg-transparent text-[14px] outline-none focus:bg-surface-2 ${
-          todo.done ? "text-muted line-through" : ""
-        }`}
-      />
-      <button
-        onClick={() => ops.remove(todo.id)}
-        aria-label={`Delete "${todo.text}"`}
-        title="Delete"
-        className="grid size-8 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-danger sm:opacity-0 sm:focus:opacity-100 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
-      >
-        <Trash2 size={14} />
-      </button>
+    <li {...sort.row} className={`${isSub ? "" : "border-b border-rule"} ${sort.row.className ?? ""}`}>
+      <div className={`group flex items-center gap-2.5 ${isSub ? "border-t border-rule pl-11" : ""}`}>
+        {!isSub && (
+          <button
+            onClick={subs.length > 0 ? onToggle : openAdd}
+            aria-expanded={subs.length > 0 ? !folded : undefined}
+            aria-label={
+              subs.length > 0
+                ? `${folded ? "Show" : "Hide"} sub-to-dos of "${todo.text}"`
+                : `Add a sub-to-do under "${todo.text}"`
+            }
+            title={subs.length > 0 ? (folded ? "Show sub-to-dos" : "Hide sub-to-dos") : "Add a sub-to-do"}
+            className="grid size-5 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
+          >
+            {subs.length > 0 ? (
+              <ChevronDown size={15} className={`transition-transform ${folded ? "-rotate-90" : ""}`} />
+            ) : (
+              <Plus size={14} />
+            )}
+          </button>
+        )}
+        <input
+          type="checkbox"
+          checked={todo.done}
+          onChange={(e) => ops.update(todo.id, { done: e.target.checked })}
+          aria-label={`Mark "${todo.text}" ${todo.done ? "not done" : "done"}`}
+          className="size-4 shrink-0 cursor-pointer accent-(--text)"
+        />
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+          maxLength={200}
+          aria-label={isSub ? "Sub-to-do" : "To-do"}
+          className={`h-9 min-w-0 flex-1 bg-transparent text-[14px] outline-none focus:bg-surface-2 ${
+            todo.done ? "text-muted line-through" : ""
+          }`}
+        />
+        {subs.length > 0 && (
+          <span
+            title={`${subsDone} of ${subs.length} sub-to-dos done`}
+            className="figures shrink-0 font-serif text-xs italic text-muted"
+          >
+            {subsDone}/{subs.length}
+          </span>
+        )}
+        {created && (
+          <time
+            dateTime={created.toISOString()}
+            title={`Added ${format(created, "EEE d MMM yyyy, HH:mm")}`}
+            className="figures shrink-0 font-serif text-xs italic text-faint"
+          >
+            {format(created, created.getFullYear() === new Date().getFullYear() ? "d MMM" : "d MMM yyyy")}
+            {showTime && `, ${format(created, "HH:mm")}`}
+          </time>
+        )}
+        <button
+          {...sort.grip}
+          aria-label={`Move "${todo.text}": drag, or use the up and down arrow keys`}
+          title="Drag to reorder"
+          className={`grid size-8 shrink-0 touch-none place-items-center text-faint transition-colors hover:bg-surface-2 hover:text-text ${
+            sort.held ? "cursor-grabbing text-text sm:opacity-100" : `cursor-grab ${reveal}`
+          }`}
+        >
+          <GripVertical size={14} />
+        </button>
+        <button
+          onClick={() => ops.remove(todo.id)}
+          aria-label={`Delete "${todo.text}"`}
+          title={subs.length > 0 ? "Delete, with its sub-to-dos" : "Delete"}
+          className={`grid size-8 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-danger ${reveal}`}
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+
+      {(showSubs || adding) && (
+        <ul>
+          {showSubs &&
+            subs.map((s, i) => (
+              <TodoRow
+                key={s.id}
+                todo={s}
+                sort={{ row: subOrder.rowProps(i), grip: subOrder.gripProps(s.id, i), held: subOrder.held === s.id }}
+                ops={ops}
+                projectId={projectId}
+                showTime={sharesDay(s)}
+                sharesDay={sharesDay}
+                isSub
+              />
+            ))}
+          {!adding && showSubs && (
+            <li className="border-t border-rule pl-11">
+              <button
+                onClick={openAdd}
+                className="flex h-8 items-center gap-1.5 text-[13px] text-muted transition-colors hover:text-text"
+              >
+                <Plus size={13} aria-hidden="true" /> Add a sub-to-do
+              </button>
+            </li>
+          )}
+          {adding && (
+            <li className="border-t border-rule pl-11">
+              <form onSubmit={addSub} className="flex items-center gap-2">
+                <input
+                  autoFocus
+                  value={subDraft}
+                  onChange={(e) => setSubDraft(e.target.value)}
+                  onBlur={() => !subDraft.trim() && setAdding(false)}
+                  onKeyDown={(e) => e.key === "Escape" && setAdding(false)}
+                  maxLength={200}
+                  placeholder="Add a sub-to-do and press Enter"
+                  aria-label={`New sub-to-do under "${todo.text}"`}
+                  className="h-9 min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-faint"
+                />
+              </form>
+            </li>
+          )}
+        </ul>
+      )}
     </li>
   );
 }

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, true
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, false, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -19,7 +19,9 @@ def utcnow() -> datetime:
 
 class Status(Base):
     """Where a project stands (Idea, Active, On hold, Done, ...). Every project has one.
-    `is_done` marks the statuses that mean "finished": no timer, tucked away at the bottom."""
+    `is_done` marks the statuses that mean "finished": no timer, tucked away at the bottom.
+    `is_pinned` marks the one status whose column stays on the board when the others are hidden
+    (at most one; the update route clears it from the rest)."""
 
     __tablename__ = "statuses"
 
@@ -27,6 +29,7 @@ class Status(Base):
     name: Mapped[str] = mapped_column(String(40))
     color: Mapped[str] = mapped_column(String(9), default="#56606b")
     is_done: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
 
@@ -58,13 +61,18 @@ class Project(Base):
 class Todo(Base):
     """One line on a project's to-do list. `completed_at` is when it was ticked off (NULL
     while open, and for to-dos finished before the column existed); the server sets it,
-    which is how a session can list what got done during it."""
+    which is how a session can list what got done during it. `parent_id` makes it a sub-to-do
+    of another to-do on the same project (NULL for a top-level one); only one level deep,
+    and the delete route removes a to-do's sub-to-dos with it."""
 
     __tablename__ = "todos"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     project_id: Mapped[str] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    parent_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("todos.id", ondelete="CASCADE"), nullable=True, index=True
     )
     text: Mapped[str] = mapped_column(String(200))
     done: Mapped[bool] = mapped_column(Boolean, default=False)

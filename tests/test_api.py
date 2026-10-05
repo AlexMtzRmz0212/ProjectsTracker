@@ -33,6 +33,20 @@ def make_status(client, name="Paused", **fields):
     return res.json()
 
 
+def test_only_one_status_is_pinned(client):
+    active = statuses_by_name(client)["Active"]
+    paused = make_status(client)
+    assert active["is_pinned"] is False and paused["is_pinned"] is False
+
+    assert client.patch(f"/api/statuses/{active['id']}", json={"is_pinned": True}).json()["is_pinned"] is True
+    # Pinning another takes it away from the first
+    assert client.patch(f"/api/statuses/{paused['id']}", json={"is_pinned": True}).json()["is_pinned"] is True
+    assert {n: s["is_pinned"] for n, s in statuses_by_name(client).items() if n != "Done"} == {"Active": False, "Paused": True}
+    # Unpinning leaves none pinned
+    assert client.patch(f"/api/statuses/{paused['id']}", json={"is_pinned": False}).json()["is_pinned"] is False
+    assert not any(s["is_pinned"] for s in client.get("/api/statuses").json())
+
+
 # ── Projects ────────────────────────────────────────────────────────────────
 
 def test_project_crud(client):
@@ -206,6 +220,26 @@ def test_todo_validation(client):
     assert client.post("/api/todos", json={"project_id": p["id"], "text": "x" * 201}).status_code == 422
     assert client.post("/api/todos", json={"project_id": "nope", "text": "Hi"}).status_code == 404
     assert client.patch("/api/todos/missing", json={"done": True}).status_code == 404
+
+
+def test_sub_todos(client):
+    p = make_project(client)
+    other = make_project(client, "Other")
+    parent = make_todo(client, p["id"], "Parent")
+    assert parent["parent_id"] is None
+
+    sub = client.post("/api/todos", json={"project_id": p["id"], "text": "Sub", "parent_id": parent["id"]})
+    assert sub.status_code == 201 and sub.json()["parent_id"] == parent["id"]
+
+    # One level only, on the same project, under a to-do that exists
+    bad = {"project_id": p["id"], "text": "Deeper", "parent_id": sub.json()["id"]}
+    assert client.post("/api/todos", json=bad).status_code == 422
+    assert client.post("/api/todos", json={**bad, "project_id": other["id"], "parent_id": parent["id"]}).status_code == 422
+    assert client.post("/api/todos", json={**bad, "parent_id": "nope"}).status_code == 404
+
+    # Deleting the parent takes its sub-to-dos along
+    assert client.delete(f"/api/todos/{parent['id']}").status_code == 204
+    assert client.get("/api/todos").json() == []
 
 
 def test_deleting_a_project_deletes_its_todos(client):

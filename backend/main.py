@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 
@@ -257,6 +257,8 @@ def update_status(status_id: str, body: schemas.StatusUpdate, db: DbSession = De
         if _open_statuses_left(db, current.id) == 0:
             raise HTTPException(status.HTTP_409_CONFLICT, "Keep at least one status that isn't marked done")
         _stop_timers(db, Project.status_id == current.id)
+    if changes.get("is_pinned"):  # only one column is the one that stays
+        db.execute(update(Status).where(Status.id != current.id).values(is_pinned=False))
     for field, value in changes.items():
         if value is not None:
             setattr(current, field, value)
@@ -301,6 +303,10 @@ def list_todos(db: DbSession = Depends(get_db)):
 @api.post("/todos", response_model=schemas.TodoOut, status_code=status.HTTP_201_CREATED)
 def create_todo(body: schemas.TodoCreate, db: DbSession = Depends(get_db)):
     _get_project(db, body.project_id)
+    if body.parent_id is not None:
+        parent = _get_todo(db, body.parent_id)
+        if parent.project_id != body.project_id or parent.parent_id is not None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A sub-to-do goes under a top-level to-do of the same project")
     todo = Todo(**body.model_dump(), sort_order=_next_order(db, Todo))
     db.add(todo)
     db.commit()
@@ -324,7 +330,10 @@ def update_todo(todo_id: str, body: schemas.TodoUpdate, db: DbSession = Depends(
 
 @api.delete("/todos/{todo_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_todo(todo_id: str, db: DbSession = Depends(get_db)):
-    db.delete(_get_todo(db, todo_id))
+    todo = _get_todo(db, todo_id)
+    for sub in db.scalars(select(Todo).where(Todo.parent_id == todo.id)).all():
+        db.delete(sub)
+    db.delete(todo)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
