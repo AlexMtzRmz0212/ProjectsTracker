@@ -32,6 +32,9 @@ api = APIRouter(prefix="/api", dependencies=[Depends(auth.require_owner)])
 # between the browser and the server.
 FUTURE_TOLERANCE = timedelta(minutes=1)
 
+# A timer stopped sooner than this leaves no session behind. Manual entries aren't held to it.
+MIN_TIMER_SESSION = timedelta(minutes=2)
+
 # The public interest counter can't tell people apart, so it caps how fast new
 # votes are accepted overall: a script can't pump thousands in a few minutes.
 INTEREST_WINDOW = timedelta(minutes=10)
@@ -83,13 +86,24 @@ def _ensure_unique_name(db: DbSession, model, name: str, label: str, except_id: 
         raise HTTPException(status.HTTP_409_CONFLICT, f"There is already a {label} called “{name}”")
 
 
+def _end_timer(db: DbSession, current: Session, now: datetime, keep: bool = False) -> Optional[Session]:
+    """Close a running session. One shorter than MIN_TIMER_SESSION was an accidental
+    click, so it is dropped instead of kept (returns None then). `keep` is for a pause:
+    the person means to carry on, so even a few seconds stay in the log."""
+    if not keep and now - current.start < MIN_TIMER_SESSION:
+        db.delete(current)
+        return None
+    current.end = now
+    return current
+
+
 def _stop_timers(db: DbSession, condition) -> None:
     """A finished project has no timer: stop the running one if it belongs to a project matching `condition`."""
     current = _running(db)
     if current is not None and db.scalar(
         select(Project.id).where(Project.id == current.project_id).where(condition)
     ) is not None:
-        current.end = utcnow()
+        _end_timer(db, current, utcnow())
 
 
 def _running(db: DbSession) -> Optional[Session]:
@@ -263,9 +277,12 @@ def create_todo(body: schemas.TodoCreate, db: DbSession = Depends(get_db)):
 @api.patch("/todos/{todo_id}", response_model=schemas.TodoOut)
 def update_todo(todo_id: str, body: schemas.TodoUpdate, db: DbSession = Depends(get_db)):
     todo = _get_todo(db, todo_id)
+    was_done = todo.done
     for field, value in body.model_dump(exclude_unset=True).items():
         if value is not None:
             setattr(todo, field, value)
+    if todo.done != was_done:  # ticking again keeps the first time; unticking forgets it
+        todo.completed_at = utcnow() if todo.done else None
     db.commit()
     db.refresh(todo)
     return todo
@@ -345,7 +362,7 @@ def start_timer(body: schemas.TimerStart, db: DbSession = Depends(get_db)):
     if current is not None:
         if current.project_id == body.project_id:
             return current
-        current.end = now
+        _end_timer(db, current, now)
     session = Session(project_id=body.project_id, start=now, end=None)
     db.add(session)
     db.commit()
@@ -354,14 +371,16 @@ def start_timer(body: schemas.TimerStart, db: DbSession = Depends(get_db)):
 
 
 @api.post("/timer/stop", response_model=Optional[schemas.SessionOut])
-def stop_timer(db: DbSession = Depends(get_db)):
+def stop_timer(keep: bool = False, db: DbSession = Depends(get_db)):
     current = _running(db)
     if current is None:
         return None
-    current.end = utcnow()
+    stopped = _end_timer(db, current, utcnow(), keep=keep)
     db.commit()
-    db.refresh(current)
-    return current
+    if stopped is None:
+        return None
+    db.refresh(stopped)
+    return stopped
 
 #endregion
 # ─────────────────────────────────────────────────────────────────────────────

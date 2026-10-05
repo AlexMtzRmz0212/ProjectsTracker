@@ -71,6 +71,33 @@ def test_fresh_database_gets_default_statuses(tmp_path):
     assert names == ["Active", "Done"]
 
 
+def test_todos_made_before_completed_at_keep_working(tmp_path):
+    """A database whose todos table predates completed_at gets the column; old rows stay NULL."""
+    engine = create_engine(f"sqlite:///{tmp_path / 'old-todos.db'}")
+    init_db(engine)
+    with engine.begin() as conn:
+        status_id = conn.execute(text("SELECT id FROM statuses WHERE name = 'Active'")).scalar()
+        conn.execute(
+            text("INSERT INTO projects (id, name, color, icon, status_id, sort_order, created_at) "
+                 "VALUES ('p1', 'New', '#2f5d8a', 'code', :s, 1, '2026-02-01')"),
+            {"s": status_id},
+        )
+        conn.execute(text("DROP TABLE todos"))
+        conn.execute(text(
+            "CREATE TABLE todos (id VARCHAR NOT NULL PRIMARY KEY, project_id VARCHAR NOT NULL REFERENCES projects(id) "
+            "ON DELETE CASCADE, text VARCHAR(200) NOT NULL, done BOOLEAN NOT NULL, sort_order INTEGER NOT NULL, "
+            "created_at DATETIME NOT NULL)"
+        ))
+        conn.execute(text("INSERT INTO todos VALUES ('t1', 'p1', 'Old one', 1, 1, '2026-02-02')"))
+
+    init_db(engine)
+    init_db(engine)  # repeatable
+
+    assert "completed_at" in {c["name"] for c in inspect(engine).get_columns("todos")}
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT done, completed_at FROM todos WHERE id = 't1'")).one() == (1, None)
+
+
 def test_interim_schema_with_a_category_column_still_works(tmp_path):
     """A database that ran the short-lived categories version keeps its unused category_id column."""
     engine = create_engine(f"sqlite:///{tmp_path / 'interim.db'}")

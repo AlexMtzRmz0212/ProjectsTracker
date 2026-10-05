@@ -19,6 +19,14 @@ def statuses_by_name(client):
     return {s["name"]: s for s in client.get("/api/statuses").json()}
 
 
+def start_timer(client, project, ran_for=timedelta(minutes=10)):
+    """Start the timer as if it had been started `ran_for` ago (a stop under 2 minutes drops the session)."""
+    run = client.post("/api/timer/start", json={"project_id": project["id"]}).json()
+    res = client.patch(f"/api/sessions/{run['id']}", json={"start": iso(now() - ran_for)})
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
 def make_status(client, name="Paused", **fields):
     res = client.post("/api/statuses", json={"name": name, **fields})
     assert res.status_code == 201, res.text
@@ -88,6 +96,25 @@ def test_todo_crud(client):
     assert client.delete(f"/api/todos/{b['id']}").status_code == 404
 
 
+def test_todo_completed_at_follows_done(client):
+    p = make_project(client)
+    t = make_todo(client, p["id"])
+    assert t["completed_at"] is None
+
+    before = now()
+    ticked = client.patch(f"/api/todos/{t['id']}", json={"done": True}).json()
+    stamp = datetime.fromisoformat(ticked["completed_at"].replace("Z", "+00:00"))
+    assert ticked["completed_at"].endswith("Z") and before - timedelta(seconds=1) <= stamp <= now() + timedelta(seconds=1)
+
+    # Editing the text, or ticking an already done to-do, keeps the original moment
+    assert client.patch(f"/api/todos/{t['id']}", json={"text": "Renamed"}).json()["completed_at"] == ticked["completed_at"]
+    assert client.patch(f"/api/todos/{t['id']}", json={"done": True}).json()["completed_at"] == ticked["completed_at"]
+
+    unticked = client.patch(f"/api/todos/{t['id']}", json={"done": False}).json()
+    assert unticked["completed_at"] is None
+    assert client.get("/api/todos").json()[0]["completed_at"] is None
+
+
 def test_todo_validation(client):
     p = make_project(client)
     assert client.post("/api/todos", json={"project_id": p["id"], "text": "   "}).status_code == 422
@@ -107,7 +134,7 @@ def test_deleting_a_project_deletes_its_todos(client):
 
 def test_running_session_note_can_be_edited(client):
     p = make_project(client)
-    run = client.post("/api/timer/start", json={"project_id": p["id"]}).json()
+    run = start_timer(client, p)
     res = client.patch(f"/api/sessions/{run['id']}", json={"note": "drafting the intro"})
     assert res.status_code == 200
     assert res.json()["note"] == "drafting the intro" and res.json()["end"] is None  # still running
@@ -203,7 +230,7 @@ def test_timer_switches_projects(client):
     b = make_project(client, "B")
     assert client.get("/api/timer").json() is None
 
-    run_a = client.post("/api/timer/start", json={"project_id": a["id"]}).json()
+    run_a = start_timer(client, a)
     assert run_a["end"] is None
     assert run_a["start"].endswith("Z")
 
@@ -219,10 +246,65 @@ def test_timer_switches_projects(client):
     assert sessions[run_b["id"]]["end"] is None
     assert client.get("/api/timer").json()["id"] == run_b["id"]
 
-    stopped = client.post("/api/timer/stop").json()
-    assert stopped["id"] == run_b["id"] and stopped["end"] is not None
-    assert client.get("/api/timer").json() is None
+    # B has only just started, so stopping it keeps nothing
     assert client.post("/api/timer/stop").json() is None
+    assert client.get("/api/timer").json() is None
+    assert [s["id"] for s in client.get("/api/sessions").json()] == [run_a["id"]]
+    assert client.post("/api/timer/stop").json() is None
+
+
+def test_timer_stop_keeps_a_real_session(client):
+    p = make_project(client)
+    run = start_timer(client, p, ran_for=timedelta(minutes=3))
+    stopped = client.post("/api/timer/stop").json()
+    assert stopped["id"] == run["id"] and stopped["end"] is not None
+    assert client.get("/api/projects").json()[0]["total_seconds"] >= 180
+
+
+def test_pausing_keeps_even_a_short_session(client):
+    """A pause stops with keep=true: the person is coming back, so nothing is dropped."""
+    p = make_project(client)
+    client.post("/api/timer/start", json={"project_id": p["id"]})
+    stopped = client.post("/api/timer/stop?keep=true").json()
+    assert stopped["end"] is not None
+    assert [s["id"] for s in client.get("/api/sessions").json()] == [stopped["id"]]
+    assert client.get("/api/timer").json() is None
+
+
+def test_sessions_under_two_minutes_are_not_registered(client):
+    a = make_project(client, "A")
+    b = make_project(client, "B")
+
+    # Stopped right away
+    client.post("/api/timer/start", json={"project_id": a["id"]})
+    assert client.post("/api/timer/stop").json() is None
+    assert client.get("/api/sessions").json() == []
+
+    # Switched away from right away: A leaves nothing, B is running
+    client.post("/api/timer/start", json={"project_id": a["id"]})
+    run_b = client.post("/api/timer/start", json={"project_id": b["id"]}).json()
+    assert [s["id"] for s in client.get("/api/sessions").json()] == [run_b["id"]]
+
+    # Just under the limit is dropped; just over is kept
+    start_timer(client, a, ran_for=timedelta(seconds=110))
+    run_c = client.post("/api/timer/start", json={"project_id": b["id"]}).json()
+    assert [s["id"] for s in client.get("/api/sessions").json()] == [run_c["id"]]
+    start_timer(client, a, ran_for=timedelta(seconds=130))
+    assert client.post("/api/timer/stop").json()["end"] is not None
+
+    # Finishing a project stops its timer the same way
+    done = statuses_by_name(client)["Done"]
+    client.post("/api/timer/start", json={"project_id": a["id"]})
+    client.patch(f"/api/projects/{a['id']}", json={"status_id": done["id"]})
+    assert client.get("/api/timer").json() is None
+    assert len(client.get("/api/sessions").json()) == 1  # only the 130 second one
+
+    # Typing a short session in by hand is still allowed
+    end = now() - timedelta(hours=1)
+    res = client.post(
+        "/api/sessions", json={"project_id": b["id"], "start": iso(end - timedelta(seconds=30)), "end": iso(end)}
+    )
+    assert res.status_code == 201
 
 
 def test_timer_unknown_project(client):

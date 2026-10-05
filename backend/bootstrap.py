@@ -3,7 +3,7 @@ Database setup that runs when the app starts: create missing tables, bring a
 database made by an older version up to date, and make sure there are statuses.
 
 There is no migration tool here. `create_all` only creates tables that don't exist,
-so changes to an existing table (projects) are applied by hand below, and every step
+so changes to an existing table (projects, todos) are applied by hand below, and every step
 checks whether it is already done. Running this twice is harmless.
 """
 
@@ -23,6 +23,7 @@ DEFAULT_STATUSES = [
 def init_db(engine: Engine) -> None:
     models.Base.metadata.create_all(bind=engine)
     _add_project_columns(engine)
+    _add_todo_columns(engine)
     with DbSession(engine) as db:
         _seed_statuses(db)
         _backfill_status_ids(db)
@@ -47,6 +48,14 @@ def _add_project_columns(engine: Engine) -> None:
             conn.execute(text("ALTER TABLE projects ADD COLUMN status_id VARCHAR REFERENCES statuses(id)"))
         if "notes" not in columns:
             conn.execute(text("ALTER TABLE projects ADD COLUMN notes TEXT NOT NULL DEFAULT ''"))
+
+
+def _add_todo_columns(engine: Engine) -> None:
+    """to-dos made before completed_at existed get NULL: when they were ticked off isn't known."""
+    if "completed_at" not in {c["name"] for c in inspect(engine).get_columns("todos")}:
+        column_type = models.Todo.__table__.c.completed_at.type.compile(dialect=engine.dialect)
+        with engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE todos ADD COLUMN completed_at {column_type}"))
 
 
 def _seed_statuses(db: DbSession) -> None:

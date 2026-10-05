@@ -9,6 +9,12 @@ export function dayKey(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/** A timer stopped before this many seconds was a mis-click: no session is kept. Mirrors the server. */
+export const MIN_TIMER_SECONDS = 120;
+
+/** Whether a running session, ended at `now`, is too short to keep. */
+export const tooShort = (session, now) => (now - session.start) / 1000 < MIN_TIMER_SECONDS;
+
 export function sessionSeconds(session, now) {
   const end = session.end ?? now;
   return Math.max(0, (end - session.start) / 1000);

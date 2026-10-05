@@ -50,7 +50,9 @@ class Project(Base):
 
 
 class Todo(Base):
-    """One line on a project's to-do list."""
+    """One line on a project's to-do list. `completed_at` is when it was ticked off (NULL
+    while open, and for to-dos finished before the column existed); the server sets it,
+    which is how a session can list what got done during it."""
 
     __tablename__ = "todos"
 
@@ -62,6 +64,7 @@ class Todo(Base):
     done: Mapped[bool] = mapped_column(Boolean, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
 class Session(Base):

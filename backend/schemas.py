@@ -111,6 +111,7 @@ class TodoOut(BaseModel):
     done: bool
     sort_order: int
     created_at: UTCDateTime
+    completed_at: Optional[UTCDateTime] = None
 
 
 # ── Sessions ────────────────────────────────────────────────────────────────

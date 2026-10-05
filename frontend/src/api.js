@@ -72,8 +72,8 @@ export const api = {
 
   startTimer: async (projectId) =>
     parseSession(await fetchApi("/timer/start", json("POST", { project_id: projectId }))),
-  stopTimer: async () => {
-    const s = await fetchApi("/timer/stop", { method: "POST" });
+  stopTimer: async ({ keep = false } = {}) => {
+    const s = await fetchApi(`/timer/stop${keep ? "?keep=true" : ""}`, { method: "POST" });
     return s ? parseSession(s) : null;
   },
 };

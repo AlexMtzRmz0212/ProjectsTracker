@@ -14,6 +14,7 @@ import { Button } from "./Modal";
 export default function ProjectBoard({ projects, statuses, cardProps, onMove, onCreate, onDelete }) {
   const [phoneStatus, setPhoneStatus] = useState(null);
   const shownOnPhone = statuses.some((s) => s.id === phoneStatus) ? phoneStatus : statuses[0]?.id;
+  const [hidden, toggleHidden] = useHiddenStatuses(statuses);
 
   // The trash can. `trashed` is the card last dropped in it; it outlives the question
   // so the slip keeps its words while it slides away.
@@ -80,6 +81,38 @@ export default function ProjectBoard({ projects, statuses, cardProps, onMove, on
         })}
       </div>
 
+      {/* Larger screens: which statuses get a column. Phones already show one at a time. */}
+      {statuses.length > 1 && (
+        <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-0.5 max-md:hidden" role="group" aria-label="Show columns">
+          <span className="font-serif text-xs italic text-faint">Show</span>
+          {statuses.map((s) => {
+            const shown = !hidden.has(s.id);
+            const onlyOne = shown && statuses.length - hidden.size === 1;
+            return (
+              <button
+                key={s.id}
+                aria-pressed={shown}
+                disabled={onlyOne}
+                onClick={() => toggleHidden(s.id)}
+                title={onlyOne ? "At least one column stays visible" : shown ? `Hide ${s.name}` : `Show ${s.name}`}
+                className={`inline-flex h-7 items-center gap-1.5 border-b-2 text-[13px] transition-colors disabled:cursor-default ${
+                  shown ? "text-text" : "border-transparent text-faint line-through hover:text-text"
+                }`}
+                style={shown ? { borderColor: inkText(inkFor(s.color)) } : undefined}
+              >
+                <span
+                  className="size-2 shrink-0"
+                  style={shown ? { background: inkFor(s.color) } : { boxShadow: `inset 0 0 0 1px ${inkFor(s.color)}` }}
+                  aria-hidden="true"
+                />
+                {s.name}
+                <span className="figures text-[11px] text-faint">{projects.filter((p) => p.status_id === s.id).length}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] gap-3 md:auto-cols-[minmax(15rem,1fr)] md:grid-flow-col md:grid-cols-none md:overflow-x-auto">
         {statuses.map((status) => {
           const cards = projects.filter((p) => p.status_id === status.id);
@@ -90,7 +123,7 @@ export default function ProjectBoard({ projects, statuses, cardProps, onMove, on
               data-drop={status.id}
               className={`min-h-0 flex-col border bg-surface-2/40 transition-colors ${
                 status.id === shownOnPhone ? "flex" : "max-md:hidden"
-              } md:flex ${over === status.id ? "border-text bg-surface-2" : "border-line"}`}
+              } ${hidden.has(status.id) ? "md:hidden" : "md:flex"} ${over === status.id ? "border-text bg-surface-2" : "border-line"}`}
             >
               <header className="flex shrink-0 items-center gap-2 border-b-[3px] border-double border-line-strong px-3 py-2">
                 <span className="size-2.5 shrink-0" style={{ background: inkFor(status.color) }} aria-hidden="true" />
@@ -157,6 +190,35 @@ export default function ProjectBoard({ projects, statuses, cardProps, onMove, on
         )}
     </div>
   );
+}
+
+const HIDDEN_KEY = "pt-hidden-statuses";
+
+/** The statuses whose columns are switched off on larger screens, remembered per browser.
+ *  Ids of deleted statuses are ignored, and the last visible column can't be hidden. */
+function useHiddenStatuses(statuses) {
+  const [stored, setStored] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(HIDDEN_KEY)) ?? [];
+    } catch {
+      return [];
+    }
+  });
+  const hidden = new Set(stored.filter((id) => statuses.some((s) => s.id === id)));
+  if (hidden.size >= statuses.length) hidden.clear();
+
+  const toggle = (id) => {
+    const next = new Set(hidden);
+    if (next.has(id)) next.delete(id);
+    else if (statuses.length - next.size > 1) next.add(id);
+    setStored([...next]);
+    try {
+      localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next]));
+    } catch {
+      // storage blocked: the choice still holds until the page is reloaded
+    }
+  };
+  return [hidden, toggle];
 }
 
 const HOLD_MS = 350; // a finger has to rest this long on a card to pick it up

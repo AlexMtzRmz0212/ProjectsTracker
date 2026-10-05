@@ -2,6 +2,8 @@
 // page. Same methods and shapes as api.js, so the real components run on it
 // untouched. Nothing leaves the browser, and a reload starts over.
 
+import { tooShort } from "../lib/time";
+
 const DAY = 86_400_000;
 const HISTORY_DAYS = 280;
 
@@ -105,7 +107,7 @@ function seed(now) {
     projects.push(project);
     (def.todos ?? []).forEach(([text, done], k) => {
       todos.push({
-        id: `demo-d${todos.length + 1}`, project_id: project.id, text, done,
+        id: `demo-d${todos.length + 1}`, project_id: project.id, text, done, completed_at: null,
         sort_order: todos.length + 1, created_at: new Date(now.getTime() - (20 - k) * DAY).toISOString(),
       });
     });
@@ -130,6 +132,14 @@ function seed(now) {
       });
     }
   });
+
+  // Finished to-dos were ticked off midway through their project's latest session, so that
+  // session lists them
+  for (const todo of todos) {
+    if (!todo.done) continue;
+    const last = sessions.filter((s) => s.project_id === todo.project_id).at(-1);
+    if (last) todo.completed_at = new Date((last.start.getTime() + last.end.getTime()) / 2).toISOString();
+  }
 
   // One timer already running, so the page is alive on arrival
   const running = projects.find((p) => p.name === RUNNING_PROJECT);
@@ -180,7 +190,15 @@ export function createDemoApi() {
   const stopTimerIf = (matches) => {
     const current = running();
     const owner = current && projects.find((p) => p.id === current.project_id);
-    if (owner && matches(owner)) replaceSession(current.id, { ...current, end: new Date() });
+    if (owner && matches(owner)) endTimer(current, new Date());
+  };
+  /** Close a running session, or drop it if it was too short to keep (null then). A pause keeps it. */
+  const endTimer = (current, now, keep = false) => {
+    if (!keep && tooShort(current, now)) {
+      sessions = sessions.filter((s) => s.id !== current.id);
+      return null;
+    }
+    return replaceSession(current.id, { ...current, end: now });
   };
   const replaceSession = (id, next) => {
     sessions = sessions.map((s) => (s.id === id ? next : s));
@@ -288,14 +306,16 @@ export function createDemoApi() {
       const text = data.text.trim();
       if (!text) throw httpError(422, "Write something first");
       const created = {
-        id: `demo-d${seq++}`, project_id: data.project_id, text, done: false,
+        id: `demo-d${seq++}`, project_id: data.project_id, text, done: false, completed_at: null,
         sort_order: Math.max(0, ...todos.map((x) => x.sort_order)) + 1, created_at: new Date().toISOString(),
       };
       todos = [...todos, created];
       return { ...created };
     },
     updateTodo: async (id, data) => {
-      const next = { ...todo(id), ...data };
+      const current = todo(id);
+      const next = { ...current, ...data };
+      if ("done" in data && data.done !== current.done) next.completed_at = data.done ? new Date().toISOString() : null;
       todos = todos.map((x) => (x.id === id ? next : x));
       return { ...next };
     },
@@ -334,14 +354,14 @@ export function createDemoApi() {
       const current = running();
       if (current?.project_id === projectId) return { ...current };
       const now = new Date();
-      if (current) replaceSession(current.id, { ...current, end: now });
+      if (current) endTimer(current, now);
       const started = { id: newId(), project_id: projectId, start: now, end: null, note: "" };
       sessions = [...sessions, started];
       return { ...started };
     },
-    stopTimer: async () => {
+    stopTimer: async ({ keep = false } = {}) => {
       const current = running();
-      return current ? replaceSession(current.id, { ...current, end: new Date() }) : null;
+      return current ? endTimer(current, new Date(), keep) : null;
     },
   };
 }

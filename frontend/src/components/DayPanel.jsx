@@ -1,11 +1,11 @@
 import { format } from "date-fns";
-import { CalendarPlus, Moon, Pencil, Plus, Square, Trash2 } from "lucide-react";
+import { CalendarPlus, Check, Moon, Pencil, Plus, Square, Trash2 } from "lucide-react";
 import { iconFor, inkText } from "../lib/palette";
 import { dayKey, fmtHM, fmtTime, sessionSeconds } from "../lib/time";
 import { SplitBar } from "./StatsStrip";
 
-/** The selected day as a time card: In, Out, Project, Hours. */
-export default function DayPanel({ date, sessions, byDay, projectsById, now, onAdd, onEdit, onDelete, onStop }) {
+/** The selected day as a time card: In, Out, Project, Hours, then the to-dos ticked off that day. */
+export default function DayPanel({ date, sessions, todos, byDay, projectsById, now, onAdd, onEdit, onDelete, onStop }) {
   const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
   const entry = byDay.get(dayKey(date));
@@ -14,6 +14,13 @@ export default function DayPanel({ date, sessions, byDay, projectsById, now, onA
   const daySessions = sessions
     .filter((s) => projectsById.has(s.project_id) && s.start < dayEnd && (s.end ?? now) > dayStart)
     .sort((a, b) => a.start - b.start);
+
+  // Whether or not a timer was running when they were ticked
+  const ticked = todos
+    .filter((x) => x.done && x.completed_at && projectsById.has(x.project_id))
+    .map((x) => ({ ...x, at: new Date(x.completed_at) }))
+    .filter((x) => x.at >= dayStart && x.at < dayEnd)
+    .sort((a, b) => a.at - b.at);
 
   return (
     <section className="border-t border-line pt-5 lg:border-t-0 lg:pt-0">
@@ -121,6 +128,29 @@ export default function DayPanel({ date, sessions, byDay, projectsById, now, onA
             })}
           </tbody>
         </table>
+      )}
+
+      {ticked.length > 0 && (
+        <div className="mt-5">
+          <h3 className="border-b border-rule py-1 text-left font-serif text-xs font-normal italic text-muted">Ticked off</h3>
+          <ul>
+            {ticked.map((x) => {
+              const project = projectsById.get(x.project_id);
+              const Icon = iconFor(project.icon);
+              return (
+                <li key={x.id} className="flex min-h-9 items-center gap-3 border-b border-rule py-1 text-[13px]">
+                  <span className="figures shrink-0 whitespace-nowrap text-muted">{fmtTime(x.at)}</span>
+                  <Check size={13} className="shrink-0 text-muted" aria-hidden="true" />
+                  <span className="min-w-0 flex-1 break-words">{x.text}</span>
+                  <span className="flex shrink-0 items-center gap-1.5 text-muted" title={project.name}>
+                    <Icon size={14} style={{ color: inkText(project.color) }} aria-hidden="true" />
+                    <span className="max-w-[9rem] truncate max-sm:sr-only">{project.name}</span>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
     </section>
   );

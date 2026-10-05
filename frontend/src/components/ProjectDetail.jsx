@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
-import { ChevronDown, ListChecks, NotebookText, History, Pencil, Play, Plus, Square, Trash2 } from "lucide-react";
+import { Check, ChevronDown, ListChecks, NotebookText, History, Pencil, Play, Plus, Square, Trash2 } from "lucide-react";
 import Modal, { Button } from "./Modal";
 import TabBar from "./TabBar";
 import { ON_INK, inkFor, iconFor } from "../lib/palette";
@@ -80,7 +80,7 @@ export default function ProjectDetail({
             <Notes key={project.id} value={project.notes} onSave={onSaveNotes} />
           </div>
           <div hidden={tab !== "sessions"}>
-            <RecentSessions sessions={sessions} now={now} onSaveNote={onSaveSessionNote} />
+            <RecentSessions sessions={sessions} todos={todos} now={now} onSaveNote={onSaveSessionNote} />
           </div>
         </div>
       </div>
@@ -256,7 +256,17 @@ function SessionNote({ session, onSave }) {
   );
 }
 
-function RecentSessions({ sessions, now, onSaveNote }) {
+/** The to-dos ticked off while `session` was open (a running one counts up to now). */
+function doneDuring(todos, session, now) {
+  const end = session.end ?? now;
+  return todos.filter((t) => {
+    if (!t.done || !t.completed_at) return false;
+    const at = new Date(t.completed_at);
+    return at >= session.start && at <= end;
+  });
+}
+
+function RecentSessions({ sessions, todos, now, onSaveNote }) {
   const [all, setAll] = useState(false);
   if (sessions.length === 0) {
     return <p className="py-6 text-center font-serif text-sm italic text-muted">No time logged on this project yet.</p>;
@@ -279,6 +289,12 @@ function RecentSessions({ sessions, now, onSaveNote }) {
               <span className="figures w-14 shrink-0 text-right font-semibold">{fmtHM(sessionSeconds(s, now))}</span>
             </div>
             <SessionNote session={s} onSave={onSaveNote} />
+            {doneDuring(todos, s, now).map((t) => (
+              <p key={t.id} className="mt-0.5 flex items-start gap-1.5 px-2 text-[13px] text-muted">
+                <Check size={13} className="mt-[3px] shrink-0" aria-hidden="true" />
+                <span className="min-w-0 break-words">{t.text}</span>
+              </p>
+            ))}
           </li>
         ))}
       </ul>

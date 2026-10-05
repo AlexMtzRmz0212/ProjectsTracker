@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Coffee, Inbox, LogOut, Moon, NotebookPen, Play, Plus, Square, Sun, Timer, X } from "lucide-react";
+import { Coffee, Inbox, LogOut, Moon, NotebookPen, Pause, Play, Plus, SkipForward, Square, Sun, Timer, X } from "lucide-react";
 import { Button } from "./Modal";
 import { tint } from "../lib/palette";
 import { fmtCountdown } from "../lib/time";
 
 export default function Header({
-  runningProject, runningSession, onSaveNote, pomodoro, breakProject, onStop, onNewProject, theme, onToggleTheme,
+  runningProject, runningSession, onSaveNote, pomodoro, cycleProject, onStop, onNewProject, theme, onToggleTheme,
   onSignOut, signOutLabel = "Sign out", onInbox, inboxUnread = 0,
 }) {
   return (
@@ -22,7 +22,7 @@ export default function Header({
             session={runningSession}
             onSaveNote={onSaveNote}
             pomodoro={pomodoro}
-            breakProject={breakProject}
+            cycleProject={cycleProject}
             onStop={onStop}
           />
         </div>
@@ -62,9 +62,28 @@ export default function Header({
   );
 }
 
-function NowTracking({ project, session, onSaveNote, pomodoro, breakProject, onStop }) {
+/** A button along the right edge of a timer chip. Icon only unless it has `text`, which shows from `sm` up. */
+function ChipButton({ edge, onClick, label, text, className = "", children }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1.5 border-l text-xs font-semibold transition-colors hover:bg-surface-2 ${text ? "px-3" : "px-2.5"} ${className}`}
+      style={{ borderColor: edge }}
+      aria-label={label}
+      title={label}
+    >
+      {children}
+      {text && <span className="hidden sm:inline">{text}</span>}
+    </button>
+  );
+}
+
+function NowTracking({ project, session, onSaveNote, pomodoro, cycleProject, onStop }) {
   const { phase } = pomodoro;
-  if (phase === "break" || phase === "ready") return <BreakChip pomodoro={pomodoro} project={breakProject} />;
+  if (phase === "paused") return <PausedChip pomodoro={pomodoro} project={cycleProject} />;
+  if (phase === "breakWait" || phase === "break" || phase === "breakPaused" || phase === "ready") {
+    return <BreakChip pomodoro={pomodoro} project={cycleProject} />;
+  }
   if (!project) {
     return <span className="truncate text-[13px] text-muted">No timer running</span>;
   }
@@ -83,26 +102,58 @@ function NowTracking({ project, session, onSaveNote, pomodoro, breakProject, onS
         </span>
       </div>
       {session && <TimerNote key={session.id} session={session} project={project} edge={edge} onSave={onSaveNote} />}
-      <button
-        onClick={onStop}
-        className="flex items-center gap-1.5 border-l px-3 text-xs font-semibold transition-colors hover:bg-surface-2"
-        style={{ borderColor: edge }}
-        aria-label={`Stop ${project.name} timer`}
-      >
+      <ChipButton edge={edge} onClick={pomodoro.pause} label="Pause the timer">
+        <Pause size={13} fill="currentColor" />
+      </ChipButton>
+      {/* Phones keep the chip to note, pause and stop: the break arrives by itself when the focus ends */}
+      <ChipButton edge={edge} onClick={pomodoro.breakNow} label="Take a break now" className="max-sm:hidden">
+        <Coffee size={14} />
+      </ChipButton>
+      <ChipButton edge={edge} onClick={onStop} label={`Stop ${project.name} timer`} text="Stop">
         <Square size={10} fill="currentColor" />
-        <span className="hidden sm:inline">Stop</span>
-      </button>
+      </ChipButton>
       <Progress value={pomodoro.focusProgress} color="var(--accent)" />
     </div>
   );
 }
 
-/** The rest between focus periods: counting down, then waiting to be asked back. */
+/** A focus that was paused: the time left stands still until Resume. */
+function PausedChip({ pomodoro, project }) {
+  const edge = project ? tint(project.color, 55) : "var(--line-strong)";
+  return (
+    <div
+      className="relative flex h-[34px] min-w-0 items-stretch border"
+      style={{ borderColor: edge, background: project ? tint(project.color, 10) : undefined }}
+    >
+      <div className="flex min-w-0 items-center gap-2 pl-3 pr-2.5">
+        <Pause size={13} fill="currentColor" className="shrink-0 text-muted" aria-hidden="true" />
+        <span className="hidden text-[13px] font-semibold sm:block">Paused</span>
+        {project && (
+          <span className="hidden max-w-[12rem] truncate font-serif text-[15px] italic sm:block">{project.name}</span>
+        )}
+        <span className="figures text-[17px] font-semibold" role="timer" aria-label="Focus time left, paused">
+          {fmtCountdown(pomodoro.focusRemaining)}
+        </span>
+      </div>
+      <ChipButton edge={edge} onClick={pomodoro.resume} label="Resume the timer" text="Resume">
+        <Play size={10} fill="currentColor" />
+      </ChipButton>
+      <ChipButton edge={edge} onClick={pomodoro.dismiss} label="Dismiss the paused timer">
+        <X size={13} />
+      </ChipButton>
+      <Progress value={pomodoro.focusProgress} color="var(--muted)" />
+    </div>
+  );
+}
+
+/** The rest between focus periods: waiting to be started, counting down (or paused), then waiting to be asked back. */
 function BreakChip({ pomodoro, project }) {
-  const ready = pomodoro.phase === "ready";
+  const { phase } = pomodoro;
+  const waiting = phase === "breakWait";
+  const paused = phase === "breakPaused";
+  const ready = phase === "ready";
   const long = pomodoro.breakKind === "long";
   const edge = "var(--accent-2)";
-  const side = "flex items-center gap-1.5 border-l px-3 text-xs font-semibold transition-colors hover:bg-surface-2";
   return (
     <div
       className="relative flex h-[34px] min-w-0 items-stretch border"
@@ -116,7 +167,10 @@ function BreakChip({ pomodoro, project }) {
           </span>
         ) : (
           <>
-            <span className="hidden text-[13px] font-semibold sm:block">{long ? "Long break" : "Break"}</span>
+            <span className="hidden text-[13px] font-semibold sm:block">
+              {long ? "Long break" : "Break"}
+              {paused && <span className="font-normal text-muted"> · paused</span>}
+            </span>
             {project && (
               <span className="hidden max-w-[12rem] truncate font-serif text-[15px] italic sm:block">{project.name}</span>
             )}
@@ -126,16 +180,41 @@ function BreakChip({ pomodoro, project }) {
           </>
         )}
       </div>
-      {project && (
-        <button onClick={pomodoro.startNext} className={side} style={{ borderColor: edge }} aria-label={ready ? "Start the next focus" : "Skip the break and start the next focus"}>
+      {waiting && (
+        <ChipButton edge={edge} onClick={pomodoro.startBreak} label="Start the break" text="Start break">
           <Play size={10} fill="currentColor" />
-          <span className="hidden sm:inline">{ready ? "Start" : "Skip"}</span>
-        </button>
+        </ChipButton>
       )}
-      <button onClick={pomodoro.dismiss} className={`${side} px-2.5`} style={{ borderColor: edge }} aria-label="Dismiss the break">
+      {phase === "break" && (
+        <ChipButton edge={edge} onClick={pomodoro.pauseBreak} label="Pause the break">
+          <Pause size={13} fill="currentColor" />
+        </ChipButton>
+      )}
+      {paused && (
+        <ChipButton edge={edge} onClick={pomodoro.resumeBreak} label="Resume the break" text="Resume">
+          <Play size={10} fill="currentColor" />
+        </ChipButton>
+      )}
+      {/* Starting the next focus: the main button once the break is over, a way out of the break before then */}
+      {project && ready && (
+        <ChipButton edge={edge} onClick={pomodoro.startNext} label="Start the next focus" text="Start focus">
+          <Play size={10} fill="currentColor" />
+        </ChipButton>
+      )}
+      {project && !ready && (
+        <ChipButton
+          edge={edge}
+          onClick={pomodoro.startNext}
+          label="Skip the break and start the next focus"
+          text={phase === "break" ? "Start focus" : undefined}
+        >
+          <SkipForward size={12} fill="currentColor" />
+        </ChipButton>
+      )}
+      <ChipButton edge={edge} onClick={pomodoro.dismiss} label="Dismiss the break">
         <X size={13} />
-      </button>
-      {!ready && <Progress value={pomodoro.breakProgress} color={edge} />}
+      </ChipButton>
+      {(phase === "break" || paused) && <Progress value={pomodoro.breakProgress} color={edge} />}
     </div>
   );
 }

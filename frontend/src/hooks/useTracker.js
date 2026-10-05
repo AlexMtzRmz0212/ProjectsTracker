@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api as realApi } from "../api";
-import { heatmapStart } from "../lib/time";
+import { heatmapStart, tooShort } from "../lib/time";
 
 function mergeSessions(prev, incoming) {
   const byId = new Map(prev.map((s) => [s.id, s]));
   for (const s of incoming) byId.set(s.id, s);
   return [...byId.values()].sort((a, b) => a.start - b.start);
 }
+
+/** How `completed_at` changes when `data` is applied to a to-do: stamped when it gets ticked,
+ *  cleared when unticked, as on the server. Shown at once; the server's value replaces it. */
+const completion = (todo, data) =>
+  "done" in data && data.done !== todo.done ? { completed_at: data.done ? new Date().toISOString() : null } : {};
 
 /**
  * All app data and every mutation. Sessions are held as Date-parsed objects;
@@ -106,10 +111,13 @@ export function useTracker(api = realApi) {
         if (current?.project_id === projectId) return;
         const now = new Date();
         const tempId = `temp-${now.getTime()}`;
-        // Optimistic: close whatever was running and start the new one immediately
-        if (current) bumpTotal(current.project_id, (now - current.start) / 1000);
+        // Optimistic: close whatever was running (or drop it, if it was only a blip)
+        // and start the new one immediately
+        const dropped = current && tooShort(current, now);
+        if (current && !dropped) bumpTotal(current.project_id, (now - current.start) / 1000);
         setSessions((prev) =>
           prev
+            .filter((s) => !(dropped && s.id === current.id))
             .map((s) => (s.end ? s : { ...s, end: now }))
             .concat({ id: tempId, project_id: projectId, start: now, end: null, note: "" })
         );
@@ -120,15 +128,21 @@ export function useTracker(api = realApi) {
     [api, attempt, refreshProjects]
   );
 
+  /** Stop the timer. A run under two minutes leaves nothing behind, unless `keep` (a pause) is set.
+   *  The options are destructured so a click event passed straight in is harmless. */
   const stopTimer = useCallback(
-    () =>
+    ({ keep = false } = {}) =>
       attempt(async () => {
         const current = sessionsRef.current.find((s) => !s.end);
         if (!current) return;
         const now = new Date();
-        bumpTotal(current.project_id, (now - current.start) / 1000);
-        setSessions((prev) => prev.map((s) => (s.id === current.id ? { ...s, end: now } : s)));
-        const stopped = await api.stopTimer();
+        if (!keep && tooShort(current, now)) {
+          setSessions((prev) => prev.filter((s) => s.id !== current.id));
+        } else {
+          bumpTotal(current.project_id, (now - current.start) / 1000);
+          setSessions((prev) => prev.map((s) => (s.id === current.id ? { ...s, end: now } : s)));
+        }
+        const stopped = await api.stopTimer({ keep });
         if (stopped) setSessions((prev) => prev.map((s) => (s.id === stopped.id ? stopped : s)));
         refreshProjects();
       }),
@@ -256,8 +270,12 @@ export function useTracker(api = realApi) {
     // Ticking and deleting show at once; a failure resyncs from the server (see attempt)
     update: (id, data) =>
       attempt(async () => {
-        setTodos((prev) => prev.map((x) => (x.id === id ? { ...x, ...data } : x)));
-        await api.updateTodo(id, data);
+        setTodos((prev) => prev.map((x) => (x.id === id ? { ...x, ...data, ...completion(x, data) } : x)));
+        const saved = await api.updateTodo(id, data);
+        // The server stamps the real moment; adopt it unless a later click has already moved on
+        setTodos((prev) =>
+          prev.map((x) => (x.id === id && x.done === saved.done ? { ...x, completed_at: saved.completed_at } : x))
+        );
       }),
     remove: (id) =>
       attempt(async () => {

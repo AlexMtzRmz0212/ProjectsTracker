@@ -21,7 +21,8 @@ with the time you worked, and a year-long activity heatmap.
   there lose their timer. A fresh database starts with Active and Done.
 - **Notes and to-dos per project**: click a project's name to open it. It holds a checklist of
   to-dos, free-form notes (saved as you leave the box) and the sessions logged on it, on three tabs.
-  Cards show how many to-dos are open and a notebook mark when there are notes.
+  Cards show how many to-dos are open and a notebook mark when there are notes. A to-do remembers
+  when it was ticked off, and the Sessions tab lists it under the session it was done in.
 - **One timer at a time**: starting a project stops whatever was running. Timers live on the
   server, so they survive reloads and keep counting with the tab closed. The running timer is
   always in the header pill and the browser tab title.
@@ -123,13 +124,13 @@ it with a `Z`, and the browser groups by local day.
 |---|---|---|
 | GET | `/projects` | List projects with `total_seconds` (closed sessions) |
 | POST / PATCH / DELETE | `/projects[/{id}]` | Create / edit / delete (deletes its sessions and to-dos). Carries `status_id` and `notes` |
-| GET / POST / PATCH / DELETE | `/todos[/{id}]` | A project's to-dos: `{project_id, text}`, then `{text?, done?}`. GET lists everyone's |
+| GET / POST / PATCH / DELETE | `/todos[/{id}]` | A project's to-dos: `{project_id, text}`, then `{text?, done?}`. GET lists everyone's. `completed_at` is set by the server when a to-do is ticked and cleared when unticked |
 | GET / POST / PATCH / DELETE | `/statuses[/{id}]` | Manage statuses (`is_done` marks the finished ones). Refuses (409) to delete a status in use or to leave no unfinished status |
 | GET | `/sessions?start=&end=` | Sessions overlapping a range |
 | POST / PATCH / DELETE | `/sessions[/{id}]` | Manual add / edit / delete |
 | GET | `/timer` | The running session, or `null` |
 | POST | `/timer/start` | `{project_id}`: stops the current timer, starts this one |
-| POST | `/timer/stop` | Stops the running timer |
+| POST | `/timer/stop?keep=` | Stops the running timer. A session under 2 minutes is dropped as a mis-click unless `keep=true` (a pause) |
 | GET | `/auth/me` | `{authenticated, required}`: is there a valid owner session |
 | POST | `/auth/login` | `{password}`: sets the session cookie (204) |
 | POST | `/auth/logout` | Clears the session cookie (204) |

@@ -102,7 +102,7 @@ export default function PomodoroDrawer({ open, onOpenChange, settings, onChange,
 
       <div inert={!open} className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         <p className="text-[13px] text-muted">
-          A focus period runs on the project's timer and is logged. Breaks are not.
+          A focus period runs on the project's timer and is logged. Paused time and breaks are not.
         </p>
 
         <div className="mt-3 divide-y divide-rule border-y border-rule">
@@ -113,6 +113,9 @@ export default function PomodoroDrawer({ open, onOpenChange, settings, onChange,
         </div>
 
         <div className="mt-3 space-y-2.5">
+          <Check checked={settings.autoBreak} onChange={(v) => onChange({ autoBreak: v })}>
+            Start the break when a focus ends
+          </Check>
           <Check checked={settings.autoStart} onChange={(v) => onChange({ autoStart: v })}>
             Start the next focus when a break ends
           </Check>

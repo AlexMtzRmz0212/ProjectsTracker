@@ -79,7 +79,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     ensureRange(startOfWeek(startOfMonth(cursor), { weekStartsOn: 1 }));
   }, [cursor, ensureRange]);
 
-  const breakProject = projectsById.get(pomodoro.breakProjectId) ?? null;
+  const cycleProject = projectsById.get(pomodoro.projectId) ?? null;
 
   // The countdown in the browser tab, so it's visible from anywhere. The demo is
   // embedded in a page of its own, so it leaves the tab title alone.
@@ -88,10 +88,13 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     if (demo) return;
     document.title =
       phase === "focus" && runningProject ? `${fmtCountdown(focusRemaining)} · ${runningProject.name}`
+      : phase === "paused" ? `Paused ${fmtCountdown(focusRemaining)}${cycleProject ? ` · ${cycleProject.name}` : ""}`
       : phase === "break" ? `Break ${fmtCountdown(breakRemaining)}`
+      : phase === "breakPaused" ? `Break paused ${fmtCountdown(breakRemaining)}`
+      : phase === "breakWait" ? "Start your break · ProjectsTracker"
       : phase === "ready" ? "Break over · ProjectsTracker"
       : "ProjectsTracker";
-  }, [demo, phase, runningProject, focusRemaining, breakRemaining]);
+  }, [demo, phase, runningProject, cycleProject, focusRemaining, breakRemaining]);
 
   const selectDay = (d) => {
     setSelected(d);
@@ -161,7 +164,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           runningSession={t.running}
           onSaveNote={(note) => t.updateSession(t.running.id, { note })}
           pomodoro={pomodoro}
-          breakProject={breakProject}
+          cycleProject={cycleProject}
           onStop={t.stopTimer}
           onNewProject={() => setProjectModal({})}
           theme={theme}
@@ -232,6 +235,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
               <DayPanel
                 date={selected}
                 sessions={t.sessions}
+                todos={t.todos}
                 byDay={byDay}
                 projectsById={projectsById}
                 now={now}
