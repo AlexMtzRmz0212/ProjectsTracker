@@ -211,6 +211,34 @@ export function useTracker(api = realApi) {
     [api, attempt]
   );
 
+  /** Send a project to the back of the Feed's queue. Shows at once; the server's moment replaces
+   *  ours. Only `skipped_at` is taken from the answer, so a total that moved meanwhile isn't undone. */
+  const skipProject = useCallback(
+    (id) =>
+      attempt(async () => {
+        setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, skipped_at: new Date().toISOString() } : p)));
+        const saved = await api.skipProject(id);
+        setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, skipped_at: saved.skipped_at } : p)));
+      }),
+    [api, attempt]
+  );
+
+  /** Put a project away, or bring it back. Both show at once; the server's moment replaces ours.
+   *  Only `archived_at` is taken from the answer, like a skip, so a total that moved meanwhile isn't undone. */
+  const setArchived = useCallback(
+    (id, archive) =>
+      attempt(async () => {
+        setProjects((prev) =>
+          prev.map((p) => (p.id === id ? { ...p, archived_at: archive ? new Date().toISOString() : null } : p))
+        );
+        const saved = await (archive ? api.archiveProject(id) : api.restoreProject(id));
+        setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, archived_at: saved.archived_at } : p)));
+      }),
+    [api, attempt]
+  );
+  const archiveProject = useCallback((id) => setArchived(id, true), [setArchived]);
+  const restoreProject = useCallback((id) => setArchived(id, false), [setArchived]);
+
   const deleteProject = useCallback(
     (id) =>
       attempt(async () => {
@@ -308,6 +336,9 @@ export function useTracker(api = realApi) {
     createProject,
     updateProject,
     moveProject,
+    skipProject,
+    archiveProject,
+    restoreProject,
     deleteProject,
   };
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
-import { Check, ChevronDown, ListChecks, NotebookText, History, Pencil, Play, Plus, Square, Trash2 } from "lucide-react";
+import { ArchiveRestore, Check, ChevronDown, ListChecks, NotebookText, History, Pencil, Play, Plus, Square, Trash2 } from "lucide-react";
 import Modal, { Button } from "./Modal";
 import TabBar from "./TabBar";
 import { ON_INK, inkFor, iconFor } from "../lib/palette";
@@ -9,10 +9,11 @@ import { fmtClock, fmtHM, fmtTime, sessionSeconds } from "../lib/time";
 const RECENT = 8;
 
 /** One project opened up: its to-dos, free-form notes, and the sessions you've logged on it.
- *  Everything saves as you go; closing the window saves a note you were still typing. */
+ *  Everything saves as you go; closing the window saves a note you were still typing.
+ *  An archived project has no timer, and offers Restore in its place. */
 export default function ProjectDetail({
-  project, status, todos, sessions, isRunning, elapsed, totalSeconds, now,
-  onClose, onEdit, onToggleTimer, onSaveNotes, onSaveSessionNote, todoOps,
+  project, status, todos, sessions, isRunning, elapsed, totalSeconds, now, archived,
+  onClose, onEdit, onToggleTimer, onRestore, onSaveNotes, onSaveSessionNote, todoOps,
 }) {
   const Icon = iconFor(project.icon);
   const finished = status.is_done;
@@ -34,7 +35,12 @@ export default function ProjectDetail({
             <span className="figures not-italic text-text">{fmtHM(totalSeconds)}</span> logged
           </span>
           <div className="ml-auto flex items-center gap-1.5">
-            {!finished && (
+            {archived && (
+              <Button variant="outline" className="h-8" onClick={onRestore}>
+                <ArchiveRestore size={14} /> Restore
+              </Button>
+            )}
+            {!finished && !archived && (
               <button
                 onClick={onToggleTimer}
                 className={`flex h-8 min-w-[6.5rem] items-center justify-center gap-1.5 border text-xs font-semibold transition-colors ${

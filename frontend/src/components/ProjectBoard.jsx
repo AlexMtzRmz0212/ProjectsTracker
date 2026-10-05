@@ -4,14 +4,20 @@ import { Ellipsis, ListChecks, NotebookText, Pencil, Play, Plus, Square } from "
 import { ON_INK, iconFor, inkFor, inkText, tint } from "../lib/palette";
 import { fmtClock, fmtHM } from "../lib/time";
 import { Button } from "./Modal";
+import ArchiveDrawer from "./ArchiveDrawer";
 
 /**
  * Every status as a column, every project as a card. Drag a card onto another column
- * to change its status, or up to the trash can that drops in at the top to delete it.
- * A mouse drags straight away; a finger holds the card for a moment first, so columns
- * still scroll. Phones show one status at a time, and the chips on top take drops.
+ * to change its status, down onto the archive tab at the bottom of the screen to put it away, or up
+ * to the trash can that drops in at the top to delete it. A mouse drags straight away; a
+ * finger holds the card for a moment first, so columns still scroll. Phones show one
+ * status at a time, and the chips on top take drops.
+ *
+ * `projects` are the ones on the board; `archived` are the ones in the archive drawer.
  */
-export default function ProjectBoard({ projects, statuses, cardProps, onMove, onCreate, onDelete }) {
+export default function ProjectBoard({
+  projects, archived, statuses, cardProps, onMove, onCreate, onDelete, onArchive, onRestore, onOpenArchived,
+}) {
   const [phoneStatus, setPhoneStatus] = useState(null);
   const shownOnPhone = statuses.some((s) => s.id === phoneStatus) ? phoneStatus : statuses[0]?.id;
   const [hidden, toggleHidden] = useHiddenStatuses(statuses);
@@ -33,6 +39,10 @@ export default function ProjectBoard({ projects, statuses, cardProps, onMove, on
         setAsking(true);
         return true; // the ghost is swallowed by the can
       }
+      if (target === "archive") {
+        onArchive(project.id);
+        return false; // the card is gone from its column at once, so there is nothing to animate
+      }
       if (project.status_id !== target) onMove(project.id, target);
       return false;
     },
@@ -41,9 +51,10 @@ export default function ProjectBoard({ projects, statuses, cardProps, onMove, on
   const over = dragId !== null ? drag.target : null;
   const trashPhase = dragId !== null ? (over === "trash" ? "hot" : "ready") : confirming ? "confirm" : "hidden";
   const ghostProject = drag && projects.find((p) => p.id === drag.id);
+  const statusesById = new Map(statuses.map((s) => [s.id, s]));
 
   return (
-    <div ref={root} className="flex h-full min-h-[16rem] flex-col gap-3">
+    <div ref={root} className="flex h-full min-h-[16rem] flex-col gap-3 pb-5">
       <TrashCan
         phase={trashPhase}
         project={trashed?.project}
@@ -163,6 +174,15 @@ export default function ProjectBoard({ projects, statuses, cardProps, onMove, on
         })}
       </div>
 
+      <ArchiveDrawer
+        projects={archived}
+        statusesById={statusesById}
+        dragging={dragId !== null}
+        over={over === "archive"}
+        onOpen={onOpenArchived}
+        onRestore={onRestore}
+      />
+
       {/* The card in your hand. Below the trash can, so the can stays visible under it. */}
       {ghostProject &&
         createPortal(
@@ -227,7 +247,7 @@ const TOUCH_SLOP = 8; // a finger that moves this far before the hold is scrolli
 
 /**
  * Drag and drop on pointer events, so mice, fingers and pens all work. Drop targets are
- * elements with `data-drop` (a status id, or "trash"), found under the pointer as it
+ * elements with `data-drop` (a status id, "archive" or "trash"), found under the pointer as it
  * moves. `drag` is { id, phase: "drag" | "swallow", target, width, offsetX, offsetY }.
  * The ghost is moved straight through its ref, not through React, on every move.
  */
@@ -387,9 +407,17 @@ function BoardCard({
       className={`cursor-grab select-none border border-l-[3px] bg-surface transition-opacity [-webkit-touch-callout:none] active:cursor-grabbing ${
         dragging ? "opacity-40" : ""
       } ${finished ? "border-line" : isRunning ? "" : "border-line"}`}
+      // The sides are set one by one: a changing `borderColor` next to `borderLeftColor` makes React warn
       style={{
         borderLeftColor: color,
-        ...(isRunning ? { background: tint(color, 10), borderColor: tint(color, 55), borderLeftColor: color } : null),
+        ...(isRunning
+          ? {
+              backgroundColor: tint(color, 10),
+              borderTopColor: tint(color, 55),
+              borderRightColor: tint(color, 55),
+              borderBottomColor: tint(color, 55),
+            }
+          : null),
       }}
     >
       <div className="flex items-start gap-2 px-3 pt-2.5">

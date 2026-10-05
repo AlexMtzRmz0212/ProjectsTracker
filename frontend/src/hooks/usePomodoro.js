@@ -9,7 +9,8 @@ export const LIMITS = { focus: [1, 180], shortBreak: [1, 60], longBreak: [1, 120
 
 const SETTINGS_KEY = "pt-pomodoro";
 const CYCLE_KEY = "pt-pomodoro-cycle";
-const IDLE = { day: "", done: 0, phase: null, kind: "short", until: 0, left: 0, carry: 0, projectId: null };
+const IDLE = { day: "", done: 0, phase: "idle", kind: "short", until: 0, left: 0, held: null, carry: 0, carryId: null };
+const PHASES = ["idle", "focus", "focusPaused", "breakWait", "break", "breakPaused", "ready"];
 
 const clamp = (n, [lo, hi]) => Math.min(hi, Math.max(lo, Math.round(n)));
 
@@ -27,6 +28,15 @@ function write(key, value) {
   } catch {
     // storage blocked: it just won't survive a reload
   }
+}
+
+/** The saved cycle. One from before the pomodoro had its own clock (a focus that was a
+ *  project session) can't be picked up again, so it starts over idle, keeping the day's count. */
+function readCycle(key) {
+  const saved = { ...IDLE, ...read(key) };
+  if (!PHASES.includes(saved.phase)) return { ...IDLE, day: saved.day, done: saved.done };
+  const { day, done, phase, kind, until, left, held, carry, carryId } = saved;
+  return { day, done, phase, kind, until, left, held, carry, carryId };
 }
 
 function readSettings() {
@@ -66,27 +76,29 @@ function chime() {
 }
 
 /**
- * Pomodoros on top of the project timer. A focus period is the running session
- * itself, so it survives a reload and the time lands in the log like any other.
- * When the focus length is up the session is stopped and a break follows: it counts
- * down at once if `autoBreak` is on, otherwise it waits for Start. Breaks are never
- * logged. After the break the next focus is started (or offered).
+ * A pomodoro with a clock of its own: it counts down whether or not a project timer is
+ * running, and nothing it does is logged. Project timers count up on their own and are
+ * what lands in the log. The one link: when a focus ends (or "Break now"), a running
+ * project timer is paused for the break (its session is stopped and kept) and the project
+ * is `held`. Starting the next focus starts it again, and its clock carries on from the time
+ * it had (`carry`) rather than from zero. Stopping the break, or starting a timer by hand
+ * while it runs, lets the hold go.
  *
- * Pausing a focus stops its session (kept, however short) and remembers how much of the
- * focus was done; Resume starts a new session that carries on with the rest. A break can
- * be paused too, and "Break now" ends a focus early to rest.
+ * When the focus length is up a break follows: it counts down at once if `autoBreak` is
+ * on, otherwise it waits for Start. After the break the next focus is started (or offered).
+ * A focus and a break can both be paused.
  *
- * The cycle's `phase` is null, "paused" (focus), "breakWait" (break not started),
- * "break", "breakPaused" or "ready" (break over, next focus not started).
- * `scope` keeps the landing-page demo's cycle apart from the owner's.
+ * `phase` is "idle", "focus", "focusPaused", "breakWait" (break not started), "break",
+ * "breakPaused" or "ready" (break over, next focus not started). Times are kept as an end
+ * timestamp (`until`) while counting and seconds left (`left`) while paused, so a reload
+ * picks up where it was. `scope` keeps the landing-page demo's cycle apart from the owner's.
  */
 export function usePomodoro({ running, startTimer, stopTimer, scope = "app" }) {
   const [settings, setSettingsState] = useState(readSettings);
   const cycleKey = `${CYCLE_KEY}-${scope}`;
-  const [cycle, setCycleState] = useState(() => ({ ...IDLE, ...read(cycleKey) }));
-  const onBreak = cycle.phase === "break";
-  const paused = cycle.phase === "paused";
-  const now = useNow(Boolean(running) || onBreak);
+  const [cycle, setCycleState] = useState(() => readCycle(cycleKey));
+  const { phase } = cycle;
+  const now = useNow(phase === "focus" || phase === "break");
 
   const setSettings = useCallback((patch) => {
     setSettingsState((prev) => {
@@ -108,88 +120,96 @@ export function usePomodoro({ running, startTimer, stopTimer, scope = "app" }) {
   );
 
   const focusSecs = settings.focus * 60;
-  // Earlier sessions of this same focus (before a pause) count too. A timer started by hand
-  // while a pause or break was still showing is a new focus, so what was carried is ignored.
-  const carry = running && cycle.phase ? 0 : cycle.carry;
-  const focusElapsed = running ? carry + sessionSeconds(running, now) : paused ? carry : 0;
-  const focusRemaining = running || paused ? Math.max(0, focusSecs - focusElapsed) : 0;
+  const focusRemaining =
+    phase === "focus" ? Math.max(0, (cycle.until - now.getTime()) / 1000)
+    : phase === "focusPaused" ? cycle.left
+    : focusSecs;
   const breakSecs = (cycle.kind === "long" ? settings.longBreak : settings.shortBreak) * 60;
-  const breakRemaining = onBreak
-    ? Math.max(0, (cycle.until - now.getTime()) / 1000)
-    : cycle.phase === "breakPaused" ? cycle.left
-    : cycle.phase === "breakWait" ? breakSecs
+  const breakRemaining =
+    phase === "break" ? Math.max(0, (cycle.until - now.getTime()) / 1000)
+    : phase === "breakPaused" ? cycle.left
+    : phase === "breakWait" ? breakSecs
     : 0;
-  const breaking = onBreak || cycle.phase === "breakPaused";
+  const focusing = phase === "focus" || phase === "focusPaused";
+  const breaking = phase === "break" || phase === "breakPaused";
 
-  // A timer started by hand (from a card) cancels any break or pause that was waiting. A focus
-  // that was stopped for good leaves nothing to carry over into the next one.
+  // Pause a running project timer for the break: hold the project and what its clock showed.
+  // The cycle is updated before the timer is stopped, so the stop is never read as one by hand.
+  // Kept in a ref so the effects below don't re-run every time the timer starts or stops.
+  const holdRunning = useRef(null);
+  const heldSession = useRef(null);
+  holdRunning.current = () => {
+    if (!running) return;
+    const id = running.project_id;
+    heldSession.current = running.id;
+    const shown = (cycle.carryId === id ? cycle.carry : 0) + sessionSeconds(running, new Date());
+    setCycle((c) => ({ ...c, held: id, carry: Math.round(shown), carryId: id }));
+    stopTimer({ keep: true });
+  };
+
+  /** Start a focus, and the project timer that was paused for the break, if there is one. */
+  const startFocus = useCallback(() => {
+    setCycle((c) => ({ ...c, phase: "focus", left: 0, held: null, until: Date.now() + settings.focus * 60_000 }));
+    if (cycle.held) startTimer(cycle.held);
+  }, [cycle.held, settings.focus, startTimer, setCycle]);
+
+  // A timer started by hand during the break lets the hold go. A project timer stopped by hand
+  // (not held for a break) starts from zero next time.
+  const wasRunning = useRef(Boolean(running));
   useEffect(() => {
-    if (running && cycle.phase) setCycle((c) => ({ ...c, phase: null, carry: 0 }));
-    else if (!running && !cycle.phase && cycle.carry) setCycle((c) => ({ ...c, carry: 0 }));
-  }, [running, cycle.phase, cycle.carry, setCycle]);
+    if (running && cycle.held && running.id !== heldSession.current) setCycle((c) => ({ ...c, held: null }));
+    else if (!running && wasRunning.current && !cycle.held && cycle.carry) setCycle((c) => ({ ...c, carry: 0, carryId: null }));
+    wasRunning.current = Boolean(running);
+  }, [running, cycle.held, cycle.carry, setCycle]);
 
-  // Focus is up: log it, then break
+  // Focus is up: count it, stop the project timer, then break
   const finished = useRef(null);
   useEffect(() => {
-    if (focusRemaining > 0) finished.current = null; // the focus length was raised: it can finish again
-    if (!running || focusRemaining > 0) return;
-    const key = running.start.getTime();
-    if (finished.current === key) return;
-    finished.current = key;
-    (async () => {
-      // The last stretch after a pause is part of a focus that was already under way: keep it
-      if (!(await stopTimer({ keep: carry > 0 }))) return;
-      if (settings.sound) chime();
-      setCycle((c) => {
-        const day = dayKey(new Date());
-        const done = (c.day === day ? c.done : 0) + 1;
-        const long = done % settings.longEvery === 0;
-        const mins = long ? settings.longBreak : settings.shortBreak;
-        return {
-          ...c, day, done, kind: long ? "long" : "short", left: 0, carry: 0, projectId: running.project_id,
-          phase: settings.autoBreak ? "break" : "breakWait",
-          until: settings.autoBreak ? Date.now() + mins * 60_000 : 0,
-        };
-      });
-    })();
-  }, [running, focusRemaining, carry, stopTimer, setCycle, settings]);
+    if (phase !== "focus" || focusRemaining > 0) return;
+    if (finished.current === cycle.until) return;
+    finished.current = cycle.until;
+    if (settings.sound) chime();
+    // A focus that ran out while nobody was here leaves a project timer alone: it may have been started since
+    if (Date.now() - cycle.until < 10_000) holdRunning.current();
+    setCycle((c) => {
+      const day = dayKey(new Date());
+      const done = (c.day === day ? c.done : 0) + 1;
+      const long = done % settings.longEvery === 0;
+      const mins = long ? settings.longBreak : settings.shortBreak;
+      return {
+        ...c, day, done, kind: long ? "long" : "short", left: 0,
+        phase: settings.autoBreak ? "break" : "breakWait",
+        until: settings.autoBreak ? Date.now() + mins * 60_000 : 0,
+      };
+    });
+  }, [phase, focusRemaining, cycle.until, setCycle, settings]);
 
   // Break is up: start the next focus, or wait to be asked. A break that ran out
   // while nobody was here (a reload, a closed laptop) never auto-starts.
   useEffect(() => {
-    if (!onBreak || breakRemaining > 0) return;
+    if (phase !== "break" || breakRemaining > 0) return;
     if (settings.sound) chime();
     const fresh = Date.now() - cycle.until < 10_000;
-    if (settings.autoStart && fresh) {
-      setCycle((c) => ({ ...c, phase: null }));
-      startTimer(cycle.projectId);
-    } else {
-      setCycle((c) => ({ ...c, phase: "ready" }));
-    }
-  }, [onBreak, breakRemaining, cycle.until, cycle.projectId, settings.autoStart, settings.sound, startTimer, setCycle]);
+    if (settings.autoStart && fresh) startFocus();
+    else setCycle((c) => ({ ...c, phase: "ready" }));
+  }, [phase, breakRemaining, cycle.until, settings.autoStart, settings.sound, startFocus, setCycle]);
 
-  /** Pause the focus. Its session is stopped (and kept) so the log stays true; Resume picks up the rest. */
-  const pause = useCallback(() => {
-    if (!running) return;
-    setCycle((c) => ({ ...c, phase: "paused", projectId: running.project_id, carry: Math.round(focusElapsed) }));
-    stopTimer({ keep: true });
-  }, [running, focusElapsed, stopTimer, setCycle]);
+  /** Pause the focus: the time left stands still until Resume. A project timer is left alone. */
+  const pause = useCallback(
+    () => setCycle((c) => ({ ...c, phase: "focusPaused", left: Math.max(1, Math.round((c.until - Date.now()) / 1000)) })),
+    [setCycle]
+  );
 
-  /** Carry on with a paused focus: a new session for whatever time was left. */
-  const resume = useCallback(() => {
-    setCycle((c) => ({ ...c, phase: null }));
-    startTimer(cycle.projectId);
-  }, [cycle.projectId, startTimer, setCycle]);
+  const resume = useCallback(
+    () => setCycle((c) => ({ ...c, phase: "focus", until: Date.now() + c.left * 1000 })),
+    [setCycle]
+  );
 
   /** End the focus early and rest now. It isn't a finished pomodoro, so it doesn't count toward the set. */
   const breakNow = useCallback(() => {
-    if (!running) return;
-    setCycle((c) => ({
-      ...c, phase: "break", kind: "short", left: 0, carry: 0, projectId: running.project_id,
-      until: Date.now() + settings.shortBreak * 60_000,
-    }));
-    stopTimer({ keep: carry > 0 });
-  }, [running, carry, settings.shortBreak, stopTimer, setCycle]);
+    holdRunning.current();
+    setCycle((c) => ({ ...c, phase: "break", kind: "short", left: 0, until: Date.now() + settings.shortBreak * 60_000 }));
+  }, [settings.shortBreak, setCycle]);
 
   /** A break that was waiting: begin counting it down. */
   const startBreak = useCallback(
@@ -207,14 +227,12 @@ export function usePomodoro({ running, startTimer, stopTimer, scope = "app" }) {
     [setCycle]
   );
 
-  /** Skip the rest of the break, or answer "break over": start focusing again. */
-  const startNext = useCallback(() => {
-    setCycle((c) => ({ ...c, phase: null, carry: 0 }));
-    startTimer(cycle.projectId);
-  }, [cycle.projectId, startTimer, setCycle]);
-
-  /** Leave the break, the pause, or the prompt after it, without starting anything. */
-  const dismiss = useCallback(() => setCycle((c) => ({ ...c, phase: null })), [setCycle]);
+  /** Stop whatever the pomodoro is doing and go back to idle. The day's count stays; a project
+   *  paused for the break stays stopped. */
+  const dismiss = useCallback(
+    () => setCycle((c) => ({ ...c, phase: "idle", left: 0, until: 0, held: null, carry: c.held ? 0 : c.carry })),
+    [setCycle]
+  );
 
   const done = cycle.day === dayKey(now) ? cycle.done : 0;
 
@@ -222,24 +240,26 @@ export function usePomodoro({ running, startTimer, stopTimer, scope = "app" }) {
     settings,
     setSettings,
     resetSettings,
-    // focus | paused | breakWait | break | breakPaused | ready | idle
-    phase: running ? "focus" : cycle.phase ?? "idle",
+    phase,
     breakKind: cycle.kind,
-    // The project the cycle is about while no timer runs: the one paused, or the one to focus on after the break
-    projectId: cycle.projectId,
+    // The project paused for the break, and the time its clock showed when it was
+    heldProjectId: cycle.held,
+    heldSeconds: cycle.held ? cycle.carry : 0,
+    // Time to add to the running session's clock: what it had before the break, if it's that project
+    carry: running && running.project_id === cycle.carryId ? cycle.carry : 0,
     focusRemaining,
-    focusProgress: Math.min(1, focusElapsed / focusSecs),
+    focusProgress: focusing ? Math.min(1, 1 - focusRemaining / focusSecs) : 0,
     breakRemaining,
     breakProgress: breaking ? Math.min(1, 1 - breakRemaining / breakSecs) : 0,
     // Which pomodoro of the set the current (or next) focus is: 1..longEvery
     position: (done % settings.longEvery) + 1,
+    startFocus,
     pause,
     resume,
     breakNow,
     startBreak,
     pauseBreak,
     resumeBreak,
-    startNext,
     dismiss,
   };
 }

@@ -102,7 +102,7 @@ export default function PomodoroDrawer({ open, onOpenChange, settings, onChange,
 
       <div inert={!open} className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         <p className="text-[13px] text-muted">
-          A focus period runs on the project's timer and is logged. Paused time and breaks are not.
+          The pomodoro keeps its own time and isn't logged; project timers are. When a focus ends, a running project timer is paused for the break and picks up again with the next focus.
         </p>
 
         <div className="mt-3 divide-y divide-rule border-y border-rule">

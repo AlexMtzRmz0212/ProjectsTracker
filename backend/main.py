@@ -181,6 +181,40 @@ def update_project(project_id: str, body: schemas.ProjectUpdate, db: DbSession =
     return _project_out(project, _totals(db).get(project.id, 0))
 
 
+@api.post("/projects/{project_id}/skip", response_model=schemas.ProjectOut)
+def skip_project(project_id: str, db: DbSession = Depends(get_db)):
+    """Send a project to the back of the Feed's queue. The client ranks projects by the later of
+    their last session and this stamp, so it stays back until the others have had their turn."""
+    project = _get_project(db, project_id)
+    project.skipped_at = utcnow()
+    db.commit()
+    db.refresh(project)
+    return _project_out(project, _totals(db).get(project.id, 0))
+
+
+@api.post("/projects/{project_id}/archive", response_model=schemas.ProjectOut)
+def archive_project(project_id: str, db: DbSession = Depends(get_db)):
+    """Put a project away: off the board, out of the Feed and the open stats, its history kept.
+    Its status is left alone, so restoring puts it back in the same column. An archived project
+    has no timer, so a running one is stopped."""
+    project = _get_project(db, project_id)
+    _stop_timers(db, Project.id == project.id)
+    project.archived_at = project.archived_at or utcnow()  # archiving twice keeps the first moment
+    db.commit()
+    db.refresh(project)
+    return _project_out(project, _totals(db).get(project.id, 0))
+
+
+@api.post("/projects/{project_id}/restore", response_model=schemas.ProjectOut)
+def restore_project(project_id: str, db: DbSession = Depends(get_db)):
+    """Bring an archived project back to the board, in the status it left."""
+    project = _get_project(db, project_id)
+    project.archived_at = None
+    db.commit()
+    db.refresh(project)
+    return _project_out(project, _totals(db).get(project.id, 0))
+
+
 @api.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_project(project_id: str, db: DbSession = Depends(get_db)):
     db.delete(_get_project(db, project_id))  # sessions go with it (ORM cascade)

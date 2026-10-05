@@ -31,6 +31,10 @@ class Status(Base):
 
 
 class Project(Base):
+    """`skipped_at` is when it was last sent to the back of the Feed's queue (NULL if never);
+    the server sets it, in the skip route. `archived_at` is when it was put away (NULL while it
+    is on the board); the archive and restore routes set it, and its status is left as it was."""
+
     __tablename__ = "projects"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
@@ -42,6 +46,8 @@ class Project(Base):
     notes: Mapped[str] = mapped_column(Text, default="", server_default="")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    skipped_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     sessions: Mapped[list["Session"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"

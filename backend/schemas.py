@@ -83,6 +83,8 @@ class ProjectOut(BaseModel):
     notes: str
     sort_order: int
     created_at: UTCDateTime
+    skipped_at: Optional[UTCDateTime] = None  # last sent to the back of the Feed's queue
+    archived_at: Optional[UTCDateTime] = None  # when it was put away; None while it is on the board
     total_seconds: int = 0  # closed sessions only; the client adds a running timer live
 
 

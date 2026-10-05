@@ -60,6 +60,91 @@ def test_project_validation(client):
     assert client.patch("/api/projects/missing", json={"name": "X"}).status_code == 404
 
 
+# ── Feed ────────────────────────────────────────────────────────────────────
+
+def test_skip_stamps_the_project(client):
+    p = make_project(client)
+    assert p["skipped_at"] is None
+
+    before = now()
+    skipped = client.post(f"/api/projects/{p['id']}/skip")
+    assert skipped.status_code == 200
+    stamp = datetime.fromisoformat(skipped.json()["skipped_at"].replace("Z", "+00:00"))
+    assert skipped.json()["skipped_at"].endswith("Z") and before - timedelta(seconds=1) <= stamp <= now() + timedelta(seconds=1)
+    assert client.get("/api/projects").json()[0]["skipped_at"] == skipped.json()["skipped_at"]
+
+    # Other edits leave it alone, and the project's other fields come back intact
+    assert client.patch(f"/api/projects/{p['id']}", json={"name": "Renamed"}).json()["skipped_at"] == skipped.json()["skipped_at"]
+    assert skipped.json()["name"] == p["name"] and skipped.json()["status_id"] == p["status_id"]
+
+
+def test_skip_unknown_project(client):
+    assert client.post("/api/projects/missing/skip").status_code == 404
+
+
+# ── Archive ─────────────────────────────────────────────────────────────────
+
+def test_archive_and_restore(client):
+    p = make_project(client)
+    assert p["archived_at"] is None
+
+    before = now()
+    archived = client.post(f"/api/projects/{p['id']}/archive")
+    assert archived.status_code == 200
+    body = archived.json()
+    stamp = datetime.fromisoformat(body["archived_at"].replace("Z", "+00:00"))
+    assert body["archived_at"].endswith("Z") and before - timedelta(seconds=1) <= stamp <= now() + timedelta(seconds=1)
+    # Its other fields come back intact, and it stays in the list: the client decides what to show
+    assert body["name"] == p["name"] and body["status_id"] == p["status_id"] and body["notes"] == p["notes"]
+    assert client.get("/api/projects").json()[0]["archived_at"] == body["archived_at"]
+
+    # Archiving again keeps the first moment, and other edits leave it alone
+    assert client.post(f"/api/projects/{p['id']}/archive").json()["archived_at"] == body["archived_at"]
+    assert client.patch(f"/api/projects/{p['id']}", json={"name": "Renamed"}).json()["archived_at"] == body["archived_at"]
+
+    restored = client.post(f"/api/projects/{p['id']}/restore")
+    assert restored.status_code == 200 and restored.json()["archived_at"] is None
+    assert restored.json()["status_id"] == p["status_id"]  # back in the column it left
+    assert client.get("/api/projects").json()[0]["archived_at"] is None
+
+
+def test_archiving_a_project_stops_its_timer(client):
+    p = make_project(client)
+    other = make_project(client, "Other")
+    client.post("/api/timer/start", json={"project_id": p["id"]})
+
+    # Archiving some other project leaves the timer alone
+    client.post(f"/api/projects/{other['id']}/archive")
+    assert client.get("/api/timer").json() is not None
+
+    client.post(f"/api/projects/{p['id']}/archive")
+    assert client.get("/api/timer").json() is None
+
+
+def test_archive_unknown_project(client):
+    assert client.post("/api/projects/missing/archive").status_code == 404
+    assert client.post("/api/projects/missing/restore").status_code == 404
+
+
+def test_archived_projects_keep_their_status_and_can_be_deleted(client):
+    paused = make_status(client, "Paused")
+    p = make_project(client, status_id=paused["id"])
+    client.post(f"/api/projects/{p['id']}/archive")
+
+    # Out of sight, but still using its status
+    res = client.delete(f"/api/statuses/{paused['id']}")
+    assert res.status_code == 409 and "1 project still use" in res.json()["detail"]
+
+    assert client.delete(f"/api/projects/{p['id']}").status_code == 204
+    assert client.delete(f"/api/statuses/{paused['id']}").status_code == 204
+
+
+def test_patch_cannot_archive(client):
+    p = make_project(client)
+    res = client.patch(f"/api/projects/{p['id']}", json={"archived_at": iso(now())})
+    assert res.status_code == 200 and res.json()["archived_at"] is None
+
+
 # ── Notes and to-dos ────────────────────────────────────────────────────────
 
 def test_project_notes(client):

@@ -52,6 +52,7 @@ const PROJECTS = [
     from: 200, until: 0, weekday: 0.45, weekend: 0.5,
     slot: { weekday: [21.5, 22, 20, 50], weekend: [21.5, 22, 20, 50] },
     notes: ["Scales and chord changes", "Fingerpicking pattern", "New song", "", ""],
+    todos: [["Learn the chorus of the new song", false], ["Restring the guitar", false]],
   },
   {
     name: "Short story", color: "#7a4a78", icon: "pen",
@@ -66,6 +67,7 @@ const PROJECTS = [
     from: 270, until: 0, weekday: 0, weekend: 0.22,
     slot: { weekday: [20, 20.5, 45, 90], weekend: [17.75, 18.5, 45, 120] },
     notes: ["Backup script", "Router config", ""],
+    todos: [["Test restoring from a backup", false]],
   },
   {
     name: "Resume rewrite", color: "#a9542e", icon: "briefcase",
@@ -73,6 +75,15 @@ const PROJECTS = [
     from: 175, until: 110, weekday: 0.5, weekend: 0,
     slot: { weekday: [12.5, 13, 30, 90], weekend: [12.5, 13, 30, 90] },
     notes: ["New summary", "Trim older roles", ""],
+  },
+  // Put away once it was done, so the archive drawer isn't empty on arrival. Kept last so the
+  // seeded random numbers behind every other project's sessions don't move.
+  {
+    name: "Tax paperwork", color: "#7a4a78", icon: "briefcase",
+    status: "demo-t3", archived: true,
+    from: 255, until: 215, weekday: 0.4, weekend: 0.1,
+    slot: { weekday: [19.5, 20, 30, 75], weekend: [11, 11.5, 30, 75] },
+    notes: ["Receipts sorted", "Filed the return", ""],
   },
 ];
 
@@ -103,6 +114,8 @@ function seed(now) {
       notes: def.projectNotes ?? "",
       sort_order: i + 1,
       created_at: new Date(now.getTime() - def.from * DAY).toISOString(),
+      skipped_at: null,
+      archived_at: def.archived ? new Date(now.getTime() - def.until * DAY).toISOString() : null,
     };
     projects.push(project);
     (def.todos ?? []).forEach(([text, done], k) => {
@@ -245,6 +258,8 @@ export function createDemoApi() {
         status_id: data.status_id ? status(data.status_id).id : firstOpen().id,
         sort_order: Math.max(0, ...projects.map((p) => p.sort_order)) + 1,
         created_at: new Date().toISOString(),
+        skipped_at: null,
+        archived_at: null,
       };
       projects = [...projects, created];
       return projectOut(created);
@@ -256,6 +271,23 @@ export function createDemoApi() {
         if (status(data.status_id).is_done) stopTimerIf((p) => p.id === id);
       }
       const next = { ...project(id), ...data };
+      projects = projects.map((p) => (p.id === id ? next : p));
+      return projectOut(next);
+    },
+    skipProject: async (id) => {
+      const next = { ...project(id), skipped_at: new Date().toISOString() };
+      projects = projects.map((p) => (p.id === id ? next : p));
+      return projectOut(next);
+    },
+    archiveProject: async (id) => {
+      const current = project(id);
+      stopTimerIf((p) => p.id === id); // an archived project has no timer
+      const next = { ...current, archived_at: current.archived_at ?? new Date().toISOString() };
+      projects = projects.map((p) => (p.id === id ? next : p));
+      return projectOut(next);
+    },
+    restoreProject: async (id) => {
+      const next = { ...project(id), archived_at: null };
       projects = projects.map((p) => (p.id === id ? next : p));
       return projectOut(next);
     },

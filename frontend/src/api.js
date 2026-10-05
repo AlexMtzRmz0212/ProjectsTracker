@@ -46,6 +46,9 @@ export const api = {
   createProject: (data) => fetchApi("/projects", json("POST", data)),
   updateProject: (id, data) => fetchApi(`/projects/${id}`, json("PATCH", data)),
   deleteProject: (id) => fetchApi(`/projects/${id}`, { method: "DELETE" }),
+  skipProject: (id) => fetchApi(`/projects/${id}/skip`, { method: "POST" }),
+  archiveProject: (id) => fetchApi(`/projects/${id}/archive`, { method: "POST" }),
+  restoreProject: (id) => fetchApi(`/projects/${id}/restore`, { method: "POST" }),
 
   listStatuses: () => fetchApi("/statuses"),
   createStatus: (data) => fetchApi("/statuses", json("POST", data)),

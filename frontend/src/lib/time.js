@@ -72,6 +72,17 @@ export function daySeconds(byDay, date, projectId) {
   return projectId ? day.byProject.get(projectId) ?? 0 : day.total;
 }
 
+/** Map<projectId, Date>: when each project was last worked on, the end of its latest session
+ *  (`now` for one whose timer is running). Projects with no session in `sessions` are absent. */
+function lastWorkedByProject(sessions, now) {
+  const last = new Map();
+  for (const s of sessions) {
+    const at = s.end ?? now;
+    if (!last.has(s.project_id) || at > last.get(s.project_id)) last.set(s.project_id, at);
+  }
+  return last;
+}
+
 /** The open project that most needs attention: { project, since, never } or null.
  *  Projects never worked on rank above any that have logs (oldest-created first); otherwise the
  *  one idle longest wins. "Last worked" is the end of its latest session (now, if its timer is
@@ -79,11 +90,7 @@ export function daySeconds(byDay, date, projectId) {
  *  is "never" worked only if it has no logged time at all, since older sessions may sit outside
  *  the window). */
 export function mostNeglected(projects, sessions, now) {
-  const last = new Map();
-  for (const s of sessions) {
-    const at = s.end ?? now;
-    if (!last.has(s.project_id) || at > last.get(s.project_id)) last.set(s.project_id, at);
-  }
+  const last = lastWorkedByProject(sessions, now);
   let found = null;
   for (const project of projects) {
     const worked = last.get(project.id);
@@ -93,6 +100,29 @@ export function mostNeglected(projects, sessions, now) {
     if (better) found = { project, since, never };
   }
   return found;
+}
+
+/** The Feed's queue: [{ project, lastWorked }] with the project to work on next first, where
+ *  `lastWorked` is a Date, or null if it never has been. Projects are ranked by the later of when
+ *  they were last worked on and when they were last skipped (a missing moment counts as 0), so
+ *  the least recently touched comes first, never-touched ones lead (oldest-created first), and a
+ *  skip sends a project behind everything else until the others have had their turn. The running
+ *  project is pinned to the top. As in mostNeglected, a project with logged time but no session in
+ *  the loaded window counts from when it was created. */
+export function feedQueue(projects, sessions, now, runningId) {
+  const last = lastWorkedByProject(sessions, now);
+  const items = projects.map((project) => {
+    const worked = last.get(project.id) ?? (project.total_seconds > 0 ? new Date(project.created_at) : null);
+    const skipped = project.skipped_at ? new Date(project.skipped_at) : null;
+    return { project, lastWorked: worked, rank: Math.max(worked?.getTime() ?? 0, skipped?.getTime() ?? 0) };
+  });
+  items.sort(
+    (a, b) =>
+      (b.project.id === runningId) - (a.project.id === runningId) ||
+      a.rank - b.rank ||
+      new Date(a.project.created_at) - new Date(b.project.created_at)
+  );
+  return items.map(({ project, lastWorked }) => ({ project, lastWorked }));
 }
 
 /** Consecutive days with at least a minute logged, ending today (or yesterday

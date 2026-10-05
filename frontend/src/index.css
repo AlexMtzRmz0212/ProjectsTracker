@@ -343,7 +343,8 @@ body {
 /* ── The card in your hand (ProjectBoard) ──────────────────────────────────
    Follows the pointer (positioned from JS), lifted with a tilt and a hard
    ledger shadow. Over the trash it shrinks toward the pointer; dropped there,
-   it falls into the can. It sits below the can so the can shows through. */
+   it falls into the can. It sits below the can so the can shows through. Over
+   the archive drawer it shrinks a little less. */
 
 .drag-ghost {
   position: fixed;
@@ -363,6 +364,11 @@ body {
 .drag-ghost[data-over="trash"] .drag-ghost-card {
   transform: rotate(-4deg) scale(0.5);
   opacity: 0.85;
+}
+/* Over the archive drawer it narrows to a slip, less than for the can: it isn't going to vanish */
+.drag-ghost[data-over="archive"] .drag-ghost-card {
+  transform: rotate(-2deg) scale(0.7);
+  opacity: 0.9;
 }
 .drag-ghost.is-swallowed .drag-ghost-card {
   animation: ghost-swallow 0.24s cubic-bezier(0.5, 0, 0.75, 0) forwards;

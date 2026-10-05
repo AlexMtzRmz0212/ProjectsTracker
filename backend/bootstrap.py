@@ -41,13 +41,22 @@ def _add_project_columns(engine: Engine) -> None:
 
     An interim version also added a category_id column (and a categories table) that was
     later merged into statuses. It is left alone: it is nullable so nothing trips on it,
-    and SQLite can't drop a column that has a foreign key."""
+    and SQLite can't drop a column that has a foreign key.
+
+    skipped_at (the Feed's skip) is NULL for projects made before it existed: never skipped.
+    archived_at is NULL for those too: they are on the board, not in the archive."""
     columns = _project_columns(engine)
     with engine.begin() as conn:
         if "status_id" not in columns:
             conn.execute(text("ALTER TABLE projects ADD COLUMN status_id VARCHAR REFERENCES statuses(id)"))
         if "notes" not in columns:
             conn.execute(text("ALTER TABLE projects ADD COLUMN notes TEXT NOT NULL DEFAULT ''"))
+        if "skipped_at" not in columns:
+            column_type = models.Project.__table__.c.skipped_at.type.compile(dialect=engine.dialect)
+            conn.execute(text(f"ALTER TABLE projects ADD COLUMN skipped_at {column_type}"))
+        if "archived_at" not in columns:
+            column_type = models.Project.__table__.c.archived_at.type.compile(dialect=engine.dialect)
+            conn.execute(text(f"ALTER TABLE projects ADD COLUMN archived_at {column_type}"))
 
 
 def _add_todo_columns(engine: Engine) -> None:

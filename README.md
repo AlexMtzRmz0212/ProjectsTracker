@@ -6,7 +6,7 @@ with the time you worked, and a year-long activity heatmap.
 
 ## Features
 
-- **One screen, three tabs**: *Projects*, *Calendar* and *Stats* each fit the window, so there is no
+- **One screen, four tabs**: *Projects*, *Feed*, *Calendar* and *Stats* each fit the window, so there is no
   page scrolling; a list only scrolls inside its own box when it really has more than fits. The
   landing page works the same way (*Try it* and *How it works*, with an *Ask for your own* button in
   the header that opens a dialog).
@@ -16,6 +16,16 @@ with the time you worked, and a year-long activity heatmap.
   "Are you sure?"). A mouse drags right away; on a touch screen, hold the card for a moment first.
   Phones show one status at a time, so a card is dropped on the status chips at the top. A card's
   *Edit* dialog can change its status too.
+- **Archive**: drag a card down onto the *Archive* shelf under the board to put a project away. It
+  leaves the board, the Feed and the open stats, keeps its status, sessions, to-dos and notes, and
+  its past time stays on the calendar and heatmap. A running timer on it is stopped. Open the shelf
+  to see what's archived (newest first, with total time and the date), open a project to read it, or
+  press *Restore* to send it back to the column it left. The shelf remembers whether it was open.
+- **Feed** (what to work on next): the projects on the board whose status isn't finished, as a queue with the one
+  you worked on longest ago first (never-worked projects lead) and each one's open to-dos listed.
+  Press ▶ on a project or on one of its to-dos to start its timer, or **Skip** to send the project to
+  the back of the queue. A skip is saved on the server, and a project that gets worked on after it
+  moves back too. The project with a running timer stays pinned at the top.
 - **Statuses**: a list you manage yourself (the **Statuses** button on the Projects tab): Active, On
   hold, Idea, ... Each project has one. Tick *Finished* on the statuses that mean it's over: projects
   there lose their timer. A fresh database starts with Active and Done.
@@ -24,8 +34,17 @@ with the time you worked, and a year-long activity heatmap.
   Cards show how many to-dos are open and a notebook mark when there are notes. A to-do remembers
   when it was ticked off, and the Sessions tab lists it under the session it was done in.
 - **One timer at a time**: starting a project stops whatever was running. Timers live on the
-  server, so they survive reloads and keep counting with the tab closed. The running timer is
-  always in the header pill and the browser tab title.
+  server, so they survive reloads and keep counting with the tab closed. A project timer counts up,
+  and the running one is in the header (next to the pomodoro) and the browser tab title.
+- **Pomodoro**: a countdown of its own in the header, ready to start any time with or without a
+  project running. It runs focus, then a short break, with a long break after every few focus
+  periods; each can be paused, a break can be skipped, and ■ stops it. The pomodoro itself is never
+  logged: only project timers are. When a focus ends (or you press *Break now*), a running project
+  timer is paused for the break: its time so far is saved and it shows as paused beside the break.
+  Pressing *Focus* again starts it back up, with its clock carrying on from where it was. Stopping
+  the break, or starting a timer by hand during it, leaves the project stopped. Lengths, the long
+  break interval, auto-start and the chime are set in the drawer behind the clock tab on the right
+  edge; the pomodoro is kept in the browser, so it survives a reload.
 - **Session notes**: write a note while the timer runs (the notebook button on the timer pill in the
   header) or when you add time by hand. Both end up on the same session.
 - **Manual entries**: log time after the fact without fiddling with clock pickers. Say which day it
@@ -35,8 +54,8 @@ with the time you worked, and a year-long activity heatmap.
   time worked. Click a day to see its sessions.
 - **Activity heatmap** (Stats tab): up to 53 weeks, as many as fit the width, filterable by project.
   Click a square to jump the calendar there.
-- **Stats strip**: today, this week, streak, open projects, and the open project that has gone longest
-  without a session ("most neglected").
+- **Stats strip**: today, this week, streak, open projects (archived ones don't count), and the open
+  project that has gone longest without a session ("most neglected").
 - Light/dark theme, responsive down to phone width.
 
 ## Quick start
@@ -124,13 +143,16 @@ it with a `Z`, and the browser groups by local day.
 |---|---|---|
 | GET | `/projects` | List projects with `total_seconds` (closed sessions) |
 | POST / PATCH / DELETE | `/projects[/{id}]` | Create / edit / delete (deletes its sessions and to-dos). Carries `status_id` and `notes` |
+| POST | `/projects/{id}/skip` | Send a project to the back of the Feed's queue: the server stamps `skipped_at` with now |
+| POST | `/projects/{id}/archive` | Put a project away: the server stamps `archived_at` with now (kept if it's already archived) and stops its running timer. `GET /projects` still lists it; the client shows it on the Archive shelf |
+| POST | `/projects/{id}/restore` | Bring an archived project back to the board, in the status it left (`archived_at` is cleared) |
 | GET / POST / PATCH / DELETE | `/todos[/{id}]` | A project's to-dos: `{project_id, text}`, then `{text?, done?}`. GET lists everyone's. `completed_at` is set by the server when a to-do is ticked and cleared when unticked |
 | GET / POST / PATCH / DELETE | `/statuses[/{id}]` | Manage statuses (`is_done` marks the finished ones). Refuses (409) to delete a status in use or to leave no unfinished status |
 | GET | `/sessions?start=&end=` | Sessions overlapping a range |
 | POST / PATCH / DELETE | `/sessions[/{id}]` | Manual add / edit / delete |
 | GET | `/timer` | The running session, or `null` |
 | POST | `/timer/start` | `{project_id}`: stops the current timer, starts this one |
-| POST | `/timer/stop?keep=` | Stops the running timer. A session under 2 minutes is dropped as a mis-click unless `keep=true` (a pause) |
+| POST | `/timer/stop?keep=` | Stops the running timer. A session under 2 minutes is dropped as a mis-click unless `keep=true` (a timer paused for a pomodoro break) |
 | GET | `/auth/me` | `{authenticated, required}`: is there a valid owner session |
 | POST | `/auth/login` | `{password}`: sets the session cookie (204) |
 | POST | `/auth/logout` | Clears the session cookie (204) |
@@ -157,7 +179,7 @@ ProjectsTracker/
 │       │                     useTheme, useInterest (visitors), useInbox (owner)
 │       ├── lib/              time math (per-day splitting, streaks, formatting), palette
 │       └── components/       Header, TabBar, ProjectBoard (status columns, drag and drop),
-│                             StatsStrip, MonthCalendar, DayPanel, Heatmap, ProjectModal,
+│                             ArchiveShelf (archived projects), FeedView (the work queue), StatsStrip, MonthCalendar, DayPanel, Heatmap, ProjectModal,
 │                             ProjectDetail (notes and to-dos), StatusModal, SessionModal, …
 ├── dev.bat             launcher
 └── requirements*.txt

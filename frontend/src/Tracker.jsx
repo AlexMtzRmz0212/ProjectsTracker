@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { format, isSameMonth, startOfMonth, startOfWeek } from "date-fns";
-import { CalendarDays, ChartColumn, Columns3, RotateCw, ServerOff, SlidersHorizontal } from "lucide-react";
+import { CalendarDays, ChartColumn, Columns3, ListTodo, RotateCw, ServerOff, SlidersHorizontal } from "lucide-react";
 import { useTracker } from "./hooks/useTracker";
 import { useTheme } from "./hooks/useTheme";
 import { useInbox } from "./hooks/useInbox";
 import { useNow } from "./hooks/useNow";
 import { usePomodoro } from "./hooks/usePomodoro";
 import {
-  aggregateByDay, dayKey, daySeconds, fmtCountdown, fmtHM, fmtTime, mostNeglected, sessionSeconds, streak, withLive,
+  aggregateByDay, dayKey, daySeconds, feedQueue, fmtClock, fmtCountdown, fmtHM, fmtTime, mostNeglected, sessionSeconds, streak, withLive,
 } from "./lib/time";
 import Header from "./components/Header";
 import PomodoroDrawer from "./components/PomodoroDrawer";
 import StatsStrip from "./components/StatsStrip";
 import ProjectBoard from "./components/ProjectBoard";
+import FeedView from "./components/FeedView";
 import TabBar from "./components/TabBar";
 import MonthCalendar from "./components/MonthCalendar";
 import DayPanel from "./components/DayPanel";
@@ -46,7 +47,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
 
   const [cursor, setCursor] = useState(() => new Date());
   const [selected, setSelected] = useState(() => new Date());
-  const [tab, setTab] = useState("projects"); // projects | calendar | stats
+  const [tab, setTab] = useState("projects"); // projects | feed | calendar | stats
   const [statusesOpen, setStatusesOpen] = useState(false);
   const [detailId, setDetailId] = useState(null); // the project whose notes and to-dos are open
   const [projectModal, setProjectModal] = useState(null); // { project? }
@@ -54,18 +55,45 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   const [confirm, setConfirm] = useState(null); // { kind: "session", item }; projects are deleted on the board's trash can
 
   // Projects saved with a v1 neon color are shown in the nearest ledger ink.
+  // `projects` is every project, archived or not: the calendar, day panel and stats still need
+  // the archived ones to name and add up the time logged on them. The board, the Feed and the
+  // open stats work from `liveProjects`; the archive drawer from `archivedProjects`.
   const projects = useMemo(() => t.projects.map((p) => ({ ...p, color: inkFor(p.color) })), [t.projects]);
   const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
+  const liveProjects = useMemo(() => projects.filter((p) => !p.archived_at), [projects]);
+  const archivedProjects = useMemo(
+    () => projects.filter((p) => p.archived_at).sort((a, b) => new Date(b.archived_at) - new Date(a.archived_at)),
+    [projects]
+  );
   const statusesById = useMemo(() => new Map(t.statuses.map((s) => [s.id, s])), [t.statuses]);
   const isOpen = (p) => !statusesById.get(p.status_id)?.is_done;
 
-  const openProjects = useMemo(() => projects.filter(isOpen), [projects, statusesById]);
+  const openProjects = useMemo(() => liveProjects.filter(isOpen), [liveProjects, statusesById]);
   // Only re-evaluated once per day (and when sessions change): "days idle" doesn't move by the second
   const neglected = useMemo(() => mostNeglected(openProjects, t.sessions, new Date(`${todayKey}T23:59:59`)), [openProjects, t.sessions, todayKey]);
+  const runningId = t.running?.project_id;
+  // The Feed's queue; like `neglected`, it only needs to be re-ranked when sessions or the day change
+  const queue = useMemo(
+    () => feedQueue(openProjects, t.sessions, new Date(`${todayKey}T23:59:59`), runningId),
+    [openProjects, t.sessions, todayKey, runningId]
+  );
+  const openTodosByProject = useMemo(() => {
+    const byProject = new Map();
+    for (const todo of t.todos) {
+      if (todo.done) continue;
+      if (!byProject.has(todo.project_id)) byProject.set(todo.project_id, []);
+      byProject.get(todo.project_id).push(todo);
+    }
+    return byProject;
+  }, [t.todos]);
 
   const baseByDay = useMemo(() => aggregateByDay(t.sessions), [t.sessions]);
   const byDay = useMemo(() => withLive(baseByDay, t.running, now), [baseByDay, t.running, now]);
   const elapsed = t.running ? sessionSeconds(t.running, now) : 0;
+  // What the running timer's clock shows: a project picked back up after a pomodoro break carries
+  // on from the time it had. That earlier time is already logged, so totals use `elapsed` alone.
+  const clock = elapsed + pomodoro.carry;
+  const heldProject = pomodoro.heldProjectId ? projectsById.get(pomodoro.heldProjectId) ?? null : null;
   const runningProject = t.running ? projectsById.get(t.running.project_id) : null;
   const openTodoCounts = useMemo(() => {
     const counts = new Map();
@@ -79,22 +107,22 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     ensureRange(startOfWeek(startOfMonth(cursor), { weekStartsOn: 1 }));
   }, [cursor, ensureRange]);
 
-  const cycleProject = projectsById.get(pomodoro.projectId) ?? null;
-
   // The countdown in the browser tab, so it's visible from anywhere. The demo is
   // embedded in a page of its own, so it leaves the tab title alone.
   const { phase, focusRemaining, breakRemaining } = pomodoro;
   useEffect(() => {
     if (demo) return;
+    const on = runningProject ? ` · ${runningProject.name}` : "";
     document.title =
-      phase === "focus" && runningProject ? `${fmtCountdown(focusRemaining)} · ${runningProject.name}`
-      : phase === "paused" ? `Paused ${fmtCountdown(focusRemaining)}${cycleProject ? ` · ${cycleProject.name}` : ""}`
+      phase === "focus" ? `${fmtCountdown(focusRemaining)} · Focus${on}`
+      : phase === "focusPaused" ? `Paused ${fmtCountdown(focusRemaining)}${on}`
       : phase === "break" ? `Break ${fmtCountdown(breakRemaining)}`
       : phase === "breakPaused" ? `Break paused ${fmtCountdown(breakRemaining)}`
       : phase === "breakWait" ? "Start your break · ProjectsTracker"
       : phase === "ready" ? "Break over · ProjectsTracker"
+      : runningProject ? `${fmtClock(clock)}${on}`
       : "ProjectsTracker";
-  }, [demo, phase, runningProject, cycleProject, focusRemaining, breakRemaining]);
+  }, [demo, phase, runningProject, clock, focusRemaining, breakRemaining]);
 
   const selectDay = (d) => {
     setSelected(d);
@@ -119,8 +147,14 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     return t.moveProject(id, statusId);
   };
 
+  /** A card dropped on the archive drawer. Archiving ends its timer, here and (via the server) in the data. */
+  const archiveProject = async (id) => {
+    if (t.running?.project_id === id) await t.stopTimer();
+    return t.archiveProject(id);
+  };
+
   const openAddTime = (projectId, date) =>
-    projects.some(isOpen)
+    liveProjects.some(isOpen)
       ? setSessionModal({ projectId, date: date ?? today })
       : setProjectModal({});
 
@@ -128,7 +162,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     const isRunning = t.running?.project_id === p.id;
     return {
       isRunning,
-      elapsed,
+      elapsed: clock,
       totalSeconds: p.total_seconds + (isRunning ? elapsed : 0),
       todaySeconds: daySeconds(byDay, today, p.id),
       lastSeven: Array.from({ length: 7 }, (_, i) => {
@@ -144,14 +178,17 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   };
 
   const detailProject = detailId ? projectsById.get(detailId) : null;
+  // Time can be logged on open projects that are on the board; a session already logged on any
+  // other project can still be edited
   const pickableProjects = projects.filter(
-    (p) => isOpen(p) || p.id === sessionModal?.session?.project_id || p.id === sessionModal?.projectId
+    (p) => (!p.archived_at && isOpen(p)) || p.id === sessionModal?.session?.project_id || p.id === sessionModal?.projectId
   );
 
   if (t.status === "error") return <ServerDown onRetry={t.reload} />;
 
   const tabs = [
     { id: "projects", label: "Projects", icon: Columns3 },
+    { id: "feed", label: "Feed", icon: ListTodo },
     { id: "calendar", label: "Calendar", icon: CalendarDays },
     { id: "stats", label: "Stats", icon: ChartColumn },
   ];
@@ -162,9 +199,11 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
         <Header
           runningProject={runningProject}
           runningSession={t.running}
+          elapsed={clock}
+          heldProject={heldProject}
+          heldSeconds={pomodoro.heldSeconds}
           onSaveNote={(note) => t.updateSession(t.running.id, { note })}
           pomodoro={pomodoro}
-          cycleProject={cycleProject}
           onStop={t.stopTimer}
           onNewProject={() => setProjectModal({})}
           theme={theme}
@@ -213,12 +252,32 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
               <EmptyBoard onCreate={() => setProjectModal({})} />
             ) : (
               <ProjectBoard
-                projects={projects}
+                projects={liveProjects}
+                archived={archivedProjects}
                 statuses={t.statuses}
                 cardProps={cardProps}
                 onMove={moveProject}
                 onCreate={(statusId) => setProjectModal({ statusId })}
                 onDelete={t.deleteProject}
+                onArchive={archiveProject}
+                onRestore={t.restoreProject}
+                onOpenArchived={setDetailId}
+              />
+            )
+          ) : tab === "feed" ? (
+            projects.length === 0 ? (
+              <EmptyBoard onCreate={() => setProjectModal({})} />
+            ) : (
+              <FeedView
+                queue={queue}
+                todosByProject={openTodosByProject}
+                statusesById={statusesById}
+                runningId={runningId}
+                elapsed={clock}
+                onOpen={setDetailId}
+                onStart={t.startTimer}
+                onStop={t.stopTimer}
+                onSkip={t.skipProject}
               />
             )
           ) : tab === "calendar" ? (
@@ -287,6 +346,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
       {inboxOpen && <InterestInbox inbox={inbox} onClose={() => setInboxOpen(false)} />}
 
       {statusesOpen && (
+        // All projects, archived too: an archived project still holds on to its status
         <StatusModal projects={projects} statuses={t.statuses} ops={t.statusOps} onClose={() => setStatusesOpen(false)} />
       )}
 
@@ -299,9 +359,11 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
             .filter((x) => x.project_id === detailProject.id)
             .sort((a, b) => b.start - a.start)}
           isRunning={t.running?.project_id === detailProject.id}
-          elapsed={elapsed}
+          elapsed={clock}
           totalSeconds={detailProject.total_seconds + (t.running?.project_id === detailProject.id ? elapsed : 0)}
           now={now}
+          archived={Boolean(detailProject.archived_at)}
+          onRestore={() => t.restoreProject(detailProject.id)}
           onClose={() => setDetailId(null)}
           onEdit={() => {
             setDetailId(null);
