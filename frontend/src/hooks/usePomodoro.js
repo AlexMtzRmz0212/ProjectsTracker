@@ -82,7 +82,8 @@ function chime() {
  * project timer is paused for the break (its session is stopped and kept) and the project
  * is `held`. Starting the next focus starts it again, and its clock carries on from the time
  * it had (`carry`) rather than from zero. Stopping the break, or starting a timer by hand
- * while it runs, lets the hold go.
+ * while it runs, lets the hold go. The link runs the other way too: starting a project timer by
+ * hand starts the focus as well, if the pomodoro isn't already going (`followTimer`).
  *
  * When the focus length is up a break follows: it counts down at once if `autoBreak` is
  * on, otherwise it waits for Start. After the break the next focus is started (or offered).
@@ -164,12 +165,16 @@ export function usePomodoro({ running, startTimer, stopTimer, onFocusDone, scope
     focusDone.current?.({ start: new Date(cycle.startedAt), end: new Date(end), completed: false });
   };
 
-  /** Start a focus, and the project timer that was paused for the break, if there is one. */
-  const startFocus = useCallback(() => {
+  const beginFocus = useCallback(() => {
     const started = Date.now();
     setCycle((c) => ({ ...c, phase: "focus", left: 0, held: null, startedAt: started, until: started + settings.focus * 60_000 }));
+  }, [settings.focus, setCycle]);
+
+  /** Start a focus, and the project timer that was paused for the break, if there is one. */
+  const startFocus = useCallback(() => {
+    beginFocus();
     if (cycle.held) startTimer(cycle.held);
-  }, [cycle.held, settings.focus, startTimer, setCycle]);
+  }, [beginFocus, cycle.held, startTimer]);
 
   // A timer started by hand during the break lets the hold go. A project timer stopped by hand
   // (not held for a break) starts from zero next time.
@@ -226,6 +231,15 @@ export function usePomodoro({ running, startTimer, stopTimer, onFocusDone, scope
     [setCycle]
   );
 
+  /** A project timer was just started by hand: bring the pomodoro along unless it is already going.
+   *  A paused focus carries on, and one that hasn't started (or whose break is over) begins. A break,
+   *  waiting or counting down, is left alone. The project timer isn't touched: a project that was paused
+   *  for the break stays let go, the one just started takes its place. */
+  const followTimer = useCallback(() => {
+    if (phase === "focusPaused") resume();
+    else if (phase === "idle" || phase === "ready") beginFocus();
+  }, [phase, resume, beginFocus]);
+
   /** End the focus early and rest now. It's saved as cut short: it doesn't count toward the set. */
   const breakNow = useCallback(() => {
     cutShort.current();
@@ -276,6 +290,7 @@ export function usePomodoro({ running, startTimer, stopTimer, onFocusDone, scope
     // Which pomodoro of the set the current (or next) focus is: 1..longEvery
     position: (done % settings.longEvery) + 1,
     startFocus,
+    followTimer,
     pause,
     resume,
     breakNow,

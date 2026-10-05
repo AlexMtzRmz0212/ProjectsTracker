@@ -151,7 +151,9 @@ export default function ProjectBoard({
                 </button>
               </header>
 
-              <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
+              {/* `relative` so the cards' sr-only (absolutely positioned) spans are clipped by this
+                  scroll, not left to stretch the whole page past the end of the column */}
+              <ul className="relative min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
                 {cards.map((p) => (
                   <BoardCard
                     key={p.id}

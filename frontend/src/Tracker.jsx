@@ -157,6 +157,13 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     return t.archiveProject(id);
   };
 
+  /** Start a project's timer by hand; a pomodoro that isn't going starts with it. */
+  const startProject = (id) => {
+    const started = t.startTimer(id);
+    pomodoro.followTimer();
+    return started;
+  };
+
   const openAddTime = (projectId, date) =>
     liveProjects.some(isOpen)
       ? setSessionModal({ projectId, date: date ?? today })
@@ -175,7 +182,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
       }),
       openTodos: openTodoCounts.get(p.id) ?? 0,
       onOpen: () => setDetailId(p.id),
-      onToggleTimer: () => (isRunning ? t.stopTimer() : t.startTimer(p.id)),
+      onToggleTimer: () => (isRunning ? t.stopTimer() : startProject(p.id)),
       onAddTime: () => openAddTime(p.id),
       onEdit: () => setProjectModal({ project: p }),
     };
@@ -248,7 +255,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           role="tabpanel"
           id={`panel-${tab}`}
           aria-labelledby={`tab-${tab}`}
-          className="mx-auto min-h-0 w-full max-w-7xl flex-1 overflow-y-auto px-4 py-3 sm:px-6"
+          className="relative mx-auto min-h-0 w-full max-w-7xl flex-1 overflow-y-auto px-4 py-3 sm:px-6"
         >
           {t.status === "loading" ? (
             <Skeleton />
@@ -280,7 +287,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                 runningId={runningId}
                 elapsed={clock}
                 onOpen={setDetailId}
-                onStart={t.startTimer}
+                onStart={startProject}
                 onStop={t.stopTimer}
                 onSkip={t.skipProject}
               />
@@ -378,7 +385,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
             setProjectModal({ project: detailProject });
           }}
           onToggleTimer={() =>
-            t.running?.project_id === detailProject.id ? t.stopTimer() : t.startTimer(detailProject.id)
+            t.running?.project_id === detailProject.id ? t.stopTimer() : startProject(detailProject.id)
           }
           onSaveNotes={(notes) => saveProject(detailProject.id, { notes })}
           onSaveSessionNote={(id, note) => t.updateSession(id, { note })}
