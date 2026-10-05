@@ -1,13 +1,14 @@
 import { differenceInCalendarDays } from "date-fns";
-import { daySeconds, dayKey, fmtHM } from "../lib/time";
+import { completedPomodoros, daySeconds, dayKey, fmtHM, pomodorosOnDay } from "../lib/time";
 
-// Tile dividers: two columns on phones (the last tile spans both), five in a row from lg.
+// Tile dividers: two columns on phones, six in a row from lg.
 const TILE_EDGES = [
   "border-r border-b lg:border-b-0",
   "border-b lg:border-r lg:border-b-0",
+  "border-r border-b lg:border-b-0",
+  "border-b lg:border-r lg:border-b-0",
   "border-r",
-  "lg:border-r",
-  "col-span-2 border-t lg:col-span-1 lg:border-t-0",
+  "",
 ];
 
 function Tile({ index, label, value, unit, children }) {
@@ -45,7 +46,7 @@ export function SplitBar({ byProject, projectsById, className = "h-1.5" }) {
 function NeglectedTile({ today, neglected, onOpen }) {
   const days = neglected ? Math.max(0, differenceInCalendarDays(today, neglected.since)) : 0;
   return (
-    <Tile index={4} label="Most neglected" value={neglected ? (days === 0 ? "Today" : days) : "–"} unit={neglected && days > 0 ? (days === 1 ? "day idle" : "days idle") : ""}>
+    <Tile index={5} label="Most neglected" value={neglected ? (days === 0 ? "Today" : days) : "–"} unit={neglected && days > 0 ? (days === 1 ? "day idle" : "days idle") : ""}>
       {neglected ? (
         <button
           type="button"
@@ -64,7 +65,7 @@ function NeglectedTile({ today, neglected, onOpen }) {
   );
 }
 
-export default function StatsStrip({ byDay, today, weekStart, streakDays, openProjects, neglected, onOpenProject, projectsById, runningProjectId }) {
+export default function StatsStrip({ byDay, pomodoros, today, weekStart, streakDays, openProjects, neglected, onOpenProject, projectsById, runningProjectId }) {
   const todayEntry = byDay.get(dayKey(today));
   const week = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + i);
@@ -72,13 +73,16 @@ export default function StatsStrip({ byDay, today, weekStart, streakDays, openPr
   });
   const weekTotal = week.reduce((sum, d) => sum + d.secs, 0);
   const weekMax = Math.max(...week.map((d) => d.secs), 1);
+  const counted = completedPomodoros(pomodoros);
+  const pomodoroWeek = week.map(({ date }) => pomodorosOnDay(counted, date).length);
+  const pomodoroMax = Math.max(...pomodoroWeek, 1);
   const lastSeven = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6 + i);
     return { date: d, on: daySeconds(byDay, d) >= 60 };
   });
 
   return (
-    <section className="grid grid-cols-2 border-b border-line lg:grid-cols-5">
+    <section className="grid grid-cols-2 border-b border-line lg:grid-cols-6">
       <Tile index={0} label="Today" value={fmtHM(todayEntry?.total ?? 0)}>
         <SplitBar byProject={todayEntry?.byProject} projectsById={projectsById} />
       </Tile>
@@ -99,7 +103,24 @@ export default function StatsStrip({ byDay, today, weekStart, streakDays, openPr
         </div>
       </Tile>
 
-      <Tile index={2} label="Streak" value={streakDays} unit={streakDays === 1 ? "day" : "days"}>
+      <Tile index={2} label="Pomodoros" value={pomodorosOnDay(counted, today).length} unit="today">
+        {/* Finished focuses this week, one bar a day */}
+        <div className="flex h-full w-full items-end gap-1">
+          {week.map(({ date, isToday, future }, i) => (
+            <div
+              key={dayKey(date)}
+              className="flex-1"
+              title={`${date.toDateString()}, ${pomodoroWeek[i]} ${pomodoroWeek[i] === 1 ? "pomodoro" : "pomodoros"}`}
+              style={{
+                height: pomodoroWeek[i] ? `${Math.max((pomodoroWeek[i] / pomodoroMax) * 100, 12)}%` : "1px",
+                background: isToday && pomodoroWeek[i] ? "var(--accent)" : pomodoroWeek[i] ? "color-mix(in srgb, var(--text) 45%, transparent)" : future ? "var(--rule)" : "var(--faint)",
+              }}
+            />
+          ))}
+        </div>
+      </Tile>
+
+      <Tile index={3} label="Streak" value={streakDays} unit={streakDays === 1 ? "day" : "days"}>
         {/* Last seven days as a punched time card; today is the right-most hole */}
         <div className="flex items-center gap-1">
           {lastSeven.map(({ date, on }, i) => (
@@ -112,7 +133,7 @@ export default function StatsStrip({ byDay, today, weekStart, streakDays, openPr
         </div>
       </Tile>
 
-      <Tile index={3} label="Open" value={openProjects.length} unit={openProjects.length === 1 ? "project" : "projects"}>
+      <Tile index={4} label="Open" value={openProjects.length} unit={openProjects.length === 1 ? "project" : "projects"}>
         <div className="flex flex-wrap items-center gap-1.5 overflow-hidden">
           {openProjects.length === 0 && <span className="h-px w-full bg-rule" />}
           {openProjects.slice(0, 12).map((p) => (

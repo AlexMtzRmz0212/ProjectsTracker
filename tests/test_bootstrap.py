@@ -155,3 +155,21 @@ def test_interim_schema_with_a_category_column_still_works(tmp_path):
                  "VALUES ('p1', 'New', '#2f5d8a', 'code', :s, 1, '2026-02-01')"),
             {"s": status_id},
         )
+
+
+def test_pomodoros_made_before_completed_keep_working(tmp_path):
+    """A database whose pomodoros table predates `completed` gets the column; old rows count as finished."""
+    engine = create_engine(f"sqlite:///{tmp_path / 'old-pomodoros.db'}")
+    init_db(engine)
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE pomodoros"))
+        conn.execute(text(
+            "CREATE TABLE pomodoros (id VARCHAR NOT NULL PRIMARY KEY, start DATETIME NOT NULL, end DATETIME NOT NULL)"
+        ))
+        conn.execute(text("INSERT INTO pomodoros VALUES ('m1', '2026-02-02 10:00:00', '2026-02-02 10:25:00')"))
+
+    init_db(engine)
+    init_db(engine)  # repeatable
+
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT completed FROM pomodoros WHERE id = 'm1'")).scalar() == 1

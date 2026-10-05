@@ -506,6 +506,46 @@ def test_delete_project_cascades_sessions(client):
     assert client.get("/api/timer").json() is None
 
 
+# ── Pomodoros ───────────────────────────────────────────────────────────────
+
+def make_pomodoro(client, ended_ago=timedelta(hours=1), length=timedelta(minutes=25), **fields):
+    end = now() - ended_ago
+    res = client.post("/api/pomodoros", json={"start": iso(end - length), "end": iso(end), **fields})
+    assert res.status_code == 201, res.text
+    return res.json()
+
+
+def test_pomodoro_is_saved_and_listed(client):
+    assert client.get("/api/pomodoros").json() == []
+    made = make_pomodoro(client)
+    assert client.get("/api/pomodoros").json() == [made]
+
+
+def test_a_cut_short_pomodoro_is_kept_and_marked(client):
+    assert make_pomodoro(client)["completed"] is True  # a focus that ran out is the default
+    short = make_pomodoro(client, length=timedelta(minutes=7), completed=False)
+    assert short["completed"] is False
+    assert [p["completed"] for p in client.get("/api/pomodoros").json()] == [True, False]
+
+
+def test_pomodoros_are_listed_by_overlap(client):
+    old = make_pomodoro(client, ended_ago=timedelta(days=3))
+    recent = make_pomodoro(client, ended_ago=timedelta(hours=1))
+    since = iso(now() - timedelta(days=1))
+    assert [p["id"] for p in client.get("/api/pomodoros", params={"start": since}).json()] == [recent["id"]]
+    until = iso(now() - timedelta(days=2))
+    assert [p["id"] for p in client.get("/api/pomodoros", params={"end": until}).json()] == [old["id"]]
+
+
+def test_pomodoro_validation(client):
+    t = now() - timedelta(hours=1)
+    backwards = {"start": iso(t), "end": iso(t - timedelta(minutes=5))}
+    assert client.post("/api/pomodoros", json=backwards).status_code == 422
+    future = {"start": iso(now()), "end": iso(now() + timedelta(hours=1))}
+    assert client.post("/api/pomodoros", json=future).status_code == 422
+    assert client.post("/api/pomodoros", json={"start": iso(t)}).status_code == 422
+
+
 # ── Interest counter (public) ───────────────────────────────────────────────
 
 def vote(client, visitor_id):

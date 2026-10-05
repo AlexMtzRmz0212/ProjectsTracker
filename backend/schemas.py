@@ -146,6 +146,23 @@ class TimerStart(BaseModel):
     project_id: str
 
 
+# ── Pomodoros ───────────────────────────────────────────────────────────────
+
+class PomodoroCreate(BaseModel):
+    start: UTCDateTime
+    end: UTCDateTime
+    completed: bool = True
+
+
+class PomodoroOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    start: UTCDateTime
+    end: UTCDateTime
+    completed: bool
+
+
 # ── Interest counter (public) ───────────────────────────────────────────────
 
 VisitorId = Annotated[str, Field(pattern=r"^[A-Za-z0-9-]{16,64}$")]

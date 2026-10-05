@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session as DbSession
 from . import auth, schemas
 from .bootstrap import init_db
 from .database import engine, get_db
-from .models import InterestMessage, InterestVote, Project, Session, Status, Todo, utcnow
+from .models import InterestMessage, InterestVote, Pomodoro, Project, Session, Status, Todo, utcnow
 
 init_db(engine)
 
@@ -415,6 +415,35 @@ def stop_timer(keep: bool = False, db: DbSession = Depends(get_db)):
         return None
     db.refresh(stopped)
     return stopped
+
+#endregion
+# ─────────────────────────────────────────────────────────────────────────────
+#region Pomodoros
+
+@api.get("/pomodoros", response_model=list[schemas.PomodoroOut])
+def list_pomodoros(
+    start: Optional[schemas.UTCDateTime] = None,
+    end: Optional[schemas.UTCDateTime] = None,
+    db: DbSession = Depends(get_db),
+):
+    """Pomodoros overlapping [start, end), cut-short ones included."""
+    query = select(Pomodoro).order_by(Pomodoro.start)
+    if end is not None:
+        query = query.where(Pomodoro.start < end)
+    if start is not None:
+        query = query.where(Pomodoro.end > start)
+    return db.scalars(query).all()
+
+
+@api.post("/pomodoros", response_model=schemas.PomodoroOut, status_code=status.HTTP_201_CREATED)
+def create_pomodoro(body: schemas.PomodoroCreate, db: DbSession = Depends(get_db)):
+    """Saved by the client when a focus ends: `completed` if its countdown ran out, otherwise it was cut short."""
+    _validate_span(body.start, body.end)
+    pomodoro = Pomodoro(**body.model_dump())
+    db.add(pomodoro)
+    db.commit()
+    db.refresh(pomodoro)
+    return pomodoro
 
 #endregion
 # ─────────────────────────────────────────────────────────────────────────────

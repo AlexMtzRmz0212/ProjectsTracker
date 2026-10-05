@@ -5,7 +5,7 @@ import { tint } from "../lib/palette";
 import { fmtClock, fmtCountdown, fmtHM } from "../lib/time";
 
 export default function Header({
-  runningProject, runningSession, elapsed, heldProject, heldSeconds, onSaveNote, pomodoro, onStop, onNewProject, theme, onToggleTheme,
+  runningProject, runningSession, elapsed, heldProject, heldSeconds, onSaveNote, pomodoro, pomodorosToday = 0, onStop, onNewProject, theme, onToggleTheme,
   onSignOut, signOutLabel = "Sign out", onInbox, inboxUnread = 0,
 }) {
   return (
@@ -25,6 +25,7 @@ export default function Header({
             heldSeconds={heldSeconds}
             onSaveNote={onSaveNote}
             pomodoro={pomodoro}
+            pomodorosToday={pomodorosToday}
             onStop={onStop}
           />
         </div>
@@ -81,10 +82,10 @@ function ChipButton({ edge, onClick, label, text, className = "", children }) {
 }
 
 /** The pomodoro, always there, and next to it the project timer while one runs (or is paused for the break). */
-function NowTracking({ project, session, elapsed, heldProject, heldSeconds, onSaveNote, pomodoro, onStop }) {
+function NowTracking({ project, session, elapsed, heldProject, heldSeconds, onSaveNote, pomodoro, pomodorosToday, onStop }) {
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <PomodoroChip pomodoro={pomodoro} />
+      <PomodoroChip pomodoro={pomodoro} doneToday={pomodorosToday} />
       {project ? (
         <ProjectChip project={project} session={session} elapsed={elapsed} onSaveNote={onSaveNote} onStop={onStop} />
       ) : (
@@ -139,7 +140,7 @@ function ProjectChip({ project, session, elapsed, onSaveNote, onStop }) {
 }
 
 /** The pomodoro's own countdown: idle and ready to start, focusing (or paused), or on a break. */
-function PomodoroChip({ pomodoro }) {
+function PomodoroChip({ pomodoro, doneToday }) {
   const { phase } = pomodoro;
   if (phase === "breakWait" || phase === "break" || phase === "breakPaused" || phase === "ready") {
     return <BreakChip pomodoro={pomodoro} />;
@@ -169,6 +170,11 @@ function PomodoroChip({ pomodoro }) {
         <span className="figures hidden text-xs text-muted md:block" title="Focus periods in this set">
           {pomodoro.position}/{pomodoro.settings.longEvery}
         </span>
+        {doneToday > 0 && (
+          <span className="figures hidden whitespace-nowrap text-xs text-muted lg:block" title="Pomodoros finished today">
+            · {doneToday} today
+          </span>
+        )}
       </div>
       {phase === "idle" && (
         <ChipButton edge={edge} onClick={pomodoro.startFocus} label="Start a focus" text="Focus">

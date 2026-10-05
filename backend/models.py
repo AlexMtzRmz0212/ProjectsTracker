@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -87,6 +87,19 @@ class Session(Base):
     note: Mapped[str] = mapped_column(String(280), default="")
 
     project: Mapped[Project] = relationship(back_populates="sessions")
+
+
+class Pomodoro(Base):
+    """One focus. It has no project: which ones it covered is whatever sessions overlap
+    [start, end], so the timers clicked during it are logged as usual. `completed` is False
+    for a focus that was stopped or cut short before its countdown ran out."""
+
+    __tablename__ = "pomodoros"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    start: Mapped[datetime] = mapped_column(DateTime, index=True)
+    end: Mapped[datetime] = mapped_column(DateTime, index=True)
+    completed: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
 
 
 class InterestVote(Base):

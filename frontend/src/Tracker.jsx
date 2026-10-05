@@ -7,7 +7,7 @@ import { useInbox } from "./hooks/useInbox";
 import { useNow } from "./hooks/useNow";
 import { usePomodoro } from "./hooks/usePomodoro";
 import {
-  aggregateByDay, dayKey, daySeconds, feedQueue, fmtClock, fmtCountdown, fmtHM, fmtTime, mostNeglected, sessionSeconds, streak, withLive,
+  aggregateByDay, dayKey, daySeconds, feedQueue, fmtClock, fmtCountdown, fmtHM, fmtTime, completedPomodoros, mostNeglected, pomodorosOnDay, projectPomodoroCount, sessionSeconds, streak, withLive,
 } from "./lib/time";
 import Header from "./components/Header";
 import PomodoroDrawer from "./components/PomodoroDrawer";
@@ -42,7 +42,9 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   // Keyed on the date string so "today" only changes identity at midnight, not every tick
   const today = useMemo(() => new Date(`${todayKey}T00:00:00`), [todayKey]);
   const [theme, toggleTheme] = useTheme();
-  const pomodoro = usePomodoro({ running: t.running, startTimer: t.startTimer, stopTimer: t.stopTimer, scope: demo ? "demo" : "app" });
+  const pomodoro = usePomodoro({
+    running: t.running, startTimer: t.startTimer, stopTimer: t.stopTimer, onFocusDone: t.addPomodoro, scope: demo ? "demo" : "app",
+  });
   const [pomodoroOpen, setPomodoroOpen] = useState(false);
 
   const [cursor, setCursor] = useState(() => new Date());
@@ -129,6 +131,8 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     if (!isSameMonth(d, cursor)) setCursor(d);
   };
 
+  const pomodorosToday = completedPomodoros(pomodorosOnDay(t.pomodoros, today)).length;
+
   const weekStart = startOfWeek(today, { weekStartsOn: 1 });
   const todaySecs = daySeconds(byDay, today);
   const weekSecs = Array.from({ length: 7 }, (_, i) =>
@@ -204,6 +208,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           heldSeconds={pomodoro.heldSeconds}
           onSaveNote={(note) => t.updateSession(t.running.id, { note })}
           pomodoro={pomodoro}
+          pomodorosToday={pomodorosToday}
           onStop={t.stopTimer}
           onNewProject={() => setProjectModal({})}
           theme={theme}
@@ -294,6 +299,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
               <DayPanel
                 date={selected}
                 sessions={t.sessions}
+                pomodoros={t.pomodoros}
                 todos={t.todos}
                 byDay={byDay}
                 projectsById={projectsById}
@@ -308,6 +314,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
             <>
               <StatsStrip
                 byDay={byDay}
+                pomodoros={t.pomodoros}
                 today={today}
                 weekStart={weekStart}
                 streakDays={streak(byDay, today)}
@@ -358,6 +365,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           sessions={t.sessions
             .filter((x) => x.project_id === detailProject.id)
             .sort((a, b) => b.start - a.start)}
+          pomodoroCount={projectPomodoroCount(detailProject.id, t.sessions, t.pomodoros, now)}
           isRunning={t.running?.project_id === detailProject.id}
           elapsed={clock}
           totalSeconds={detailProject.total_seconds + (t.running?.project_id === detailProject.id ? elapsed : 0)}

@@ -24,6 +24,7 @@ def init_db(engine: Engine) -> None:
     models.Base.metadata.create_all(bind=engine)
     _add_project_columns(engine)
     _add_todo_columns(engine)
+    _add_pomodoro_columns(engine)
     with DbSession(engine) as db:
         _seed_statuses(db)
         _backfill_status_ids(db)
@@ -65,6 +66,13 @@ def _add_todo_columns(engine: Engine) -> None:
         column_type = models.Todo.__table__.c.completed_at.type.compile(dialect=engine.dialect)
         with engine.begin() as conn:
             conn.execute(text(f"ALTER TABLE todos ADD COLUMN completed_at {column_type}"))
+
+
+def _add_pomodoro_columns(engine: Engine) -> None:
+    """Pomodoros saved before `completed` existed were all finished ones: they get TRUE."""
+    if "completed" not in {c["name"] for c in inspect(engine).get_columns("pomodoros")}:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE pomodoros ADD COLUMN completed BOOLEAN NOT NULL DEFAULT TRUE"))
 
 
 def _seed_statuses(db: DbSession) -> None:

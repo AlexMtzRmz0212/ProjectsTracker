@@ -72,6 +72,34 @@ export function daySeconds(byDay, date, projectId) {
   return projectId ? day.byProject.get(projectId) ?? 0 : day.total;
 }
 
+// ── Pomodoros ────────────────────────────────────────────────────────────────
+// A pomodoro is a start, an end and whether its countdown ran out (`completed`; a focus that was
+// stopped or cut short is kept, but isn't counted). What it covered is whatever sessions ran inside it.
+
+/** Pomodoros that ended on the local calendar day of `date`, cut-short ones included. */
+export const pomodorosOnDay = (pomodoros, date) => pomodoros.filter((p) => dayKey(p.end) === dayKey(date));
+
+/** The pomodoros whose countdown ran out: the ones that are counted. */
+export const completedPomodoros = (pomodoros) => pomodoros.filter((p) => p.completed);
+
+/** Map<projectId, seconds>: the time each project was worked on inside a pomodoro, its sessions
+ *  clipped to the pomodoro's span. A running session counts up to `now`. */
+export function pomodoroProjects(pomodoro, sessions, now) {
+  const map = new Map();
+  for (const s of sessions) {
+    const from = Math.max(s.start, pomodoro.start);
+    const to = Math.min(s.end ?? now, pomodoro.end);
+    if (to > from) map.set(s.project_id, (map.get(s.project_id) ?? 0) + (to - from) / 1000);
+  }
+  return map;
+}
+
+/** How many (completed) pomodoros a project was worked on during. */
+export function projectPomodoroCount(projectId, sessions, pomodoros, now) {
+  const own = sessions.filter((s) => s.project_id === projectId);
+  return completedPomodoros(pomodoros).filter((p) => own.some((s) => s.start < p.end && (s.end ?? now) > p.start)).length;
+}
+
 /** Map<projectId, Date>: when each project was last worked on, the end of its latest session
  *  (`now` for one whose timer is running). Projects with no session in `sessions` are absent. */
 function lastWorkedByProject(sessions, now) {

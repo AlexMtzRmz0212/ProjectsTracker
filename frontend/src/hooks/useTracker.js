@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api as realApi } from "../api";
 import { heatmapStart, tooShort } from "../lib/time";
 
+/** `prev` and `incoming` merged by id, earliest first. Works for sessions and pomodoros alike. */
 function mergeSessions(prev, incoming) {
   const byId = new Map(prev.map((s) => [s.id, s]));
   for (const s of incoming) byId.set(s.id, s);
@@ -25,6 +26,7 @@ export function useTracker(api = realApi) {
   const [statuses, setStatuses] = useState([]);
   const [todos, setTodos] = useState([]);
   const [sessions, setSessions] = useState([]);
+  const [pomodoros, setPomodoros] = useState([]);
   const [status, setStatus] = useState("loading"); // loading | ready | error
   const [notice, setNotice] = useState(null);
   const loadedFrom = useRef(null);
@@ -35,17 +37,19 @@ export function useTracker(api = realApi) {
     setStatus((s) => (s === "ready" ? s : "loading"));
     try {
       const from = heatmapStart(new Date());
-      const [p, st, td, s] = await Promise.all([
+      const [p, st, td, s, pm] = await Promise.all([
         api.listProjects(),
         api.listStatuses(),
         api.listTodos(),
         api.listSessions({ start: from }),
+        api.listPomodoros({ start: from }),
       ]);
       loadedFrom.current = from;
       setProjects(p);
       setStatuses(st);
       setTodos(td);
       setSessions(s);
+      setPomodoros(pm);
       setStatus("ready");
     } catch {
       setStatus("error");
@@ -86,8 +90,12 @@ export function useTracker(api = realApi) {
     if (pendingRange.current && pendingRange.current <= from) return;
     pendingRange.current = from;
     try {
-      const older = await api.listSessions({ start: from, end: loadedFrom.current });
+      const [older, olderPomodoros] = await Promise.all([
+        api.listSessions({ start: from, end: loadedFrom.current }),
+        api.listPomodoros({ start: from, end: loadedFrom.current }),
+      ]);
       setSessions((prev) => mergeSessions(prev, older));
+      setPomodoros((prev) => mergeSessions(prev, olderPomodoros));
       // Fetches can finish out of order when paging quickly; keep the earliest edge
       if (from < loadedFrom.current) loadedFrom.current = from;
     } catch {
@@ -147,6 +155,18 @@ export function useTracker(api = realApi) {
         refreshProjects();
       }),
     [api, attempt, refreshProjects]
+  );
+
+  // ── Pomodoros ──────────────────────────────────────────────────────────────
+
+  /** Save a finished focus ({ start, end }). The pomodoro hook calls this when a countdown runs out. */
+  const addPomodoro = useCallback(
+    (data) =>
+      attempt(async () => {
+        const created = await api.createPomodoro(data);
+        setPomodoros((prev) => mergeSessions(prev, [created]));
+      }),
+    [api, attempt]
   );
 
   // ── Sessions ───────────────────────────────────────────────────────────────
@@ -322,6 +342,8 @@ export function useTracker(api = realApi) {
     todos,
     todoOps,
     sessions,
+    pomodoros,
+    addPomodoro,
     running,
     status,
     notice,

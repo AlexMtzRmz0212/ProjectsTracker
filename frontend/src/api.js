@@ -41,6 +41,10 @@ export function parseSession(s) {
   return { ...s, start: new Date(s.start), end: s.end ? new Date(s.end) : null };
 }
 
+export function parsePomodoro(p) {
+  return { ...p, start: new Date(p.start), end: new Date(p.end) };
+}
+
 export const api = {
   listProjects: () => fetchApi("/projects"),
   createProject: (data) => fetchApi("/projects", json("POST", data)),
@@ -79,6 +83,16 @@ export const api = {
     const s = await fetchApi(`/timer/stop${keep ? "?keep=true" : ""}`, { method: "POST" });
     return s ? parseSession(s) : null;
   },
+
+  listPomodoros: async ({ start, end } = {}) => {
+    const params = new URLSearchParams();
+    if (start) params.set("start", start.toISOString());
+    if (end) params.set("end", end.toISOString());
+    const qs = params.toString();
+    const rows = await fetchApi(`/pomodoros${qs ? `?${qs}` : ""}`);
+    return rows.map(parsePomodoro);
+  },
+  createPomodoro: async (data) => parsePomodoro(await fetchApi("/pomodoros", json("POST", serialize(data)))),
 };
 
 function serialize(data) {

@@ -38,13 +38,17 @@ with the time you worked, and a year-long activity heatmap.
   and the running one is in the header (next to the pomodoro) and the browser tab title.
 - **Pomodoro**: a countdown of its own in the header, ready to start any time with or without a
   project running. It runs focus, then a short break, with a long break after every few focus
-  periods; each can be paused, a break can be skipped, and ■ stops it. The pomodoro itself is never
-  logged: only project timers are. When a focus ends (or you press *Break now*), a running project
+  periods; each can be paused, a break can be skipped, and ■ stops it. A focus is saved as a pomodoro
+  (its start and end): one that runs out counts, one you stop or cut short with *Break now* is kept
+  too, marked *cut short* and not counted (under 2 minutes it is dropped, like a project timer). Project
+  timers you click during it are logged as usual, and the pomodoro's day on the Calendar lists which
+  projects ran inside it and for how long. The header, the Stats strip and a project's detail show
+  the counts. When a focus ends (or you press *Break now*), a running project
   timer is paused for the break: its time so far is saved and it shows as paused beside the break.
   Pressing *Focus* again starts it back up, with its clock carrying on from where it was. Stopping
   the break, or starting a timer by hand during it, leaves the project stopped. Lengths, the long
   break interval, auto-start and the chime are set in the drawer behind the clock tab on the right
-  edge; the pomodoro is kept in the browser, so it survives a reload.
+  edge; the countdown is kept in the browser, so it survives a reload.
 - **Session notes**: write a note while the timer runs (the notebook button on the timer pill in the
   header) or when you add time by hand. Both end up on the same session.
 - **Manual entries**: log time after the fact without fiddling with clock pickers. Say which day it
@@ -150,6 +154,7 @@ it with a `Z`, and the browser groups by local day.
 | GET / POST / PATCH / DELETE | `/statuses[/{id}]` | Manage statuses (`is_done` marks the finished ones). Refuses (409) to delete a status in use or to leave no unfinished status |
 | GET | `/sessions?start=&end=` | Sessions overlapping a range |
 | POST / PATCH / DELETE | `/sessions[/{id}]` | Manual add / edit / delete |
+| GET / POST | `/pomodoros[?start=&end=]` | Pomodoros overlapping a range; POST `{start, end, completed?}` saves one (`completed` defaults to true; false marks a focus that was cut short; end can't be in the future). Which projects it covered is worked out from the sessions that overlap it |
 | GET | `/timer` | The running session, or `null` |
 | POST | `/timer/start` | `{project_id}`: stops the current timer, starts this one |
 | POST | `/timer/stop?keep=` | Stops the running timer. A session under 2 minutes is dropped as a mis-click unless `keep=true` (a timer paused for a pomodoro break) |

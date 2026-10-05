@@ -180,6 +180,7 @@ export function createDemoApi() {
   let todos = seededTodos;
   let statuses = STATUSES.map((s, i) => ({ ...s, sort_order: i + 1 }));
   let sessions = seededSessions;
+  let pomodoros = [];
   let seq = nextId;
   const newId = () => `demo-s${seq++}`;
 
@@ -394,6 +395,15 @@ export function createDemoApi() {
     stopTimer: async ({ keep = false } = {}) => {
       const current = running();
       return current ? endTimer(current, new Date(), keep) : null;
+    },
+
+    listPomodoros: async ({ start, end } = {}) =>
+      pomodoros.filter((p) => (!end || p.start < end) && (!start || p.end > start)).map((p) => ({ ...p })),
+    createPomodoro: async (data) => {
+      checkSpan(data.start, data.end);
+      const created = { id: `demo-m${seq++}`, start: data.start, end: data.end, completed: data.completed ?? true };
+      pomodoros = [...pomodoros, created].sort((a, b) => a.start - b.start);
+      return { ...created };
     },
   };
 }

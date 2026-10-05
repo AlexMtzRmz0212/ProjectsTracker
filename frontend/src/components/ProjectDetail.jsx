@@ -12,7 +12,7 @@ const RECENT = 8;
  *  Everything saves as you go; closing the window saves a note you were still typing.
  *  An archived project has no timer, and offers Restore in its place. */
 export default function ProjectDetail({
-  project, status, todos, sessions, isRunning, elapsed, totalSeconds, now, archived,
+  project, status, todos, sessions, pomodoroCount = 0, isRunning, elapsed, totalSeconds, now, archived,
   onClose, onEdit, onToggleTimer, onRestore, onSaveNotes, onSaveSessionNote, todoOps,
 }) {
   const Icon = iconFor(project.icon);
@@ -34,6 +34,11 @@ export default function ProjectDetail({
           <span className="font-serif text-[13px] italic text-muted">
             <span className="figures not-italic text-text">{fmtHM(totalSeconds)}</span> logged
           </span>
+          {pomodoroCount > 0 && (
+            <span className="font-serif text-[13px] italic text-muted" title="Pomodoros this project was worked on during">
+              <span className="figures not-italic text-text">{pomodoroCount}</span> {pomodoroCount === 1 ? "pomodoro" : "pomodoros"}
+            </span>
+          )}
           <div className="ml-auto flex items-center gap-1.5">
             {archived && (
               <Button variant="outline" className="h-8" onClick={onRestore}>

@@ -1,11 +1,11 @@
 import { format } from "date-fns";
 import { CalendarPlus, Check, Moon, Pencil, Plus, Square, Trash2 } from "lucide-react";
 import { iconFor, inkText } from "../lib/palette";
-import { dayKey, fmtHM, fmtTime, sessionSeconds } from "../lib/time";
+import { completedPomodoros, dayKey, fmtHM, fmtTime, pomodoroProjects, pomodorosOnDay, sessionSeconds } from "../lib/time";
 import { SplitBar } from "./StatsStrip";
 
-/** The selected day as a time card: In, Out, Project, Hours, then the to-dos ticked off that day. */
-export default function DayPanel({ date, sessions, todos, byDay, projectsById, now, onAdd, onEdit, onDelete, onStop }) {
+/** The selected day as a time card: In, Out, Project, Hours, then the pomodoros finished and the to-dos ticked off that day. */
+export default function DayPanel({ date, sessions, pomodoros, todos, byDay, projectsById, now, onAdd, onEdit, onDelete, onStop }) {
   const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
   const entry = byDay.get(dayKey(date));
@@ -14,6 +14,8 @@ export default function DayPanel({ date, sessions, todos, byDay, projectsById, n
   const daySessions = sessions
     .filter((s) => projectsById.has(s.project_id) && s.start < dayEnd && (s.end ?? now) > dayStart)
     .sort((a, b) => a.start - b.start);
+
+  const dayPomodoros = pomodorosOnDay(pomodoros, date);
 
   // Whether or not a timer was running when they were ticked
   const ticked = todos
@@ -128,6 +130,44 @@ export default function DayPanel({ date, sessions, todos, byDay, projectsById, n
             })}
           </tbody>
         </table>
+      )}
+
+      {dayPomodoros.length > 0 && (
+        <div className="mt-5">
+          <h3 className="flex items-baseline gap-2 border-b border-rule py-1 text-left font-serif text-xs font-normal italic text-muted">
+            Pomodoros <span className="figures not-italic">{completedPomodoros(dayPomodoros).length}</span>
+          </h3>
+          <ul>
+            {dayPomodoros.map((p) => {
+              // Longest first; a project that is gone (deleted) has nothing left to name
+              const worked = [...pomodoroProjects(p, sessions, now)]
+                .filter(([id]) => projectsById.has(id))
+                .sort((a, b) => b[1] - a[1]);
+              return (
+                <li key={p.id} className="flex min-h-9 items-center gap-3 border-b border-rule py-1 text-[13px]">
+                  <span className={`figures shrink-0 whitespace-nowrap ${p.completed ? "" : "text-muted"}`}>
+                    {fmtTime(p.start)}–{fmtTime(p.end)}
+                  </span>
+                  {!p.completed && <span className="shrink-0 font-serif text-xs italic text-muted">cut short</span>}
+                  <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5">
+                    {worked.length === 0 && <span className="font-serif text-xs italic text-muted">no project timer</span>}
+                    {worked.map(([id, secs]) => {
+                      const project = projectsById.get(id);
+                      const Icon = iconFor(project.icon);
+                      return (
+                        <span key={id} className="flex min-w-0 items-center gap-1.5" title={project.name}>
+                          <Icon size={14} className="shrink-0" style={{ color: inkText(project.color) }} aria-hidden="true" />
+                          <span className="max-w-[9rem] truncate max-sm:sr-only">{project.name}</span>
+                          <span className="figures shrink-0 text-muted">{fmtHM(secs)}</span>
+                        </span>
+                      );
+                    })}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
 
       {ticked.length > 0 && (
