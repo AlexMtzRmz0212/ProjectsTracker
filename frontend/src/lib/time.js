@@ -100,25 +100,27 @@ export function projectPomodoroCount(projectId, sessions, pomodoros, now) {
   return completedPomodoros(pomodoros).filter((p) => own.some((s) => s.start < p.end && (s.end ?? now) > p.start)).length;
 }
 
-/** Map<projectId, Date>: when each project was last worked on, the end of its latest session
- *  (`now` for one whose timer is running). Projects with no session in `sessions` are absent. */
-function lastWorkedByProject(sessions, now) {
+/** Map<projectId, Date>: when each project was last worked on, the later of the end of its latest
+ *  session (`now` for one whose timer is running) and the moment one of its to-dos was ticked off
+ *  (work done without a timer). Projects with neither in `sessions`/`todos` are absent. */
+function lastWorkedByProject(sessions, now, todos) {
   const last = new Map();
-  for (const s of sessions) {
-    const at = s.end ?? now;
-    if (!last.has(s.project_id) || at > last.get(s.project_id)) last.set(s.project_id, at);
-  }
+  const note = (projectId, at) => {
+    if (!last.has(projectId) || at > last.get(projectId)) last.set(projectId, at);
+  };
+  for (const s of sessions) note(s.project_id, s.end ?? now);
+  for (const todo of todos) if (todo.done && todo.completed_at) note(todo.project_id, new Date(todo.completed_at));
   return last;
 }
 
 /** The open project that most needs attention: { project, since, never } or null.
  *  Projects never worked on rank above any that have logs (oldest-created first); otherwise the
  *  one idle longest wins. "Last worked" is the end of its latest session (now, if its timer is
- *  running); a project with no sessions in the loaded window counts from when it was created (and
- *  is "never" worked only if it has no logged time at all, since older sessions may sit outside
- *  the window). */
-export function mostNeglected(projects, sessions, now) {
-  const last = lastWorkedByProject(sessions, now);
+ *  running) or when it last had a to-do ticked, whichever is later; a project with neither in the
+ *  loaded window counts from when it was created (and is "never" worked only if it has no logged
+ *  time at all, since older sessions may sit outside the window). */
+export function mostNeglected(projects, sessions, now, todos = []) {
+  const last = lastWorkedByProject(sessions, now, todos);
   let found = null;
   for (const project of projects) {
     const worked = last.get(project.id);
@@ -137,8 +139,8 @@ export function mostNeglected(projects, sessions, now) {
  *  skip sends a project behind everything else until the others have had their turn. The running
  *  project is pinned to the top. As in mostNeglected, a project with logged time but no session in
  *  the loaded window counts from when it was created. */
-export function feedQueue(projects, sessions, now, runningId) {
-  const last = lastWorkedByProject(sessions, now);
+export function feedQueue(projects, sessions, now, runningId, todos = []) {
+  const last = lastWorkedByProject(sessions, now, todos);
   const items = projects.map((project) => {
     const worked = last.get(project.id) ?? (project.total_seconds > 0 ? new Date(project.created_at) : null);
     const skipped = project.skipped_at ? new Date(project.skipped_at) : null;

@@ -22,7 +22,8 @@ with the time you worked, and a year-long activity heatmap.
   to see what's archived (newest first, with total time and the date), open a project to read it, or
   press *Restore* to send it back to the column it left. The shelf remembers whether it was open.
 - **Feed** (what to work on next): the projects on the board whose status isn't finished, as a queue with the one
-  you worked on longest ago first (never-worked projects lead) and each one's open to-dos listed.
+  you worked on longest ago first (never-worked projects lead; ticking a to-do counts as working on
+  a project) and each one's open to-dos listed.
   Press ▶ on a project or on one of its to-dos to start its timer, or **Skip** to send the project to
   the back of the queue. A skip is saved on the server, and a project that gets worked on after it
   moves back too. The project with a running timer stays pinned at the top.
@@ -59,7 +60,8 @@ with the time you worked, and a year-long activity heatmap.
 - **Activity heatmap** (Stats tab): up to 53 weeks, as many as fit the width, filterable by project.
   Click a square to jump the calendar there.
 - **Stats strip**: today, this week, streak, open projects (archived ones don't count), and the open
-  project that has gone longest without a session ("most neglected").
+  project that has gone longest without a session ("most neglected"). Ticking off one of a project's
+  to-dos counts as working on it, timer or not.
 - Light/dark theme, responsive down to phone width.
 
 ## Quick start

@@ -72,12 +72,15 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
 
   const openProjects = useMemo(() => liveProjects.filter(isOpen), [liveProjects, statusesById]);
   // Only re-evaluated once per day (and when sessions change): "days idle" doesn't move by the second
-  const neglected = useMemo(() => mostNeglected(openProjects, t.sessions, new Date(`${todayKey}T23:59:59`)), [openProjects, t.sessions, todayKey]);
+  const neglected = useMemo(
+    () => mostNeglected(openProjects, t.sessions, new Date(`${todayKey}T23:59:59`), t.todos),
+    [openProjects, t.sessions, t.todos, todayKey]
+  );
   const runningId = t.running?.project_id;
   // The Feed's queue; like `neglected`, it only needs to be re-ranked when sessions or the day change
   const queue = useMemo(
-    () => feedQueue(openProjects, t.sessions, new Date(`${todayKey}T23:59:59`), runningId),
-    [openProjects, t.sessions, todayKey, runningId]
+    () => feedQueue(openProjects, t.sessions, new Date(`${todayKey}T23:59:59`), runningId, t.todos),
+    [openProjects, t.sessions, t.todos, todayKey, runningId]
   );
   const openTodosByProject = useMemo(() => {
     const byProject = new Map();
