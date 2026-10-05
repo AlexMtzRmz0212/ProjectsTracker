@@ -3,7 +3,7 @@ import {
   CalendarDays, CalendarPlus, Grid3x3, Hand, LayoutGrid, LockKeyhole, Moon, Play, Presentation, RotateCcw, Sun, Timer,
 } from "lucide-react";
 import Tracker from "../Tracker";
-import { Button } from "../components/Modal";
+import Modal, { Button } from "../components/Modal";
 import TabBar from "../components/TabBar";
 import { useTheme } from "../hooks/useTheme";
 import { createDemoApi } from "../demo/demoApi";
@@ -18,7 +18,7 @@ const FEATURES = [
   {
     icon: LayoutGrid,
     name: "Status board",
-    text: "Every status is a column. Drag a project from Idea to Active to Done, and add notes and to-dos to each one.",
+    text: "Every status is a column. Drag a project from Idea to Active to Done, or up to the trash to delete it, and add notes and to-dos to each one.",
   },
   {
     icon: CalendarPlus,
@@ -40,14 +40,15 @@ const FEATURES = [
 const TABS = [
   { id: "demo", label: "Try it", icon: Presentation },
   { id: "how", label: "How it works", short: "How", icon: LayoutGrid },
-  { id: "ask", label: "Ask for your own", short: "Ask", icon: Hand },
 ];
 
-/** One screen with three tabs: the live demo, what it does, and the request for access.
+/** One screen with two tabs, the live demo and what it does, plus a button in the header
+ *  that asks for access in a dialog.
  *  Nothing here is taller than the window unless the window is very small. */
 export default function Landing({ interest, onOwner }) {
   const [theme, toggleTheme] = useTheme();
   const [tab, setTab] = useState("demo");
+  const [askOpen, setAskOpen] = useState(false);
   // Reset swaps in a freshly seeded demo, so people can play without fear
   const [run, setRun] = useState(0);
   const demoApi = useMemo(() => createDemoApi(), [run]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -61,7 +62,12 @@ export default function Landing({ interest, onOwner }) {
             <span className="hidden font-serif text-lg font-semibold tracking-tight md:block">ProjectsTracker</span>
           </div>
           <TabBar tabs={TABS} value={tab} onChange={setTab} label="Sections" bare className="min-w-0 flex-1 justify-center sm:justify-start" />
-          <div className="flex shrink-0 items-center">
+          <div className="flex shrink-0 items-center gap-1">
+            <Button onClick={() => setAskOpen(true)} variant="outline" className="h-8 px-2.5 text-xs">
+              <Hand size={14} aria-hidden="true" />
+              <span className="sm:hidden">Ask</span>
+              <span className="max-sm:hidden">Ask for your own</span>
+            </Button>
             <Button onClick={toggleTheme} className="w-9 px-0" aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}>
               {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
             </Button>
@@ -94,9 +100,14 @@ export default function Landing({ interest, onOwner }) {
                 One-click timers for each project, a board for where each one stands, a calendar that fills as you work,
                 and a year of effort at a glance.
               </p>
+              {/* Narrower screens: just how to move things around, in the words of the hand in use */}
+              <p className="mt-1 text-xs text-muted lg:hidden">
+                <span className="pointer-fine:hidden">Hold a card to drag it to a status, or up to the trash.</span>
+                <span className="hidden pointer-fine:inline">Drag a card to another status, or up to the trash.</span>
+              </p>
             </div>
-            <p className="hidden max-w-[16rem] text-right text-xs text-muted xl:block">
-              Live demo on sample data. Drag a project to a new status, press a timer, or open a project. Nothing is saved.
+            <p className="hidden max-w-[17rem] text-right text-xs text-muted lg:block">
+              Live demo on sample data. Drag a card to another status, or up to the trash to delete it. Nothing is saved.
             </p>
             <Button onClick={() => setRun((n) => n + 1)} className="h-8 shrink-0 px-2.5 text-xs">
               <RotateCcw size={13} /> Reset demo
@@ -141,22 +152,16 @@ export default function Landing({ interest, onOwner }) {
             <p className="mt-6 text-[13px] text-faint lg:hidden">Built with React, Vite, Tailwind, FastAPI and PostgreSQL.</p>
           </section>
         )}
-
-        {tab === "ask" && (
-          <section role="tabpanel" id="panel-ask" aria-labelledby="tab-ask" className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto grid w-full max-w-7xl gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-14 lg:py-12">
-              <div>
-                <h2 className="font-serif text-2xl font-semibold tracking-tight sm:text-3xl">Ask for your own</h2>
-                <p className="mt-3 max-w-md text-base text-muted">
-                  The real tracker is private for now. If you'd use it, press the button. Every press shows it's worth
-                  opening up.
-                </p>
-              </div>
-              <InterestWidget interest={interest} />
-            </div>
-          </section>
-        )}
       </main>
+
+      {askOpen && (
+        <Modal title="Ask for your own" onClose={() => setAskOpen(false)}>
+          <p className="mb-6 text-[15px] text-muted">
+            The real tracker is private for now. If you'd use it, press the button. Every press shows it's worth opening up.
+          </p>
+          <InterestWidget interest={interest} />
+        </Modal>
+      )}
     </div>
   );
 }

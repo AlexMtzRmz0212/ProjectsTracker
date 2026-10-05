@@ -51,7 +51,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   const [detailId, setDetailId] = useState(null); // the project whose notes and to-dos are open
   const [projectModal, setProjectModal] = useState(null); // { project? }
   const [sessionModal, setSessionModal] = useState(null); // { session? , projectId?, date? }
-  const [confirm, setConfirm] = useState(null); // { kind: "project" | "session", item }
+  const [confirm, setConfirm] = useState(null); // { kind: "session", item }; projects are deleted on the board's trash can
 
   // Projects saved with a v1 neon color are shown in the nearest ledger ink.
   const projects = useMemo(() => t.projects.map((p) => ({ ...p, color: inkFor(p.color) })), [t.projects]);
@@ -110,7 +110,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     return t.updateProject(id, data);
   };
 
-  /** A drag on the board, or "Move to" in a card's menu. */
+  /** A card dragged to another column on the board. */
   const moveProject = async (id, statusId) => {
     if (statusesById.get(statusId)?.is_done && t.running?.project_id === id) await t.stopTimer();
     return t.moveProject(id, statusId);
@@ -137,7 +137,6 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
       onToggleTimer: () => (isRunning ? t.stopTimer() : t.startTimer(p.id)),
       onAddTime: () => openAddTime(p.id),
       onEdit: () => setProjectModal({ project: p }),
-      onDelete: () => setConfirm({ kind: "project", item: p }),
     };
   };
 
@@ -216,6 +215,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                 cardProps={cardProps}
                 onMove={moveProject}
                 onCreate={(statusId) => setProjectModal({ statusId })}
+                onDelete={t.deleteProject}
               />
             )
           ) : tab === "calendar" ? (
@@ -336,23 +336,6 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           onDelete={(s) => {
             setSessionModal(null);
             setConfirm({ kind: "session", item: s });
-          }}
-        />
-      )}
-
-      {confirm?.kind === "project" && (
-        <ConfirmDialog
-          title="Delete project?"
-          project={confirm.item}
-          primary={confirm.item.name}
-          secondary={`−${fmtHM(
-            confirm.item.total_seconds + (t.running?.project_id === confirm.item.id ? elapsed : 0)
-          )} logged`}
-          note="The project and all its sessions will be removed. This can't be undone."
-          onCancel={() => setConfirm(null)}
-          onConfirm={() => {
-            t.deleteProject(confirm.item.id);
-            setConfirm(null);
           }}
         />
       )}

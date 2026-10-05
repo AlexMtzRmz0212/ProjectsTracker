@@ -212,6 +212,201 @@ body {
   animation: fade-in 0.15s ease-out both;
 }
 
+/* ── Trash can (ProjectBoard) ──────────────────────────────────────────────
+   Drops in at the top while a card is dragged (ready), opens its lid and turns
+   red when the card is over it (hot), then swallows the card and unrolls the
+   "Are you sure?" slip (confirm). `hidden` sends it, slip and all, back up. */
+
+.trash {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translate(-50%, 0);
+  transition:
+    transform 0.42s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 0.2s ease-out;
+}
+.trash[data-state="hidden"] {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -150%) scale(0.6) rotate(-10deg);
+  transition:
+    transform 0.32s cubic-bezier(0.5, 0, 0.75, 0),
+    opacity 0.25s ease-in 0.07s;
+}
+
+.trash-can {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--muted);
+  transition:
+    transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+    color 0.15s,
+    border-color 0.15s,
+    background-color 0.15s;
+}
+/* A drop zone wider than the can, so it's easy to hit */
+.trash-can::before {
+  content: "";
+  position: absolute;
+  inset: -18px;
+}
+.trash-can svg {
+  overflow: visible;
+}
+
+/* Says what the can is for while a card is on the move */
+.trash-caption {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-family: var(--font-serif);
+  font-size: 11px;
+  font-style: italic;
+  color: var(--muted);
+  transition: color 0.15s, opacity 0.15s;
+}
+.trash[data-state="hot"] .trash-caption {
+  color: var(--danger);
+}
+.trash[data-state="confirm"] .trash-caption,
+.trash[data-state="hidden"] .trash-caption {
+  opacity: 0;
+}
+
+.trash-lid {
+  transform-box: fill-box;
+  transform-origin: 0% 100%;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.trash[data-state="hot"] .trash-can,
+.trash[data-state="confirm"] .trash-can {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+}
+.trash[data-state="hot"] .trash-can {
+  transform: scale(1.18);
+  animation: trash-wobble 0.45s ease-in-out;
+}
+.trash[data-state="hot"] .trash-lid {
+  transform: translateY(-1px) rotate(-32deg);
+}
+/* Gulps once the card has shrunk into it (see .drag-ghost) */
+.trash[data-state="confirm"] .trash-can {
+  animation: trash-gulp 0.38s ease-out 0.14s both;
+}
+.trash[data-state="confirm"] .trash-lid {
+  transition-duration: 0.12s;
+  transition-timing-function: ease-in;
+}
+
+/* The slip hangs from the can by a notch */
+.trash-slip {
+  position: relative;
+  display: none;
+  margin-top: 11px;
+  transform-origin: 50% 0;
+}
+.trash-slip::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 11px;
+  height: 11px;
+  border-top: 1px solid var(--line-strong);
+  border-left: 1px solid var(--line-strong);
+  background: var(--surface);
+  transform: translateX(-50%) rotate(45deg);
+}
+.trash[data-state="confirm"] .trash-slip,
+.trash[data-state="hidden"] .trash-slip {
+  display: block;
+}
+.trash[data-state="confirm"] .trash-slip {
+  animation: slip-unroll 0.46s cubic-bezier(0.2, 0.9, 0.3, 1) 0.3s both;
+}
+
+/* ── The card in your hand (ProjectBoard) ──────────────────────────────────
+   Follows the pointer (positioned from JS), lifted with a tilt and a hard
+   ledger shadow. Over the trash it shrinks toward the pointer; dropped there,
+   it falls into the can. It sits below the can so the can shows through. */
+
+.drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 58;
+  pointer-events: none;
+}
+.drag-ghost-card {
+  transform: rotate(2deg) scale(1.03);
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s;
+  animation: ghost-lift 0.18s ease-out;
+}
+.drag-ghost-card > li {
+  box-shadow: 4px 4px 0 var(--line-strong);
+}
+.drag-ghost[data-over="trash"] .drag-ghost-card {
+  transform: rotate(-4deg) scale(0.5);
+  opacity: 0.85;
+}
+.drag-ghost.is-swallowed .drag-ghost-card {
+  animation: ghost-swallow 0.24s cubic-bezier(0.5, 0, 0.75, 0) forwards;
+}
+
+@keyframes ghost-lift {
+  from { transform: none; }
+}
+
+@keyframes ghost-swallow {
+  from { transform: rotate(-4deg) scale(0.5); opacity: 0.85; }
+  to { transform: translate(var(--to-x, 0), var(--to-y, 0)) rotate(-12deg) scale(0.06); opacity: 0; }
+}
+
+@keyframes trash-wobble {
+  0% { transform: scale(1) rotate(0); }
+  30% { transform: scale(1.22) rotate(-7deg); }
+  55% { transform: scale(1.16) rotate(5deg); }
+  80% { transform: scale(1.19) rotate(-2deg); }
+  100% { transform: scale(1.18) rotate(0); }
+}
+
+@keyframes trash-gulp {
+  0% { transform: scale(1.18); }
+  30% { transform: scale(1.24, 0.82); }
+  60% { transform: scale(0.92, 1.1); }
+  100% { transform: scale(1); }
+}
+
+@keyframes slip-unroll {
+  0% {
+    clip-path: inset(-12px -12px 100% -12px);
+    transform: translateY(-12px) rotate(-1.5deg);
+  }
+  70% {
+    clip-path: inset(-12px -12px -12px -12px);
+    transform: translateY(2px) rotate(0.4deg);
+  }
+  100% {
+    clip-path: inset(-12px -12px -12px -12px);
+    transform: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;

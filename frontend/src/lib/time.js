@@ -66,9 +66,12 @@ export function daySeconds(byDay, date, projectId) {
   return projectId ? day.byProject.get(projectId) ?? 0 : day.total;
 }
 
-/** The open project nobody has worked on for longest: { project, since, never } or null.
- *  "Last worked" is the end of its latest session (now, if its timer is running); a project with
- *  no sessions in the loaded window counts from when it was created. */
+/** The open project that most needs attention: { project, since, never } or null.
+ *  Projects never worked on rank above any that have logs (oldest-created first); otherwise the
+ *  one idle longest wins. "Last worked" is the end of its latest session (now, if its timer is
+ *  running); a project with no sessions in the loaded window counts from when it was created (and
+ *  is "never" worked only if it has no logged time at all, since older sessions may sit outside
+ *  the window). */
 export function mostNeglected(projects, sessions, now) {
   const last = new Map();
   for (const s of sessions) {
@@ -79,7 +82,9 @@ export function mostNeglected(projects, sessions, now) {
   for (const project of projects) {
     const worked = last.get(project.id);
     const since = worked ?? new Date(project.created_at);
-    if (!found || since < found.since) found = { project, since, never: !worked };
+    const never = !worked && !(project.total_seconds > 0);
+    const better = !found || (never !== found.never ? never : since < found.since);
+    if (better) found = { project, since, never };
   }
   return found;
 }

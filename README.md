@@ -8,11 +8,14 @@ with the time you worked, and a year-long activity heatmap.
 
 - **One screen, three tabs**: *Projects*, *Calendar* and *Stats* each fit the window, so there is no
   page scrolling; a list only scrolls inside its own box when it really has more than fits. The
-  landing page works the same way (*Try it*, *How it works*, *Ask for your own*).
+  landing page works the same way (*Try it* and *How it works*, with an *Ask for your own* button in
+  the header that opens a dialog).
 - **Status board**: every status is a column and every project a card with a big ▶/■ timer button,
   live clock, today and total time, a 7-day sparkline, and its open to-dos. Drag a card to another
-  column to change its status. Touch screens can't drag, so each card's menu has *Move to*, and phones
-  show one status at a time.
+  column to change its status, or up to the trash can that drops in at the top to delete it (after an
+  "Are you sure?"). A mouse drags right away; on a touch screen, hold the card for a moment first.
+  Phones show one status at a time, so a card is dropped on the status chips at the top. A card's
+  *Edit* dialog can change its status too.
 - **Statuses**: a list you manage yourself (the **Statuses** button on the Projects tab): Active, On
   hold, Idea, ... Each project has one. Tick *Finished* on the statuses that mean it's over: projects
   there lose their timer. A fresh database starts with Active and Done.
