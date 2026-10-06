@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
 import { ArchiveRestore, Check, ChevronDown, GripVertical, ListChecks, NotebookText, History, Pencil, Play, Plus, Square, Trash2 } from "lucide-react";
-import Modal, { Button } from "./Modal";
+import { Button } from "./Modal";
 import TabBar from "./TabBar";
 import { ON_INK, inkFor, iconFor } from "../lib/palette";
 import { fmtClock, fmtHM, fmtTime, sessionSeconds } from "../lib/time";
@@ -9,12 +9,12 @@ import { useReorder } from "../hooks/useReorder";
 
 const RECENT = 8;
 
-/** One project opened up: its to-dos, free-form notes, and the sessions you've logged on it.
- *  Everything saves as you go; closing the window saves a note you were still typing.
+/** One project opened up, in the side peek: its to-dos, free-form notes, and the sessions you've logged on it.
+ *  Everything saves as you go; peeking at another project saves a note you were still typing.
  *  An archived project has no timer, and offers Restore in its place. */
 export default function ProjectDetail({
   project, status, todos, sessions, pomodoroCount = 0, isRunning, elapsed, totalSeconds, now, archived,
-  onClose, onEdit, onToggleTimer, onRestore, onSaveNotes, onSaveSessionNote, todoOps,
+  onEdit, onToggleTimer, onRestore, onSaveNotes, onSaveSessionNote, todoOps,
 }) {
   const Icon = iconFor(project.icon);
   const finished = status.is_done;
@@ -22,82 +22,80 @@ export default function ProjectDetail({
   const openTodos = todos.filter((t) => !t.done).length;
 
   return (
-    <Modal title={project.name} wide contained belowHeader onClose={onClose}>
-      <div className="flex min-h-0 flex-1 flex-col gap-4">
-        <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
-          <span className="grid size-8 shrink-0 place-items-center" style={{ background: project.color, color: ON_INK }}>
-            <Icon size={17} />
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
+        <span className="grid size-8 shrink-0 place-items-center" style={{ background: project.color, color: ON_INK }}>
+          <Icon size={17} />
+        </span>
+        <span className="inline-flex items-center gap-1.5 text-[13px]">
+          <span className="size-2" style={{ background: inkFor(status.color) }} aria-hidden="true" />
+          {status.name}
+        </span>
+        <span className="font-serif text-[13px] italic text-muted">
+          <span className="figures not-italic text-text">{fmtHM(totalSeconds)}</span> logged
+        </span>
+        {pomodoroCount > 0 && (
+          <span className="font-serif text-[13px] italic text-muted" title="Pomodoros this project was worked on during">
+            <span className="figures not-italic text-text">{pomodoroCount}</span> {pomodoroCount === 1 ? "pomodoro" : "pomodoros"}
           </span>
-          <span className="inline-flex items-center gap-1.5 text-[13px]">
-            <span className="size-2" style={{ background: inkFor(status.color) }} aria-hidden="true" />
-            {status.name}
-          </span>
-          <span className="font-serif text-[13px] italic text-muted">
-            <span className="figures not-italic text-text">{fmtHM(totalSeconds)}</span> logged
-          </span>
-          {pomodoroCount > 0 && (
-            <span className="font-serif text-[13px] italic text-muted" title="Pomodoros this project was worked on during">
-              <span className="figures not-italic text-text">{pomodoroCount}</span> {pomodoroCount === 1 ? "pomodoro" : "pomodoros"}
-            </span>
-          )}
-          <div className="ml-auto flex items-center gap-1.5">
-            {archived && (
-              <Button variant="outline" className="h-8" onClick={onRestore}>
-                <ArchiveRestore size={14} /> Restore
-              </Button>
-            )}
-            {!finished && !archived && (
-              <button
-                onClick={onToggleTimer}
-                className={`flex h-8 min-w-[6.5rem] items-center justify-center gap-1.5 border text-xs font-semibold transition-colors ${
-                  isRunning ? "" : "border-line-strong hover:border-text hover:bg-surface-2"
-                }`}
-                style={isRunning ? { background: project.color, borderColor: project.color, color: ON_INK } : undefined}
-              >
-                {isRunning ? (
-                  <>
-                    <Square size={10} fill="currentColor" />
-                    <span className="figures text-[13px]">{fmtClock(elapsed)}</span>
-                  </>
-                ) : (
-                  <>
-                    <Play size={11} fill="currentColor" /> Start
-                  </>
-                )}
-              </button>
-            )}
-            <Button variant="outline" className="h-8" onClick={onEdit}>
-              <Pencil size={14} /> Edit
+        )}
+        <div className="ml-auto flex items-center gap-1.5">
+          {archived && (
+            <Button variant="outline" className="h-8" onClick={onRestore}>
+              <ArchiveRestore size={14} /> Restore
             </Button>
-          </div>
-        </div>
-
-        <TabBar
-          label="Project"
-          value={tab}
-          onChange={setTab}
-          tabs={[
-            { id: "todos", label: "To-dos", icon: ListChecks, count: openTodos || undefined },
-            { id: "notes", label: "Notes", icon: NotebookText },
-            { id: "sessions", label: "Sessions", icon: History, count: sessions.length || undefined },
-          ]}
-        />
-
-        {/* Every panel stays mounted so a half-typed note isn't lost by switching tabs.
-            Everything above stays put; only the open panel's own list scrolls. */}
-        <div className="flex min-h-[19rem] flex-1 flex-col">
-          <div className={tab === "todos" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
-            <TodoList todos={todos} projectId={project.id} ops={todoOps} />
-          </div>
-          <div className={tab === "notes" ? "min-h-0 flex-1 overflow-y-auto" : "hidden"}>
-            <Notes key={project.id} value={project.notes} onSave={onSaveNotes} />
-          </div>
-          <div className={tab === "sessions" ? "min-h-0 flex-1 overflow-y-auto" : "hidden"}>
-            <RecentSessions sessions={sessions} todos={todos} now={now} onSaveNote={onSaveSessionNote} />
-          </div>
+          )}
+          {!finished && !archived && (
+            <button
+              onClick={onToggleTimer}
+              className={`flex h-8 min-w-[6.5rem] items-center justify-center gap-1.5 border text-xs font-semibold transition-colors ${
+                isRunning ? "" : "border-line-strong hover:border-text hover:bg-surface-2"
+              }`}
+              style={isRunning ? { background: project.color, borderColor: project.color, color: ON_INK } : undefined}
+            >
+              {isRunning ? (
+                <>
+                  <Square size={10} fill="currentColor" />
+                  <span className="figures text-[13px]">{fmtClock(elapsed)}</span>
+                </>
+              ) : (
+                <>
+                  <Play size={11} fill="currentColor" /> Start
+                </>
+              )}
+            </button>
+          )}
+          <Button variant="outline" className="h-8" onClick={onEdit}>
+            <Pencil size={14} /> Edit
+          </Button>
         </div>
       </div>
-    </Modal>
+
+      <TabBar
+        label="Project"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { id: "todos", label: "To-dos", icon: ListChecks, count: openTodos || undefined },
+          { id: "notes", label: "Notes", icon: NotebookText },
+          { id: "sessions", label: "Sessions", icon: History, count: sessions.length || undefined },
+        ]}
+      />
+
+      {/* Every panel stays mounted so a half-typed note isn't lost by switching tabs.
+          Everything above stays put; only the open panel's own list scrolls. */}
+      <div className="flex min-h-[19rem] flex-1 flex-col">
+        <div className={tab === "todos" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
+          <TodoList todos={todos} projectId={project.id} ops={todoOps} />
+        </div>
+        <div className={tab === "notes" ? "min-h-0 flex-1 overflow-y-auto" : "hidden"}>
+          <Notes key={project.id} value={project.notes} onSave={onSaveNotes} />
+        </div>
+        <div className={tab === "sessions" ? "min-h-0 flex-1 overflow-y-auto" : "hidden"}>
+          <RecentSessions sessions={sessions} todos={todos} now={now} onSaveNote={onSaveSessionNote} />
+        </div>
+      </div>
+    </div>
   );
 }
 

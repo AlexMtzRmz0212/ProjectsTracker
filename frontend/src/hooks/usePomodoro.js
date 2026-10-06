@@ -83,7 +83,8 @@ function chime() {
  * is `held`. Starting the next focus starts it again, and its clock carries on from the time
  * it had (`carry`) rather than from zero. Stopping the break, or starting a timer by hand
  * while it runs, lets the hold go. The link runs the other way too: starting a project timer by
- * hand starts the focus as well, if the pomodoro isn't already going (`followTimer`).
+ * hand starts the focus as well, if the pomodoro isn't already going (`followTimer`). A focus can also be
+ * started on a chosen project (`startFocusOn`), which takes the place of the one held for the break.
  *
  * When the focus length is up a break follows: it counts down at once if `autoBreak` is
  * on, otherwise it waits for Start. After the break the next focus is started (or offered).
@@ -175,6 +176,17 @@ export function usePomodoro({ running, startTimer, stopTimer, onFocusDone, scope
     beginFocus();
     if (cycle.held) startTimer(cycle.held);
   }, [beginFocus, cycle.held, startTimer]);
+
+  /** Start a focus on a project chosen beforehand (the full-screen view): its timer starts with it, in place of
+   *  any project held for the break. The held project's carried clock only follows it if it is the one chosen. */
+  const startFocusOn = useCallback(
+    (id) => {
+      beginFocus();
+      setCycle((c) => (c.carryId === id ? c : { ...c, carry: 0, carryId: null }));
+      startTimer(id);
+    },
+    [beginFocus, setCycle, startTimer]
+  );
 
   // A timer started by hand during the break lets the hold go. A project timer stopped by hand
   // (not held for a break) starts from zero next time.
@@ -290,6 +302,7 @@ export function usePomodoro({ running, startTimer, stopTimer, onFocusDone, scope
     // Which pomodoro of the set the current (or next) focus is: 1..longEvery
     position: (done % settings.longEvery) + 1,
     startFocus,
+    startFocusOn,
     followTimer,
     pause,
     resume,

@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { Coffee, Inbox, LogOut, Moon, NotebookPen, Pause, Play, Plus, Search, SkipForward, Square, Sun, Timer } from "lucide-react";
+import { Coffee, Inbox, LogOut, Maximize2, Moon, NotebookPen, Pause, Play, Plus, Search, SkipForward, Square, Sun, Timer } from "lucide-react";
 import { Button } from "./Modal";
 import { tint } from "../lib/palette";
 import { fmtClock, fmtCountdown, fmtHM } from "../lib/time";
 
 export default function Header({
-  runningProject, runningSession, elapsed, heldProject, heldSeconds, onSaveNote, pomodoro, pomodorosToday = 0, onStop, onNewProject, theme, onToggleTheme,
-  onSignOut, signOutLabel = "Sign out", onInbox, inboxUnread = 0, onSearch, searchHint, locked = false,
+  runningProject, runningSession, elapsed, heldProject, heldSeconds, onSaveNote, pomodoro, pomodorosToday = 0, onStop, onStopFocus, onExpand, onNewProject,
+  theme, onToggleTheme, onSignOut, signOutLabel = "Sign out", onInbox, inboxUnread = 0, onSearch, searchHint,
 }) {
   return (
-    <header data-app-header className="relative z-30 shrink-0 border-b-[3px] border-double border-line-strong bg-bg">
+    <header data-app-header className="relative z-40 shrink-0 border-b-[3px] border-double border-line-strong bg-bg">
       <div className="mx-auto flex h-14 max-w-7xl items-center gap-2 px-4 sm:h-16 sm:gap-3 sm:px-6">
         <div className="flex shrink-0 items-center gap-2">
           <Timer size={20} className="text-text" aria-hidden="true" />
@@ -27,11 +27,12 @@ export default function Header({
             pomodoro={pomodoro}
             pomodorosToday={pomodorosToday}
             onStop={onStop}
+            onStopFocus={onStopFocus}
+            onExpand={onExpand}
           />
         </div>
 
-        {/* With a project open over the board only the timers above stay live: the rest is dimmed and inert */}
-        <div className={`flex shrink-0 items-center gap-2 transition-opacity sm:gap-3 ${locked ? "opacity-40" : ""}`} inert={locked}>
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           <Button
             onClick={onSearch}
             className="shrink-0 px-2.5 sm:px-3"
@@ -94,10 +95,15 @@ function ChipButton({ edge, onClick, label, text, className = "", children }) {
 }
 
 /** The pomodoro, always there, and next to it the project timer while one runs (or is paused for the break). */
-function NowTracking({ project, session, elapsed, heldProject, heldSeconds, onSaveNote, pomodoro, pomodorosToday, onStop }) {
+function NowTracking({
+  project, session, elapsed, heldProject, heldSeconds, onSaveNote, pomodoro, pomodorosToday, onStop, onStopFocus, onExpand,
+}) {
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <PomodoroChip pomodoro={pomodoro} doneToday={pomodorosToday} />
+      {/* The settings' top peek hangs its tab from the top edge right above this */}
+      <div data-pomodoro-anchor className="flex shrink-0">
+        <PomodoroChip pomodoro={pomodoro} doneToday={pomodorosToday} onStopFocus={onStopFocus} projectRunning={Boolean(project)} onExpand={onExpand} />
+      </div>
       {project ? (
         <ProjectChip project={project} session={session} elapsed={elapsed} onSaveNote={onSaveNote} onStop={onStop} />
       ) : (
@@ -152,10 +158,10 @@ function ProjectChip({ project, session, elapsed, onSaveNote, onStop }) {
 }
 
 /** The pomodoro's own countdown: idle and ready to start, focusing (or paused), or on a break. */
-function PomodoroChip({ pomodoro, doneToday }) {
+function PomodoroChip({ pomodoro, doneToday, onStopFocus, projectRunning, onExpand }) {
   const { phase } = pomodoro;
   if (phase === "breakWait" || phase === "break" || phase === "breakPaused" || phase === "ready") {
-    return <BreakChip pomodoro={pomodoro} />;
+    return <BreakChip pomodoro={pomodoro} onExpand={onExpand} />;
   }
   const focus = phase === "focus";
   const paused = phase === "focusPaused";
@@ -210,17 +216,22 @@ function PomodoroChip({ pomodoro, doneToday }) {
         </ChipButton>
       )}
       {(focus || paused) && (
-        <ChipButton edge={edge} onClick={pomodoro.dismiss} label="Stop the pomodoro">
+        <ChipButton
+          edge={edge}
+          onClick={onStopFocus ?? pomodoro.dismiss}
+          label={onStopFocus && projectRunning ? "Stop the focus and the project timer" : "Stop the pomodoro"}
+        >
           <Square size={10} fill="currentColor" />
         </ChipButton>
       )}
+      <ExpandButton edge={edge} onExpand={onExpand} />
       {(focus || paused) && <Progress value={pomodoro.focusProgress} color={focus ? "var(--accent)" : "var(--muted)"} />}
     </div>
   );
 }
 
 /** The rest between focus periods: waiting to be started, counting down (or paused), then waiting to be asked back. */
-function BreakChip({ pomodoro }) {
+function BreakChip({ pomodoro, onExpand }) {
   const { phase } = pomodoro;
   const waiting = phase === "breakWait";
   const paused = phase === "breakPaused";
@@ -276,8 +287,19 @@ function BreakChip({ pomodoro }) {
       <ChipButton edge={edge} onClick={pomodoro.dismiss} label="Stop the break">
         <Square size={10} fill="currentColor" />
       </ChipButton>
+      <ExpandButton edge={edge} onExpand={onExpand} />
       {(phase === "break" || paused) && <Progress value={pomodoro.breakProgress} color={edge} />}
     </div>
+  );
+}
+
+/** The chip's last button: the pomodoro's full screen. */
+function ExpandButton({ edge, onExpand }) {
+  if (!onExpand) return null;
+  return (
+    <ChipButton edge={edge} onClick={onExpand} label="Full screen" className="max-sm:px-2">
+      <Maximize2 size={13} />
+    </ChipButton>
   );
 }
 
@@ -293,8 +315,9 @@ function Progress({ value, color }) {
 }
 
 /** A note for the session that's running, written whenever you like while the clock is going.
- *  It lands on the same session record that Add time's note does. */
-function TimerNote({ session, project, edge, onSave }) {
+ *  It lands on the same session record that Add time's note does. `up` opens it above the button
+ *  instead of below, for a button near the foot of the screen. */
+export function TimerNote({ session, project, edge, onSave, up = false }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(session.note);
   const saved = useRef(session.note);
@@ -346,7 +369,11 @@ function TimerNote({ session, project, edge, onSave }) {
       </button>
 
       {open && (
-        <div className="fade-in absolute left-1/2 top-full z-40 mt-2 w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 border border-line-strong bg-surface p-3">
+        <div
+          className={`fade-in absolute left-1/2 z-40 w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 border border-line-strong bg-surface p-3 ${
+            up ? "bottom-full mb-2" : "top-full mt-2"
+          }`}
+        >
           <label className="block">
             <span className="mb-1.5 block text-xs font-semibold text-muted">
               What are you working on? <span className="font-normal italic">{project.name}</span>

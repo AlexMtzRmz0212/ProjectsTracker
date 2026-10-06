@@ -30,7 +30,11 @@ with the time you worked, and a year-long activity heatmap.
 - **Statuses**: a list you manage yourself (the **Statuses** button on the Projects tab): Active, On
   hold, Idea, ... Each project has one. Tick *Finished* on the statuses that mean it's over: projects
   there lose their timer. A fresh database starts with Active and Done.
-- **Notes and to-dos per project**: click a project's name to open it. It holds a checklist of
+- **Notes and to-dos per project**: click a project's name to open it in a side peek, a panel on the
+  right with the board still usable beside it (click another project and the peek switches to it). Its
+  tab stays on the right edge when the peek is put away (the tab, ✕, Esc or a drag to the right), so the
+  same project comes back in one click. The tab is also how wide the peek is: drag it left or right
+  (or pull it out from shut to the width you want); the width is remembered. It holds a checklist of
   to-dos, free-form notes (saved as you leave the box) and the sessions logged on it, on three tabs.
   Cards show how many to-dos are open and a notebook mark when there are notes. A to-do remembers
   when it was ticked off, and the Sessions tab lists it under the session it was done in.
@@ -39,7 +43,11 @@ with the time you worked, and a year-long activity heatmap.
   and the running one is in the header (next to the pomodoro) and the browser tab title.
 - **Pomodoro**: a countdown of its own in the header, ready to start any time with or without a
   project running. It runs focus, then a short break, with a long break after every few focus
-  periods; each can be paused, a break can be skipped, and ■ stops it. A focus is saved as a pomodoro
+  periods; each can be paused, a break can be skipped, and ■ stops it (stopping a focus also stops the
+  project timer that is running; stopping a break leaves it be). The expand button on the chip
+  gives the pomodoro the whole screen, with the same buttons, an optional project to pick (it starts
+  together with the next focus, or right away once a focus or a project timer is already going) and a
+  button for the browser's own full screen. A focus is saved as a pomodoro
   (its start and end): one that runs out counts, one you stop or cut short with *Break now* is kept
   too, marked *cut short* and not counted (under 2 minutes it is dropped, like a project timer). Project
   timers you click during it are logged as usual, and the pomodoro's day on the Calendar lists which
@@ -48,8 +56,9 @@ with the time you worked, and a year-long activity heatmap.
   timer is paused for the break: its time so far is saved and it shows as paused beside the break.
   Pressing *Focus* again starts it back up, with its clock carrying on from where it was. Stopping
   the break, or starting a timer by hand during it, leaves the project stopped. Lengths, the long
-  break interval, auto-start and the chime are set in the drawer behind the clock tab on the right
-  edge; the countdown is kept in the browser, so it survives a reload.
+  break interval, auto-start and the chime are set in a top peek: its tab hangs from the top edge of the
+  window right above the pomodoro chip (or the full screen's countdown), and clicking or pulling
+  it down brings the panel down from the top; the countdown is kept in the browser, so it survives a reload.
 - **Session notes**: write a note while the timer runs (the notebook button on the timer pill in the
   header) or when you add time by hand. Both end up on the same session.
 - **Manual entries**: log time after the fact without fiddling with clock pickers. Say which day it
