@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { format } from "date-fns";
 import { CircleDot, GripHorizontal, MoveDiagonal2, Search, X } from "lucide-react";
 import { ActionButton, controlsFor, phaseView } from "./PomodoroScreen";
-import { TASKS_TAB, matchProjects, withTasksTab } from "./ProjectSearch";
+import { TASKS_TAB, TodoNote, searchResults, withTasksTab } from "./ProjectSearch";
 import { iconFor, inkText, tint } from "../lib/palette";
 import { fmtClock, fmtCountdown } from "../lib/time";
 
@@ -37,8 +37,9 @@ function save(key, value) {
  * The pomodoro as a mini clock, laid out like Spotify's mini player: drawn into the floating window when
  * there is one (`pip`), otherwise as a small widget over the page that can be dragged by its top edge,
  * resized from its top-left corner, and remembers both. What it shows follows the shape it is given (see
- * ClockFace). Ctrl+F (⌘F) inside it finds an open project to work on (`onPickProject`), or the Tasks tab
- * (`onTasks`), shown on the page.
+ * ClockFace). Ctrl+F (⌘F) inside it finds an open project or task to work on (`onPickProject`), or one of
+ * their to-dos (`searchTodos`, from todoEntries; `onPickProject(id, todoId)`), or the Tasks tab (`onTasks`),
+ * shown on the page.
  * `hidden` keeps the widget away while the full screen is up; a floating window is left alone.
  */
 export default function MiniPlayer({ pip, hidden = false, onClose, ...rest }) {
@@ -67,6 +68,15 @@ const clampNum = (n, lo, hi) => Math.min(Math.max(n, lo), hi);
 // Five tabular figures ("25:00") are about this many ems wide; eight ("01:23:45") about five
 const COUNTDOWN_EM = 3.1;
 const CLOCK_EM = 5;
+/** Whether a to-do is the task `taskId`, or one of the to-dos nested under it. */
+function underTask(todo, taskId, todos) {
+  for (let x = todo, hops = 0; x && hops < 20; x = todos.find((y) => y.id === x.parent_id), hops++) {
+    if (x.id === taskId) return true;
+    if (!x.parent_id) return false;
+  }
+  return false;
+}
+
 const isFind = (e) => (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "f";
 
 /** Measures itself, and takes Ctrl+F: in the floating window from anywhere in it, on the page while the
@@ -104,13 +114,15 @@ function MiniClock(props) {
       {searching && (
         <MiniSearch
           projects={props.projects}
+          todos={props.searchTodos}
           runningId={props.runningProject?.id}
           onTasks={props.onTasks}
           onClose={() => setSearching(false)}
-          onPick={(id) => {
+          onPick={(p) => {
             setSearching(false);
-            if (id === TASKS_TAB.id) props.onTasks();
-            else props.onPickProject(id);
+            if (p.id === TASKS_TAB.id) props.onTasks();
+            else if (p.kind === "todo") props.onPickProject(p.subjectId, p.todoId);
+            else props.onPickProject(p.id);
           }}
         />
       )}
@@ -153,17 +165,15 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
   const controlsW = controls.length * 40 + (onSearch ? 40 : 0);
   const wash = `linear-gradient(140deg, ${tint(big.color, 20)}, ${tint(big.color, 4)} 65%)`;
   // What is left to do on what's being worked on, the to-dos marked as being worked on first. A task is its
-  // own to-do: it is listed so it can be ticked off from here.
+  // own to-do: it is listed, with its sub-to-dos, so they can be ticked off from here.
   const open = !project
     ? []
-    : project.kind === "task"
-      ? todos.filter((x) => x.id === project.todoId && !x.done)
-      : todos
-          .filter((x) => x.project_id === project.id && !x.done)
-          .sort(
-            (a, b) =>
-              (b.id === timedTodoId) - (a.id === timedTodoId) || Boolean(b.working_since) - Boolean(a.working_since)
-          );
+    : todos
+        .filter((x) => !x.done && (project.kind === "task" ? underTask(x, project.todoId, todos) : x.project_id === project.id))
+        .sort(
+          (a, b) =>
+            (b.id === timedTodoId) - (a.id === timedTodoId) || Boolean(b.working_since) - Boolean(a.working_since)
+        );
 
   const fit = (width, height, em = big.em) => clampNum(Math.min(width / em, height * 0.92), 12, 160);
   const digits = (fontSize, className = "") => (
@@ -392,8 +402,8 @@ function Controls({ controls, onSearch }) {
         <button
           onClick={onSearch}
           className="grid size-9 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
-          aria-label="Find a project"
-          title="Find a project (Ctrl F)"
+          aria-label="Find a project, task or to-do"
+          title="Find a project, task or to-do (Ctrl F)"
         >
           <Search size={14} />
         </button>
@@ -476,13 +486,14 @@ function WorkingToggle({ todo, todoOps }) {
   );
 }
 
-/** Find an open project by name inside the mini clock: type, arrows, Enter starts it; Esc goes back.
- *  With `onTasks`, the Tasks tab is one of the results. */
-function MiniSearch({ projects, runningId, onTasks, onPick, onClose }) {
+/** Find an open project or task by name inside the mini clock, or one of their to-dos once something is
+ *  typed: type, arrows, Enter starts it (`onPick` gets the result); Esc goes back. With `onTasks`, the Tasks
+ *  tab is one of the results. */
+function MiniSearch({ projects, todos = [], runningId, onTasks, onPick, onClose }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const listRef = useRef(null);
-  const results = useMemo(() => matchProjects(withTasksTab(projects, onTasks), query), [projects, onTasks, query]);
+  const results = useMemo(() => searchResults(withTasksTab(projects, onTasks), todos, query), [projects, todos, onTasks, query]);
   const current = Math.min(active, results.length - 1);
 
   useEffect(() => {
@@ -499,7 +510,7 @@ function MiniSearch({ projects, runningId, onTasks, onPick, onClose }) {
       if (results.length) setActive((current + (e.key === "ArrowDown" ? 1 : -1) + results.length) % results.length);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (results[current]) onPick(results[current].id);
+      if (results[current]) onPick(results[current]);
     } else if (isFind(e)) {
       e.preventDefault();
       e.stopPropagation();
@@ -508,7 +519,7 @@ function MiniSearch({ projects, runningId, onTasks, onPick, onClose }) {
   };
 
   return (
-    <div className="fade-in absolute inset-0 z-20 flex flex-col bg-bg" role="dialog" aria-label="Find a project">
+    <div className="fade-in absolute inset-0 z-20 flex flex-col bg-bg" role="dialog" aria-label="Find a project, task or to-do">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line-strong pl-2.5">
         <Search size={14} className="shrink-0 text-muted" aria-hidden="true" />
         <input
@@ -521,8 +532,8 @@ function MiniSearch({ projects, runningId, onTasks, onPick, onClose }) {
           onKeyDown={onKeyDown}
           role="combobox"
           aria-expanded="true"
-          aria-label="Project name"
-          placeholder="Find a project"
+          aria-label="Project, task or to-do"
+          placeholder="Find a project, task or to-do"
           autoComplete="off"
           spellCheck={false}
           className="h-full min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-faint"
@@ -536,7 +547,7 @@ function MiniSearch({ projects, runningId, onTasks, onPick, onClose }) {
         </button>
       </div>
       {results.length === 0 ? (
-        <p className="p-3 font-serif text-xs italic text-muted">No project matches “{query.trim()}”.</p>
+        <p className="p-3 font-serif text-xs italic text-muted">Nothing matches “{query.trim()}”.</p>
       ) : (
         <ul ref={listRef} role="listbox" className="min-h-0 flex-1 overflow-y-auto">
           {results.map((p, i) => {
@@ -546,13 +557,19 @@ function MiniSearch({ projects, runningId, onTasks, onPick, onClose }) {
                 key={p.id}
                 role="option"
                 aria-selected={i === current}
-                onClick={() => onPick(p.id)}
+                onClick={() => onPick(p)}
                 onMouseMove={() => i !== current && setActive(i)}
                 className={`flex h-8 cursor-pointer items-center gap-2 border-b border-rule px-2.5 text-[13px] ${i === current ? "bg-surface-2" : ""}`}
               >
-                <Icon size={14} style={{ color: inkText(p.color) }} className="shrink-0" aria-hidden="true" />
-                <span className="min-w-0 flex-1 truncate font-serif">{p.name}</span>
-                {p.kind === "tab" && <span className="shrink-0 font-serif text-[11px] italic text-muted">Tab</span>}
+                <Icon size={p.kind === "todo" ? 12 : 14} style={{ color: inkText(p.color) }} className="shrink-0" aria-hidden="true" />
+                <span className={`min-w-0 flex-1 truncate ${p.kind === "todo" ? "" : "font-serif"}`}>{p.name}</span>
+                {p.kind === "todo" ? (
+                  <TodoNote entry={p} className="text-[11px]" />
+                ) : (
+                  (p.kind === "tab" || p.kind === "task") && (
+                    <span className="shrink-0 font-serif text-[11px] italic text-muted">{p.kind === "tab" ? "Tab" : "Task"}</span>
+                  )
+                )}
                 {p.id === runningId && <span className="blink-dot size-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />}
               </li>
             );

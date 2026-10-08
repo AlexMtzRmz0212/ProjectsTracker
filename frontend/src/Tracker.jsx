@@ -27,7 +27,7 @@ import ProjectModal from "./components/ProjectModal";
 import StatusModal from "./components/StatusModal";
 import ProjectDetail from "./components/ProjectDetail";
 import ProjectPeek from "./components/ProjectPeek";
-import ProjectSearch from "./components/ProjectSearch";
+import ProjectSearch, { todoEntries } from "./components/ProjectSearch";
 import TasksView, { TaskDetail } from "./components/TasksView";
 import OpenItemsBar from "./components/OpenItemsBar";
 import WorkingMenu from "./components/WorkingMenu";
@@ -37,7 +37,7 @@ import InterestInbox from "./components/InterestInbox";
 import Toast from "./components/Toast";
 import { Button } from "./components/Modal";
 import { TASK_ICON, TASK_INK, inkFor } from "./lib/palette";
-import { taskKey } from "./api";
+import { isTaskKey, taskIdOf, taskKey } from "./api";
 
 /**
  * The whole tracker. `api` is where its data lives: the real server for the
@@ -58,9 +58,28 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   const lastTodo = useRef(null);
   if (t.running) lastTodo.current = t.running.todo_id ? { projectId: t.running.project_id, todoId: t.running.todo_id } : null;
   const { startTimer: startTimerOn } = t;
-  const resumeTimer = useCallback(
-    (id) => startTimerOn(id, lastTodo.current?.projectId === id ? lastTodo.current.todoId : null),
+  // Read through refs so `startTimer` keeps its identity: the pomodoro holds on to it
+  const todosRef = useRef(t.todos);
+  todosRef.current = t.todos;
+  const todoOpsRef = useRef(t.todoOps);
+  todoOpsRef.current = t.todoOps;
+  /** Start the timer on a project or a task, on one of the project's to-dos if one is given. What the time is
+   *  on is being worked on, and is marked so: that to-do, or a task timed as a whole (a task is a to-do too).
+   *  A task's sub-to-do is timed on its task, and it is the sub-to-do that is marked. */
+  const startTimer = useCallback(
+    (subjectId, todoId = null) => {
+      const isTask = isTaskKey(subjectId);
+      const started = startTimerOn(subjectId, isTask ? null : todoId);
+      const workedId = String(todoId ?? (isTask ? taskIdOf(subjectId) : ""));
+      const todo = workedId && todosRef.current.find((x) => String(x.id) === workedId);
+      if (todo && !todo.done && !todo.working_since) todoOpsRef.current.update(todo.id, { working: true });
+      return started;
+    },
     [startTimerOn]
+  );
+  const resumeTimer = useCallback(
+    (id, todoId = null) => startTimer(id, todoId ?? (lastTodo.current?.projectId === id ? lastTodo.current.todoId : null)),
+    [startTimer]
   );
   const pomodoro = usePomodoro({
     running: t.running, startTimer: resumeTimer, stopTimer: t.stopTimer, onFocusDone: t.addPomodoro, scope: demo ? "demo" : "app",
@@ -118,6 +137,9 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   const openProjects = useMemo(() => liveProjects.filter(isOpen), [liveProjects, statusesById]);
   // What a timer can be started on from the pomodoro screen, the mini clock and the Add time window
   const pickSubjects = useMemo(() => [...openProjects, ...openTaskSubjects], [openProjects, openTaskSubjects]);
+  // Their open to-dos, found by name in the searches there; the main search finds those of every project on the board
+  const pickTodos = useMemo(() => todoEntries(t.todos, pickSubjects), [t.todos, pickSubjects]);
+  const boardTodos = useMemo(() => todoEntries(t.todos, [...liveProjects, ...openTaskSubjects]), [t.todos, liveProjects, openTaskSubjects]);
   // Only re-evaluated once per day (and when sessions change): "days idle" doesn't move by the second
   const neglected = useMemo(
     () => mostNeglected(openProjects, t.sessions, new Date(`${todayKey}T23:59:59`), t.todos),
@@ -258,28 +280,24 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     return t.archiveProject(id);
   };
 
-  /** Start a project's timer by hand; a pomodoro that isn't going starts with it. */
-  const startProject = (id) => {
-    const started = t.startTimer(id);
+  /** Start a project's (or task's) timer by hand, on one of its to-dos if given; a pomodoro that isn't going
+   *  starts with it. */
+  const startProject = (id, todoId = null) => {
+    const started = startTimer(id, todoId);
     pomodoro.followTimer();
     return started;
   };
 
-  /** A project found from the mini clock: with no pomodoro going it starts the way a card's timer does (a
-   *  focus with it); otherwise it takes over the timer, as picking one in the full screen does. */
-  const pickFromMini = (id) => {
-    if (t.running?.project_id === id) return;
-    if (!t.running && (pomodoro.phase === "idle" || pomodoro.phase === "ready")) startProject(id);
-    else t.startTimer(id);
+  /** A project, task or to-do found from the mini clock: with no pomodoro going it starts the way a card's timer
+   *  does (a focus with it); otherwise it takes over the timer, as picking one in the full screen does. */
+  const pickFromMini = (id, todoId = null) => {
+    if (t.running?.project_id === id && !todoId) return;
+    if (!t.running && (pomodoro.phase === "idle" || pomodoro.phase === "ready")) startProject(id, todoId);
+    else startTimer(id, todoId);
   };
 
   /** Time one of a project's to-dos: the project's timer, on that to-do (which is marked as being worked on). */
-  const startTodo = (todo) => {
-    const started = t.startTimer(todo.project_id, todo.id);
-    pomodoro.followTimer();
-    if (!todo.working_since) t.todoOps.update(todo.id, { working: true });
-    return started;
-  };
+  const startTodo = (todo) => startProject(todo.project_id, todo.id);
 
   /** Stop a focus, and the project timer that goes with it. Stopping a break leaves a running timer alone. */
   const stopFocus = () => {
@@ -607,12 +625,13 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           pomodoro={pomodoro}
           pomodorosToday={pomodorosToday}
           projects={pickSubjects}
+          todos={pickTodos}
           runningProject={runningProject}
           runningSession={t.running}
           clock={clock}
           heldProject={heldProject}
           heldSeconds={pomodoro.heldSeconds}
-          onStartTimer={t.startTimer}
+          onStartTimer={startTimer}
           onStopTimer={t.stopTimer}
           onStopFocus={stopFocus}
           onSaveNote={(note) => t.updateSession(t.running.id, { note })}
@@ -639,6 +658,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           todoOps={t.todoOps}
           timedTodoId={t.running?.todo_id ?? null}
           projects={pickSubjects}
+          searchTodos={pickTodos}
           onPickProject={pickFromMini}
           onTasks={showTasks}
           onStopFocus={stopFocus}
@@ -667,6 +687,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
       {searchOpen && (
         <ProjectSearch
           projects={[...projects, ...openTaskSubjects]}
+          todos={boardTodos}
           statusesById={statusesById}
           onTasks={showTasks}
           onClose={() => setSearchOpen(false)}

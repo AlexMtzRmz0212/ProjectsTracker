@@ -181,12 +181,13 @@ export function usePomodoro({ running, startTimer, stopTimer, onFocusDone, scope
   }, [beginFocus, cycle.held, startTimer]);
 
   /** Start a focus on a project chosen beforehand (the full-screen view): its timer starts with it, in place of
-   *  any project held for the break. The held project's carried clock only follows it if it is the one chosen. */
+   *  any project held for the break, on one of its to-dos if one was chosen too (`todoId`). The held project's
+   *  carried clock only follows it if it is the one chosen. */
   const startFocusOn = useCallback(
-    (id) => {
+    (id, todoId = null) => {
       beginFocus();
       setCycle((c) => (c.carryId === id ? c : { ...c, carry: 0, carryId: null }));
-      startTimer(id);
+      startTimer(id, todoId);
     },
     [beginFocus, setCycle, startTimer]
   );

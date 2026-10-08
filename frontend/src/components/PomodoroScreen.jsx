@@ -68,11 +68,12 @@ export function phaseView(pomodoro) {
  *  A project picked here is only chosen: it starts together with the next focus (`startFocusOn`).
  *  Once a project timer is running, or a focus is already going, there is no next focus to wait for,
  *  so picking one starts its timer now (switching away from the one that was running).
- *  The choice lives in this screen and goes when it closes. Ctrl+F (⌘F) finds a project to pick by name
- *  (`searchHint`, the shortcut as shown; without one the screen leaves the keys to the browser), or the
- *  Tasks tab (`onTasks`, which leaves the screen for it). */
+ *  The choice lives in this screen and goes when it closes. Ctrl+F (⌘F) finds a project or task to pick by
+ *  name, or one of their to-dos (`todos`, from todoEntries: picked, the time goes on that to-do), with
+ *  `searchHint` the shortcut as shown (without one the screen leaves the keys to the browser); or the Tasks
+ *  tab (`onTasks`, which leaves the screen for it). */
 export default function PomodoroScreen({
-  pomodoro, pomodorosToday = 0, projects, runningProject, runningSession, clock, heldProject, heldSeconds,
+  pomodoro, pomodorosToday = 0, projects, todos = [], runningProject, runningSession, clock, heldProject, heldSeconds,
   onStartTimer, onStopTimer, onStopFocus, onSaveNote, settingsOpen, onClose, renderDetail, onMiniPlayer, statusesById, searchHint, onTasks,
 }) {
   const { phase, settings } = pomodoro;
@@ -82,11 +83,13 @@ export default function PomodoroScreen({
   const ref = useRef(null);
 
   const [chosenId, setChosenId] = useState(null);
+  const [chosenTodoId, setChosenTodoId] = useState(null); // a to-do of the chosen one, found by name
   const hasRunning = Boolean(runningProject);
   useEffect(() => {
     if (hasRunning) setChosenId(null);
   }, [hasRunning]);
   const chosen = hasRunning ? null : projects.find((p) => p.id === chosenId) ?? null;
+  const chosenTodo = chosen ? todos.find((x) => x.todoId === chosenTodoId && x.subjectId === chosen.id) ?? null : null;
   const live = hasRunning || focusing;
   const [leftOpen, setLeftOpen] = usePanel("left");
   const [rightOpen, setRightOpen] = usePanel("right");
@@ -96,18 +99,22 @@ export default function PomodoroScreen({
 
   const pick = (id) => {
     if (id === runningProject?.id) return;
+    setChosenTodoId(null);
     if (live) onStartTimer(id);
     else setChosenId((c) => (c === id ? null : id));
   };
-  const startFocus = () => (chosen ? pomodoro.startFocusOn(chosen.id) : pomodoro.startFocus());
+  const startFocus = () => (chosen ? pomodoro.startFocusOn(chosen.id, chosenTodo?.todoId ?? null) : pomodoro.startFocus());
 
-  // A project found by name: picked as from the list (never un-picked), and shown in the right panel
+  // A project or task found by name: picked as from the list (never un-picked), and shown in the right panel.
+  // A to-do found by name picks what it belongs to, with the time going on the to-do.
   const [searchOpen, setSearchOpen] = useState(false);
-  const pickFound = (id) => {
+  const pickFound = (id, todoId = null) => {
     setSearchOpen(false);
-    if (id !== runningProject?.id) {
-      if (live) onStartTimer(id);
-      else setChosenId(id);
+    if (live) {
+      if (id !== runningProject?.id || todoId) onStartTimer(id, todoId);
+    } else {
+      setChosenId(id);
+      setChosenTodoId(todoId);
     }
     setRightOpen(true);
   };
@@ -198,8 +205,8 @@ export default function PomodoroScreen({
                 variant="outline"
                 onClick={() => setSearchOpen(true)}
                 className="w-9 px-0"
-                aria-label="Find a project"
-                title={searchHint ? `Find a project (${searchHint})` : "Find a project"}
+                aria-label="Find a project, task or to-do"
+                title={searchHint ? `Find a project, task or to-do (${searchHint})` : "Find a project, task or to-do"}
               >
                 <Search size={16} />
               </Button>
@@ -258,7 +265,7 @@ export default function PomodoroScreen({
         )}
 
         {leftOpen && (
-          <SidePanel side="left" title="Projects" onClose={() => setLeftOpen(false)}>
+          <SidePanel side="left" title="Projects & tasks" onClose={() => setLeftOpen(false)}>
             <ProjectList projects={projects} runningProject={runningProject} chosen={chosen} live={live} onPick={pick} />
           </SidePanel>
         )}
@@ -327,6 +334,7 @@ export default function PomodoroScreen({
               heldProject={heldProject}
               heldSeconds={heldSeconds}
               chosen={chosen}
+              chosenTodo={chosenTodo}
               noProjects={projects.length === 0}
               onClear={() => setChosenId(null)}
               onStop={onStopTimer}
@@ -341,7 +349,7 @@ export default function PomodoroScreen({
               renderDetail?.(active)
             ) : (
               <div className="grid flex-1 place-items-center border border-dashed border-line-strong p-6 text-center">
-                <p className="text-[13px] text-muted">Pick a project to see its to-dos, notes and sessions here.</p>
+                <p className="text-[13px] text-muted">Pick a project or task to see its to-dos, notes and sessions here.</p>
               </div>
             )}
           </SidePanel>
@@ -351,6 +359,7 @@ export default function PomodoroScreen({
       {searchOpen && (
         <ProjectSearch
           projects={projects}
+          todos={todos}
           statusesById={statusesById}
           onClose={() => setSearchOpen(false)}
           onPick={pickFound}
@@ -445,7 +454,7 @@ export function ActionButton({ label, hint, icon: Icon, onClick, primary, tone =
 
 /** The project being worked on, if any. Every state of the card is the same height, so picking a
  *  project moves nothing on the screen. */
-function ProjectCard({ runningProject, runningSession, clock, heldProject, heldSeconds, chosen, noProjects, onClear, onStop, onSaveNote }) {
+function ProjectCard({ runningProject, runningSession, clock, heldProject, heldSeconds, chosen, chosenTodo, noProjects, onClear, onStop, onSaveNote }) {
   return (
     <section className="w-full max-w-2xl shrink-0" aria-label="Project">
       <h2 className="mb-1.5 text-xs font-semibold text-muted">
@@ -455,12 +464,12 @@ function ProjectCard({ runningProject, runningSession, clock, heldProject, heldS
       {runningProject ? (
         <RunningCard project={runningProject} session={runningSession} clock={clock} onStop={onStop} onSaveNote={onSaveNote} />
       ) : chosen ? (
-        <ChosenCard project={chosen} onClear={onClear} />
+        <ChosenCard project={chosen} todo={chosenTodo} onClear={onClear} />
       ) : heldProject ? (
         <HeldCard project={heldProject} seconds={heldSeconds} />
       ) : (
         <div className="flex h-12 items-center justify-between gap-3 border border-dashed border-line-strong px-4 text-[13px] text-muted">
-          <span className="truncate">{noProjects ? "No open projects yet" : "No project picked"}</span>
+          <span className="truncate">{noProjects ? "No open projects or tasks yet" : "Nothing picked"}</span>
           <span className="shrink-0 font-serif text-xs italic text-faint">optional</span>
         </div>
       )}
@@ -468,36 +477,49 @@ function ProjectCard({ runningProject, runningSession, clock, heldProject, heldS
   );
 }
 
-/** The open projects to pick from, one to a row. */
+/** The open projects to pick from, one to a row, and under them the tasks still to do. */
 function ProjectList({ projects, runningProject, chosen, live, onPick }) {
   if (projects.length === 0) {
-    return <p className="px-4 py-3 font-serif text-[13px] italic text-muted">No open projects yet.</p>;
+    return <p className="px-4 py-3 font-serif text-[13px] italic text-muted">No open projects or tasks yet.</p>;
   }
+  const groups = [
+    { label: "Projects", items: projects.filter((p) => p.kind !== "task") },
+    { label: "Tasks", items: projects.filter((p) => p.kind === "task") },
+  ].filter((g) => g.items.length > 0);
   return (
     <>
       <p className="px-4 pb-2 text-xs text-faint">{live ? "Pick one to start its timer now" : "Picked now, started with the next focus"}</p>
-      <div className="flex flex-col" role="group" aria-label="Projects">
-        {projects.map((p) => {
-          const Icon = iconFor(p.icon);
-          const active = p.id === runningProject?.id || p.id === chosen?.id;
-          return (
-            <button
-              key={p.id}
-              onClick={() => onPick(p.id)}
-              aria-pressed={active}
-              className={`flex min-h-10 w-full items-center gap-2.5 border-l-[3px] px-4 py-1.5 text-left text-[14px] font-medium transition-colors ${
-                active ? "" : "border-transparent text-muted hover:bg-surface-2 hover:text-text"
-              }`}
-              style={active ? { borderColor: p.color, background: tint(p.color, 14) } : undefined}
-            >
-              <Icon size={15} style={{ color: inkText(p.color) }} className="shrink-0" aria-hidden="true" />
-              <span className="min-w-0 flex-1 truncate">{p.name}</span>
-              {p.id === runningProject?.id && <span className="blink-dot size-2 shrink-0 rounded-full bg-accent" aria-hidden="true" />}
-            </button>
-          );
-        })}
-      </div>
+      {groups.map((g) => (
+        <PickGroup key={g.label} label={g.label} items={g.items} runningProject={runningProject} chosen={chosen} onPick={onPick} />
+      ))}
     </>
+  );
+}
+
+function PickGroup({ label, items, runningProject, chosen, onPick }) {
+  return (
+    <div className="flex flex-col pb-2" role="group" aria-label={label}>
+      <h3 className="px-4 pb-1 pt-2 font-serif text-xs font-semibold italic text-muted">{label}</h3>
+      {items.map((p) => {
+        const Icon = iconFor(p.icon);
+        const active = p.id === runningProject?.id || p.id === chosen?.id;
+        return (
+          <button
+            key={p.id}
+            onClick={() => onPick(p.id)}
+            aria-pressed={active}
+            className={`flex min-h-10 w-full items-center gap-2.5 border-l-[3px] px-4 py-1.5 text-left text-[14px] font-medium transition-colors ${
+              active ? "" : "border-transparent text-muted hover:bg-surface-2 hover:text-text"
+            }`}
+            style={active ? { borderColor: p.color, background: tint(p.color, 14) } : undefined}
+          >
+            <Icon size={15} style={{ color: inkText(p.color) }} className="shrink-0" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate">{p.name}</span>
+            {p.id === runningProject?.id && <span className="blink-dot size-2 shrink-0 rounded-full bg-accent" aria-hidden="true" />}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -527,14 +549,19 @@ function RunningCard({ project, session, clock, onStop, onSaveNote }) {
   );
 }
 
-function ChosenCard({ project, onClear }) {
+function ChosenCard({ project, todo, onClear }) {
   const Icon = iconFor(project.icon);
   const edge = tint(project.color, 55);
   return (
     <div className="flex h-12 items-stretch border" style={{ borderColor: edge, background: tint(project.color, 10) }}>
       <div className="flex min-w-0 flex-1 items-center gap-3 px-4">
         <Icon size={16} style={{ color: inkText(project.color) }} className="shrink-0" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate font-serif text-lg italic">{project.name}</span>
+        <span className={`min-w-0 truncate font-serif text-lg italic ${todo ? "shrink" : "flex-1"}`}>{project.name}</span>
+        {todo && (
+          <span className="min-w-0 flex-1 truncate text-[13px] text-muted" title={todo.name}>
+            · {todo.name}
+          </span>
+        )}
       </div>
       <button
         onClick={onClear}
