@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 const SETTLE_MS = 160; // how long the held row takes to slide into its slot once let go
 const EDGE = 40; // px from the top or bottom of a scrolling list where holding a row scrolls it
+const INDENT = 28; // px a held row is pulled sideways before that means "under the row above" or "back out"
 
 const clamp = (n, lo, hi) => Math.min(Math.max(n, lo), hi);
 
@@ -13,12 +14,17 @@ const clamp = (n, lo, hi) => Math.min(Math.max(n, lo), hi);
  * on), and its handle a button carrying `gripProps(id, index)`. Rows may differ in height. Handles
  * also take the up and down arrow keys. Give the list's scrolling parent a `data-scroll` attribute
  * and holding a row near its top or bottom edge scrolls it.
+ *
+ * Rows can also be nested, with `nesting`: pull the held row to the right and it goes under the row
+ * just above where it is held (`onNest(id, parentId)`, if `canNest(id, parentId)` allows it; that row,
+ * `nestInto`, is marked while it would); pull it to the left and it goes back out (`onOutdent(id)`).
+ * The right and left arrow keys on a handle do the same with the row above and the row itself.
  */
-export function useReorder(ids, onReorder) {
-  const [drag, setDrag] = useState(null); // { id, from, to, dy, heights, settling }
+export function useReorder(ids, onReorder, nesting = {}) {
+  const [drag, setDrag] = useState(null); // { id, from, to, dx, dy, heights, intent, settling }
   const live = useRef(null); // the drag in progress: its geometry, the pointer, the scroll
-  const latest = useRef({ ids, onReorder });
-  latest.current = { ids, onReorder };
+  const latest = useRef({ ids, onReorder, nesting });
+  latest.current = { ids, onReorder, nesting };
 
   // A row dragged when its list goes away must not leave a timer or a frame behind
   useEffect(
@@ -54,7 +60,19 @@ export function useReorder(ids, onReorder) {
       }
     }
     g.to = to;
-    setDrag((d) => d && !d.settling && { ...d, dy, to });
+    // Pulled sideways: under the row above the slot it is over, or back out
+    const { ids: now, nesting: n } = latest.current;
+    const dx = g.x - g.startX;
+    let intent = null;
+    if (dx > INDENT && n.onNest) {
+      const above = now.filter((x) => x !== g.id)[to - 1];
+      if (above !== undefined && (!n.canNest || n.canNest(g.id, above))) intent = { kind: "nest", parent: above };
+    } else if (dx < -INDENT && n.onOutdent) {
+      intent = { kind: "out" };
+    }
+    g.intent = intent;
+    const hx = clamp(dx, n.onOutdent ? -INDENT * 1.5 : 0, n.onNest ? INDENT * 1.5 : 0);
+    setDrag((d) => d && !d.settling && { ...d, dy, dx: hx, to, intent });
   };
 
   const tick = () => {
@@ -78,16 +96,17 @@ export function useReorder(ids, onReorder) {
     const tops = heights.map((_, i) => heights.slice(0, i).reduce((a, b) => a + b, 0));
     const scroller = row.closest("[data-scroll]");
     live.current = {
-      from, to: from, heights, tops, scroller, settling: false,
-      startY: e.clientY, y: e.clientY, startScroll: scroller?.scrollTop ?? 0,
+      id, from, to: from, heights, tops, scroller, settling: false, intent: null,
+      startX: e.clientX, x: e.clientX, startY: e.clientY, y: e.clientY, startScroll: scroller?.scrollTop ?? 0,
     };
-    setDrag({ id, from, to: from, dy: 0, heights, settling: false });
+    setDrag({ id, from, to: from, dx: 0, dy: 0, heights, intent: null, settling: false });
     if (scroller) live.current.raf = requestAnimationFrame(tick);
   };
 
   const gripMove = (e) => {
     const g = live.current;
     if (!g || g.settling) return;
+    g.x = e.clientX;
     g.y = e.clientY;
     measure();
   };
@@ -97,13 +116,18 @@ export function useReorder(ids, onReorder) {
     if (!g || g.settling) return;
     g.settling = true;
     cancelAnimationFrame(g.raf);
-    const to = commit ? g.to : g.from;
+    // Nesting (or moving back out) puts the row somewhere else: it settles where it was and is moved then
+    const intent = commit ? g.intent : null;
+    const to = commit && !intent ? g.to : g.from;
     // The held row ends level with the slot: as far as the rows it passes are tall
     const between = to > g.from ? g.heights.slice(g.from + 1, to + 1) : g.heights.slice(to, g.from);
     const dy = (to > g.from ? 1 : -1) * between.reduce((a, b) => a + b, 0);
-    setDrag((d) => d && { ...d, to, dy, settling: true });
+    setDrag((d) => d && { ...d, to, dx: 0, dy, intent: null, settling: true });
     g.timer = setTimeout(() => {
-      if (to !== g.from) {
+      const n = latest.current.nesting;
+      if (intent?.kind === "nest") n.onNest(g.id, intent.parent);
+      else if (intent?.kind === "out") n.onOutdent(g.id);
+      else if (to !== g.from) {
         const next = [...latest.current.ids];
         next.splice(to, 0, next.splice(g.from, 1)[0]);
         latest.current.onReorder(next);
@@ -114,6 +138,15 @@ export function useReorder(ids, onReorder) {
   };
 
   const gripKey = (e, i) => {
+    const { ids: all, nesting: n } = latest.current;
+    if (e.key === "ArrowRight" && n.onNest && i > 0 && (!n.canNest || n.canNest(all[i], all[i - 1]))) {
+      e.preventDefault();
+      return n.onNest(all[i], all[i - 1]);
+    }
+    if (e.key === "ArrowLeft" && n.onOutdent) {
+      e.preventDefault();
+      return n.onOutdent(all[i]);
+    }
     if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
     e.preventDefault();
     const j = i + (e.key === "ArrowUp" ? -1 : 1);
@@ -127,9 +160,13 @@ export function useReorder(ids, onReorder) {
   return {
     /** The id of the row being held, or null. */
     held: drag?.id ?? null,
+    /** The row the held one would go under, while it is pulled right over it. */
+    nestInto: drag?.intent?.kind === "nest" ? drag.intent.parent : null,
+    /** The held row would go back out, while it is pulled left. */
+    outdenting: drag?.intent?.kind === "out",
     rowProps: (i) => {
       if (!drag) return { "data-sort": "" };
-      const { from, to, dy, heights, settling } = drag;
+      const { from, to, dx = 0, dy, heights, settling } = drag;
       const shift =
         i === from ? dy
         : from < to && i > from && i <= to ? -heights[from]
@@ -139,7 +176,7 @@ export function useReorder(ids, onReorder) {
         "data-sort": "",
         className: `relative transition-transform ease-out ${i === from ? "z-10 bg-surface shadow-[0_6px_18px_-6px_rgba(0,0,0,0.45)]" : ""}`,
         style: {
-          transform: `translateY(${shift}px)`,
+          transform: i === from ? `translate(${dx}px, ${shift}px)` : `translateY(${shift}px)`,
           transitionDuration: i === from && !settling ? "0ms" : `${SETTLE_MS}ms`,
         },
       };

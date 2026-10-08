@@ -388,6 +388,20 @@ export function useTracker(api = realApi) {
         );
         await Promise.all([...changed].map(([id, order]) => api.updateTodo(id, { sort_order: order })));
       }),
+    /** Move a to-do under another (`parentId`), or back to the top level (null). It goes to the end of its new
+     *  list. A task put under another task hands its time over to it, so that is resynced from the server. */
+    nest: (id, parentId) =>
+      attempt(async () => {
+        const moved = todos.find((x) => x.id === id);
+        if (!moved || (moved.parent_id ?? null) === parentId) return;
+        const last = Math.max(0, ...todos.map((x) => x.sort_order)) + 1;
+        setTodos((prev) =>
+          prev.map((x) => (x.id === id ? { ...x, parent_id: parentId, sort_order: last } : x)).sort((a, b) => a.sort_order - b.sort_order)
+        );
+        const saved = await api.updateTodo(id, { parent_id: parentId });
+        setTodos((prev) => prev.map((x) => (x.id === id ? { ...x, sort_order: saved.sort_order } : x)));
+        if (!moved.project_id && parentId) load();
+      }),
     remove: (id) =>
       attempt(async () => {
         const gone = todos.find((x) => x.id === id);

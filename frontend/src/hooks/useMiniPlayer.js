@@ -25,11 +25,21 @@ function copyStyles(win) {
 
 const PIP_SIZE_KEY = "pt-mini-pip";
 
-/** The size the floating window was last left at, so it opens the same way again. */
+const PIP_MIN = { width: 240, height: 120 };
+const clampTo = (n, lo, hi) => Math.min(Math.max(n, lo), Math.max(lo, hi));
+
+/** The size the floating window was last left at, so it opens the same way again. Kept within what a window
+ *  can be on this screen: a size saved while the window was being closed or squashed must not open one
+ *  that can't be seen. */
 function pipSize() {
   try {
     const saved = JSON.parse(localStorage.getItem(PIP_SIZE_KEY));
-    if (Number.isFinite(saved?.width) && Number.isFinite(saved?.height)) return saved;
+    if (Number.isFinite(saved?.width) && Number.isFinite(saved?.height)) {
+      return {
+        width: Math.round(clampTo(saved.width, PIP_MIN.width, window.screen.availWidth - 40)),
+        height: Math.round(clampTo(saved.height, PIP_MIN.height, window.screen.availHeight - 40)),
+      };
+    }
   } catch {
     // nothing saved, or storage blocked
   }
@@ -38,7 +48,7 @@ function pipSize() {
 
 function rememberSize(win) {
   try {
-    if (win.innerWidth && win.innerHeight) {
+    if (win.innerWidth >= PIP_MIN.width && win.innerHeight >= PIP_MIN.height) {
       localStorage.setItem(PIP_SIZE_KEY, JSON.stringify({ width: win.innerWidth, height: win.innerHeight }));
     }
   } catch {
@@ -86,8 +96,9 @@ export function useMiniPlayer() {
     if (winRef.current || pending.current) return;
     if (!canFloat()) return setOpen(true);
     pending.current = true;
+    let win = null;
     try {
-      const win = await window.documentPictureInPicture.requestWindow(pipSize());
+      win = await window.documentPictureInPicture.requestWindow(pipSize());
       copyStyles(win);
       stopTheme.current = followTheme(win);
       win.addEventListener("pagehide", () => {
@@ -102,8 +113,18 @@ export function useMiniPlayer() {
       });
       winRef.current = win;
       setPip(win);
-    } catch {
-      // Refused (no user gesture, or the browser said no): the widget inside the page does the job
+    } catch (err) {
+      // Refused (no user gesture, or the browser said no): the widget inside the page does the job. A window
+      // that did open but couldn't be set up would stay behind blank, so it is put away.
+      console.warn("Mini clock: no floating window", err);
+      stopTheme.current?.();
+      stopTheme.current = null;
+      winRef.current = null;
+      try {
+        win?.close();
+      } catch {
+        // already gone
+      }
     } finally {
       pending.current = false;
       setOpen(true);

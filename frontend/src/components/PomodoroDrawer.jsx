@@ -78,23 +78,29 @@ export default function PomodoroDrawer({ open, onOpenChange, anchor = "header", 
       <div inert={!open && slide.offset === null} className="grid min-h-0 flex-1 gap-x-8 overflow-y-auto px-5 pb-4 pt-1 sm:grid-cols-2">
         <div className="divide-y divide-rule">
           <Stepper label="Focus" unit="min" value={settings.focus} limits={LIMITS.focus} onChange={(v) => onChange({ focus: v })} />
-          <Stepper label="Short break" unit="min" value={settings.shortBreak} limits={LIMITS.shortBreak} onChange={(v) => onChange({ shortBreak: v })} />
-          <Stepper label="Long break" unit="min" value={settings.longBreak} limits={LIMITS.longBreak} onChange={(v) => onChange({ longBreak: v })} />
-          <Stepper label="Long break after" unit="focus" value={settings.longEvery} limits={LIMITS.longEvery} onChange={(v) => onChange({ longEvery: v })} />
+          <Stepper label="Short break" unit="min" value={settings.shortBreak} limits={LIMITS.shortBreak} disabled={!settings.breaks} onChange={(v) => onChange({ shortBreak: v })} />
+          <Stepper label="Long break" unit="min" value={settings.longBreak} limits={LIMITS.longBreak} disabled={!settings.breaks} onChange={(v) => onChange({ longBreak: v })} />
+          <Stepper label="Long break after" unit="focus" value={settings.longEvery} limits={LIMITS.longEvery} disabled={!settings.breaks} onChange={(v) => onChange({ longEvery: v })} />
         </div>
 
         <div className="flex flex-col gap-2.5 max-sm:mt-2 max-sm:border-t max-sm:border-rule max-sm:pt-3 sm:pt-3.5">
-          <Check checked={settings.autoBreak} onChange={(v) => onChange({ autoBreak: v })}>
+          <Check checked={settings.breaks} onChange={(v) => onChange({ breaks: v })}>
+            Take breaks <span className="text-muted">(off: one focus after another, no breaks)</span>
+          </Check>
+          <Check checked={settings.autoBreak} disabled={!settings.breaks} onChange={(v) => onChange({ autoBreak: v })}>
             Start the break when a focus ends
           </Check>
-          <Check checked={settings.autoStart} onChange={(v) => onChange({ autoStart: v })}>
+          <Check checked={settings.autoStart} disabled={!settings.breaks} onChange={(v) => onChange({ autoStart: v })}>
             Start the next focus when a break ends
           </Check>
           <Check checked={settings.sound} onChange={(v) => onChange({ sound: v })}>
             Chime when a focus or break ends
           </Check>
           <p className="mt-1 text-xs text-muted">
-            A focus is saved as a pomodoro (one cut short is kept but not counted). When a break starts, a running project timer is paused for it and picks up again with the next focus.
+            A focus is saved as a pomodoro (one cut short is kept but not counted).{" "}
+            {settings.breaks
+              ? "When a break starts, a running project timer is paused for it and picks up again with the next focus."
+              : "With no breaks the next focus starts as soon as one ends, and a running project timer keeps going."}
           </p>
           <button
             onClick={onReset}
@@ -142,7 +148,7 @@ function useAnchor(anchor) {
   return place;
 }
 
-function Stepper({ label, unit, value, limits: [min, max], onChange }) {
+function Stepper({ label, unit, value, limits: [min, max], disabled = false, onChange }) {
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
 
@@ -156,10 +162,10 @@ function Stepper({ label, unit, value, limits: [min, max], onChange }) {
   const step = "grid size-8 place-items-center border border-line-strong text-muted transition-colors hover:border-text hover:text-text disabled:pointer-events-none disabled:opacity-35";
 
   return (
-    <div className="flex items-center justify-between gap-3 py-2.5">
+    <div className={`flex items-center justify-between gap-3 py-2.5 transition-opacity ${disabled ? "opacity-40" : ""}`}>
       <span className="text-[13px] font-semibold">{label}</span>
       <div className="flex items-center gap-1.5">
-        <button onClick={() => set(value - 1)} disabled={value <= min} className={step} aria-label={`Decrease ${label.toLowerCase()}`}>
+        <button onClick={() => set(value - 1)} disabled={disabled || value <= min} className={step} aria-label={`Decrease ${label.toLowerCase()}`}>
           <Minus size={14} />
         </button>
         <input
@@ -168,10 +174,11 @@ function Stepper({ label, unit, value, limits: [min, max], onChange }) {
           onBlur={commit}
           onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
           inputMode="numeric"
+          disabled={disabled}
           aria-label={`${label} (${unit})`}
           className="figures h-8 w-11 border border-line-strong bg-transparent text-center text-[15px] font-semibold outline-none focus:border-text"
         />
-        <button onClick={() => set(value + 1)} disabled={value >= max} className={step} aria-label={`Increase ${label.toLowerCase()}`}>
+        <button onClick={() => set(value + 1)} disabled={disabled || value >= max} className={step} aria-label={`Increase ${label.toLowerCase()}`}>
           <Plus size={14} />
         </button>
         <span className="w-9 text-xs text-faint">{unit}</span>
@@ -180,14 +187,15 @@ function Stepper({ label, unit, value, limits: [min, max], onChange }) {
   );
 }
 
-function Check({ checked, onChange, children }) {
+function Check({ checked, onChange, disabled = false, children }) {
   return (
-    <label className="flex cursor-pointer items-start gap-2.5 text-[13px]">
+    <label className={`flex items-start gap-2.5 text-[13px] ${disabled ? "cursor-default opacity-40" : "cursor-pointer"}`}>
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 size-4 shrink-0 cursor-pointer accent-(--text)"
+        className="mt-0.5 size-4 shrink-0 cursor-pointer accent-(--text) disabled:cursor-default"
       />
       <span>{children}</span>
     </label>

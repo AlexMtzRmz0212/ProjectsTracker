@@ -320,15 +320,17 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
 /** The phase and the set position ruled off along the countdown's line: ── Focus ── 2/4 */
 function PhaseRule({ label, pomodoro, color }) {
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2" aria-label={`${label}, focus ${pomodoro.position} of ${pomodoro.settings.longEvery}`}>
+    <div className="flex min-w-0 flex-1 items-center gap-2" aria-label={pomodoro.continuous ? label : `${label}, focus ${pomodoro.position} of ${pomodoro.settings.longEvery}`}>
       <span className="h-px min-w-3 flex-1 bg-line-strong" aria-hidden="true" />
       <span className="min-w-0 truncate font-serif text-sm font-semibold italic" style={{ color }}>
         {label}
       </span>
       <span className="h-px min-w-3 flex-1 bg-line-strong" aria-hidden="true" />
-      <span className="figures shrink-0 text-xs text-muted" title="Focus periods in this set">
-        {pomodoro.position}/{pomodoro.settings.longEvery}
-      </span>
+      {!pomodoro.continuous && (
+        <span className="figures shrink-0 text-xs text-muted" title="Focus periods in this set">
+          {pomodoro.position}/{pomodoro.settings.longEvery}
+        </span>
+      )}
     </div>
   );
 }
@@ -339,9 +341,11 @@ function PhaseLabel({ label, pomodoro, color }) {
       <span className="min-w-0 truncate font-serif text-sm font-semibold italic" style={{ color }}>
         {label}
       </span>
-      <span className="figures shrink-0 text-xs text-muted" title="Focus periods in this set">
-        {pomodoro.position}/{pomodoro.settings.longEvery}
-      </span>
+      {!pomodoro.continuous && (
+        <span className="figures shrink-0 text-xs text-muted" title="Focus periods in this set">
+          {pomodoro.position}/{pomodoro.settings.longEvery}
+        </span>
+      )}
     </div>
   );
 }

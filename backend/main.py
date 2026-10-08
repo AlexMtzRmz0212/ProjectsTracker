@@ -357,12 +357,36 @@ def create_todo(body: schemas.TodoCreate, db: DbSession = Depends(get_db)):
     return todo
 
 
+def _reparent_todo(db: DbSession, todo: Todo, parent_id: Optional[str]) -> None:
+    """Move a to-do under another one (`parent_id`), or back to the top level (None). Sub-to-dos go one level
+    deep: the parent is a top-level to-do of the same project, and one that has sub-to-dos of its own can't
+    become a sub. It goes to the end of its new list. A task that becomes a sub-to-do of another task is no
+    longer a task of its own, so the time and open items on it move to the task it is under."""
+    if parent_id is not None:
+        parent = _get_todo(db, parent_id)
+        has_subs = db.scalar(select(Todo.id).where(Todo.parent_id == todo.id).limit(1)) is not None
+        if parent.id == todo.id or parent.project_id != todo.project_id or parent.parent_id is not None or has_subs:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "A to-do goes under a top-level to-do of the same project, and one with sub-to-dos can't go under another",
+            )
+        if todo.project_id is None:
+            db.execute(update(Session).where(Session.todo_id == todo.id).values(todo_id=parent.id))
+            db.execute(update(OpenItem).where(OpenItem.todo_id == todo.id).values(todo_id=parent.id))
+    todo.parent_id = parent_id
+    todo.sort_order = _next_order(db, Todo)
+
+
 @api.patch("/todos/{todo_id}", response_model=schemas.TodoOut)
 def update_todo(todo_id: str, body: schemas.TodoUpdate, db: DbSession = Depends(get_db)):
     todo = _get_todo(db, todo_id)
     was_done = todo.done
     changes = body.model_dump(exclude_unset=True)
     working = changes.pop("working", None)
+    moves = "parent_id" in changes
+    new_parent = changes.pop("parent_id", None)
+    if moves and new_parent != todo.parent_id:
+        _reparent_todo(db, todo, new_parent)
     for field, value in changes.items():
         if value is not None:
             setattr(todo, field, value)

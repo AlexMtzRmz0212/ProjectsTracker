@@ -381,8 +381,24 @@ export function createDemoApi() {
     },
     updateTodo: async (id, data) => {
       const current = todo(id);
-      const { working, ...rest } = data;
+      const { working, parent_id: parentId, ...rest } = data;
       const next = { ...current, ...rest };
+      if (parentId !== undefined && parentId !== current.parent_id) {
+        // Moved under another to-do (one level deep, same project), or back to the top level
+        if (parentId) {
+          const parent = todo(parentId);
+          if (parent.id === id || parent.project_id !== current.project_id || parent.parent_id || todos.some((x) => x.parent_id === id)) {
+            throw httpError(422, "A to-do goes under a top-level to-do of the same project, and one with sub-to-dos can't go under another");
+          }
+          if (!current.project_id) {
+            // A task under another task is no longer its own: its time goes to the one it is under
+            sessions = sessions.map((s) => (s.project_id === `task:${id}` ? { ...s, project_id: `task:${parent.id}` } : s));
+            openItems = openItems.map((x) => (x.project_id === `task:${id}` ? { ...x, project_id: `task:${parent.id}` } : x));
+          }
+        }
+        next.parent_id = parentId;
+        next.sort_order = Math.max(0, ...todos.map((x) => x.sort_order)) + 1;
+      }
       if (working !== undefined) next.working_since = working ? current.working_since ?? new Date().toISOString() : null;
       if ("done" in data && data.done !== current.done) next.completed_at = data.done ? new Date().toISOString() : null;
       if (next.done) {

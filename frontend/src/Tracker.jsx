@@ -30,6 +30,7 @@ import ProjectPeek from "./components/ProjectPeek";
 import ProjectSearch from "./components/ProjectSearch";
 import TasksView, { TaskDetail } from "./components/TasksView";
 import OpenItemsBar from "./components/OpenItemsBar";
+import WorkingMenu from "./components/WorkingMenu";
 import SessionModal from "./components/SessionModal";
 import ConfirmDialog from "./components/ConfirmDialog";
 import InterestInbox from "./components/InterestInbox";
@@ -398,6 +399,11 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           onInbox={demo ? undefined : () => setInboxOpen(true)}
           inboxUnread={inbox.unread}
           onStatuses={!demo && tab === "projects" && t.status === "ready" ? () => setStatusesOpen(true) : undefined}
+          workingMenu={
+            t.status === "ready" && (
+              <WorkingMenu todos={t.todos} projectsById={projectsById} todoOps={t.todoOps} now={now} onOpen={peek} />
+            )
+          }
         />
 
         <TabBar
@@ -495,13 +501,14 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
               />
             )
           ) : tab === "calendar" ? (
-            <>
-              <CalendarViews value={calView} onChange={setCalView} />
+            <div className="flex h-full flex-col">
+              {calView === "month" && <CalendarViews value={calView} onChange={setCalView} />}
+              {/* Week and day fill what is left of the window, so the page itself never scrolls: the hours do */}
               <div
-                className={`grid items-start gap-6 lg:gap-10 ${
-                  calView === "month" ? "lg:grid-cols-[minmax(0,32rem)_minmax(0,1fr)]"
-                  : calView === "day" ? "lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]"
-                  : ""
+                className={`grid gap-6 lg:gap-10 ${
+                  calView === "month" ? "items-start lg:grid-cols-[minmax(0,32rem)_minmax(0,1fr)]"
+                  : calView === "day" ? "min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:grid-rows-[minmax(0,1fr)]"
+                  : "min-h-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]"
                 }`}
               >
                 {calView === "month" ? (
@@ -532,25 +539,28 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                     onEditSession={editEntry}
                     onAddSpan={(span) => openAddTime(undefined, span.start, span)}
                     onMoveSession={(s, span) => t.updateSession(s.id, span)}
+                    viewSwitch={<CalendarViews value={calView} onChange={setCalView} className="max-sm:basis-full" />}
                   />
                 )}
                 {calView !== "week" && (
-                  <DayPanel
-                    date={selected}
-                    sessions={calendarSessions}
-                    pomodoros={t.pomodoros}
-                    todos={t.todos}
-                    byDay={byDay}
-                    projectsById={projectsById}
-                    now={now}
-                    onAdd={() => openAddTime(undefined, selected)}
-                    onEdit={editEntry}
-                    onDelete={(s) => setConfirm({ kind: "session", item: s })}
-                    onStop={stopEntry}
-                  />
+                  <div className={calView === "day" ? "min-h-0 lg:overflow-y-auto" : undefined}>
+                    <DayPanel
+                      date={selected}
+                      sessions={calendarSessions}
+                      pomodoros={t.pomodoros}
+                      todos={t.todos}
+                      byDay={byDay}
+                      projectsById={projectsById}
+                      now={now}
+                      onAdd={() => openAddTime(undefined, selected)}
+                      onEdit={editEntry}
+                      onDelete={(s) => setConfirm({ kind: "session", item: s })}
+                      onStop={stopEntry}
+                    />
+                  </div>
                 )}
               </div>
-            </>
+            </div>
           ) : (
             <>
               <StatsStrip
@@ -740,9 +750,9 @@ function useCalendarView() {
   return [view, set];
 }
 
-function CalendarViews({ value, onChange }) {
+function CalendarViews({ value, onChange, className = "mb-4" }) {
   return (
-    <div role="radiogroup" aria-label="Calendar view" className="mb-4 inline-flex border border-line-strong">
+    <div role="radiogroup" aria-label="Calendar view" className={`inline-flex border border-line-strong ${className}`}>
       {CAL_VIEWS.map((v) => (
         <button
           key={v.id}

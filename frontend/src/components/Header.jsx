@@ -6,7 +6,7 @@ import { fmtClock, fmtCountdown, fmtHM } from "../lib/time";
 
 export default function Header({
   runningProject, runningSession, elapsed, heldProject, heldSeconds, onSaveNote, pomodoro, pomodorosToday = 0, onStop, onStopFocus, onExpand, onMini, miniOpen, onNewProject,
-  theme, onToggleTheme, onSignOut, signOutLabel = "Sign out", onInbox, inboxUnread = 0, onSearch, searchHint, onStatuses,
+  theme, onToggleTheme, onSignOut, signOutLabel = "Sign out", onInbox, inboxUnread = 0, onSearch, searchHint, onStatuses, workingMenu,
 }) {
   return (
     <header data-app-header className="relative z-40 shrink-0 border-b-[3px] border-double border-line-strong bg-bg">
@@ -36,6 +36,8 @@ export default function Header({
 
         {/* Below a wide screen this row keeps to the timers: the rest of the buttons are behind the More menu */}
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+          {/* In the header rather than the tab bar: the side peek covers the tab bar's right end, never this */}
+          {workingMenu}
           <div className="contents max-xl:hidden">
             <Button
               onClick={onSearch}
@@ -272,9 +274,11 @@ function PomodoroChip({ pomodoro, doneToday, onStopFocus, projectRunning, onExpa
         >
           {fmtCountdown(pomodoro.focusRemaining)}
         </span>
-        <span className="figures hidden text-xs text-muted md:block" title="Focus periods in this set">
-          {pomodoro.position}/{pomodoro.settings.longEvery}
-        </span>
+        {!pomodoro.continuous && (
+          <span className="figures hidden text-xs text-muted md:block" title="Focus periods in this set">
+            {pomodoro.position}/{pomodoro.settings.longEvery}
+          </span>
+        )}
         {doneToday > 0 && (
           <span className="figures hidden whitespace-nowrap text-xs text-muted lg:block" title="Pomodoros finished today">
             · {doneToday} today
@@ -292,9 +296,11 @@ function PomodoroChip({ pomodoro, doneToday, onStopFocus, projectRunning, onExpa
             <Pause size={13} fill="currentColor" />
           </ChipButton>
           {/* Phones keep the chip to pause and stop: the break arrives by itself when the focus ends */}
-          <ChipButton edge={edge} onClick={pomodoro.breakNow} label="Take a break now" className="max-sm:hidden">
-            <Coffee size={14} />
-          </ChipButton>
+          {!pomodoro.continuous && (
+            <ChipButton edge={edge} onClick={pomodoro.breakNow} label="Take a break now" className="max-sm:hidden">
+              <Coffee size={14} />
+            </ChipButton>
+          )}
         </>
       )}
       {paused && (

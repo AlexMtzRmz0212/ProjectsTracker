@@ -3,7 +3,7 @@ import { useNow } from "./useNow";
 import { MIN_TIMER_SECONDS, dayKey, sessionSeconds } from "../lib/time";
 
 export const DEFAULTS = {
-  focus: 25, shortBreak: 5, longBreak: 15, longEvery: 4, autoBreak: false, autoStart: false, sound: true,
+  focus: 25, shortBreak: 5, longBreak: 15, longEvery: 4, breaks: true, autoBreak: false, autoStart: false, sound: true,
 };
 export const LIMITS = { focus: [1, 180], shortBreak: [1, 60], longBreak: [1, 120], longEvery: [2, 12] };
 
@@ -45,7 +45,7 @@ function readSettings() {
   for (const [key, limits] of Object.entries(LIMITS)) {
     if (Number.isFinite(saved[key])) out[key] = clamp(saved[key], limits);
   }
-  for (const key of ["autoBreak", "autoStart", "sound"]) {
+  for (const key of ["breaks", "autoBreak", "autoStart", "sound"]) {
     if (typeof saved[key] === "boolean") out[key] = saved[key];
   }
   return out;
@@ -89,6 +89,8 @@ function chime() {
  *
  * When the focus length is up a break follows: it counts down at once if `autoBreak` is
  * on, otherwise it waits for Start. After the break the next focus is started (or offered).
+ * With `breaks` off there is no break at all: the next focus starts the moment one ends, a project
+ * timer is never paused, and there is no "Break now".
  * A focus and a break can both be paused.
  *
  * A focus that ends is handed to `onFocusDone({ start, end, completed })` to be saved: `start` is
@@ -208,8 +210,21 @@ export function usePomodoro({ running, startTimer, stopTimer, onFocusDone, scope
     // One saved by an older version has no start, so it isn't kept.
     if (cycle.startedAt) focusDone.current?.({ start: new Date(cycle.startedAt), end: new Date(cycle.until), completed: true });
     if (settings.sound) chime();
+    const fresh = Date.now() - cycle.until < 10_000;
+    if (!settings.breaks) {
+      // No breaks: the next focus follows on the heels of this one, and a project timer runs straight through.
+      // One that ran out while nobody was here isn't carried on: it goes back to idle.
+      setCycle((c) => {
+        const day = dayKey(new Date());
+        const done = (c.day === day ? c.done : 0) + 1;
+        return fresh
+          ? { ...c, day, done, phase: "focus", left: 0, held: null, startedAt: c.until, until: c.until + settings.focus * 60_000 }
+          : { ...c, day, done, phase: "idle", left: 0, until: 0, held: null };
+      });
+      return;
+    }
     // A focus that ran out while nobody was here leaves a project timer alone: it may have been started since
-    if (Date.now() - cycle.until < 10_000) holdRunning.current();
+    if (fresh) holdRunning.current();
     setCycle((c) => {
       const day = dayKey(new Date());
       const done = (c.day === day ? c.done : 0) + 1;
@@ -304,6 +319,8 @@ export function usePomodoro({ running, startTimer, stopTimer, onFocusDone, scope
     breakProgress: breaking ? Math.min(1, 1 - breakRemaining / breakSecs) : 0,
     // Which pomodoro of the set the current (or next) focus is: 1..longEvery
     position: (done % settings.longEvery) + 1,
+    // No breaks: focus after focus, so there are no sets to count
+    continuous: !settings.breaks,
     startFocus,
     startFocusOn,
     followTimer,

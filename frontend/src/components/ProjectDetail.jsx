@@ -150,7 +150,20 @@ export function TodoList({ todos, projectId, ops, rowExtra, placeholder = "Add a
   const open = top.filter((t) => !t.done);
   const done = top.filter((t) => t.done);
   // Open and finished to-dos are rearranged separately, each only among its own
-  const openOrder = useReorder(open.map((t) => t.id), ops.reorder);
+  // Pulling an open to-do to the right puts it under the one above it (one with sub-to-dos of its own can't
+  // go under another: they only go one level deep); its new parent is opened to show it
+  const openOrder = useReorder(open.map((t) => t.id), ops.reorder, {
+    canNest: (id) => !subsOf.has(id),
+    onNest: (id, parentId) => {
+      setCollapsed((prev) => {
+        if (!prev.has(parentId)) return prev;
+        const next = new Set(prev);
+        next.delete(parentId);
+        return next;
+      });
+      ops.nest(id, parentId);
+    },
+  });
   const doneOrder = useReorder(done.map((t) => t.id), ops.reorder);
   const toggle = (id) =>
     setCollapsed((prev) => {
@@ -160,7 +173,7 @@ export function TodoList({ todos, projectId, ops, rowExtra, placeholder = "Add a
     });
   const rowProps = (t, i, order) => ({
     todo: t,
-    sort: { row: order.rowProps(i), grip: order.gripProps(t.id, i), held: order.held === t.id },
+    sort: { row: order.rowProps(i), grip: order.gripProps(t.id, i), held: order.held === t.id, nestTarget: order.nestInto === t.id },
     ops,
     projectId,
     showTime: sharesDay(t),
@@ -243,7 +256,7 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
   const created = todo.created_at ? new Date(todo.created_at) : null;
   const subsDone = subs.filter((s) => s.done).length;
   const showSubs = subs.length > 0 && !folded;
-  const subOrder = useReorder(subs.map((x) => x.id), ops.reorder);
+  const subOrder = useReorder(subs.map((x) => x.id), ops.reorder, { onOutdent: (id) => ops.nest(id, null) });
 
   // An emptied line goes back to what it was; delete is the trash button
   const commit = () => {
@@ -272,7 +285,11 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
     <li {...sort.row} className={`${isSub ? "" : "border-b border-rule"} ${sort.row.className ?? ""}`}>
       <div
         className={`group flex items-center gap-2.5 ${isSub ? "border-t border-rule pl-11" : ""} ${
-          working ? "bg-[color-mix(in_srgb,var(--accent)_7%,transparent)] shadow-[inset_3px_0_0_var(--accent)]" : ""
+          sort.nestTarget
+            ? "bg-[color-mix(in_srgb,var(--accent-2)_14%,transparent)] outline outline-1 -outline-offset-1 outline-accent-2"
+            : working
+              ? "bg-[color-mix(in_srgb,var(--accent)_7%,transparent)] shadow-[inset_3px_0_0_var(--accent)]"
+              : ""
         }`}
       >
         {!isSub && (
@@ -347,8 +364,10 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
         )}
         <button
           {...sort.grip}
-          aria-label={`Move "${todo.text}": drag, or use the up and down arrow keys`}
-          title="Drag to reorder"
+          aria-label={`Move "${todo.text}": drag, or use the up and down arrow keys. ${
+            isSub ? "Left arrow takes it out of its to-do" : "Right arrow puts it under the to-do above"
+          }`}
+          title={isSub ? "Drag to reorder; pull it left to take it out" : "Drag to reorder; pull it right to put it under the to-do above"}
           className={`grid size-8 shrink-0 touch-none place-items-center text-faint transition-colors hover:bg-surface-2 hover:text-text ${
             sort.held ? "cursor-grabbing text-text sm:opacity-100" : `cursor-grab ${reveal}`
           }`}

@@ -287,22 +287,30 @@ export default function PomodoroScreen({
             </div>
 
             <div className="figures flex items-center gap-3 text-sm text-muted">
-              <span className="flex items-center gap-1.5" title="Focus periods in this set" aria-label={`Focus ${pomodoro.position} of ${settings.longEvery} in this set`}>
-                {Array.from({ length: settings.longEvery }, (_, i) => (
-                  <span
-                    key={i}
-                    className="size-2.5 border"
-                    style={{
-                      borderColor: i < filled || i === current ? TONES.focus : "var(--line-strong)",
-                      background: i < filled ? TONES.focus : undefined,
-                    }}
-                  />
-                ))}
-              </span>
-              <span>
-                {pomodoro.position}/{settings.longEvery}
-              </span>
-              {pomodorosToday > 0 && <span>· {pomodorosToday} today</span>}
+              {!pomodoro.continuous && (
+                <>
+                  <span className="flex items-center gap-1.5" title="Focus periods in this set" aria-label={`Focus ${pomodoro.position} of ${settings.longEvery} in this set`}>
+                    {Array.from({ length: settings.longEvery }, (_, i) => (
+                      <span
+                        key={i}
+                        className="size-2.5 border"
+                        style={{
+                          borderColor: i < filled || i === current ? TONES.focus : "var(--line-strong)",
+                          background: i < filled ? TONES.focus : undefined,
+                        }}
+                      />
+                    ))}
+                  </span>
+                  <span>
+                    {pomodoro.position}/{settings.longEvery}
+                  </span>
+                </>
+              )}
+              {pomodorosToday > 0 ? (
+                <span>{pomodoro.continuous ? "" : "· "}{pomodorosToday} today</span>
+              ) : (
+                pomodoro.continuous && <span>No breaks</span>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center justify-center gap-3">
@@ -392,7 +400,7 @@ export function controlsFor(p, startFocus, stopFocus, hasRunning) {
     case "focus":
       return [
         { id: "pause", label: "Pause", icon: Pause, onClick: p.pause, primary: true, tone: "focus", hint: "Pause the focus" },
-        { id: "break", label: "Break now", icon: Coffee, onClick: p.breakNow, hint: "End the focus early and take a break now" },
+        ...(p.continuous ? [] : [{ id: "break", label: "Break now", icon: Coffee, onClick: p.breakNow, hint: "End the focus early and take a break now" }]),
         stop,
       ];
     case "focusPaused":

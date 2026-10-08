@@ -106,6 +106,7 @@ class TodoUpdate(BaseModel):
     done: Optional[bool] = None
     sort_order: Optional[int] = None
     working: Optional[bool] = None  # being worked on (sets working_since), or not
+    parent_id: Optional[str] = None  # under another to-do of the same project; sent as null, back to the top level
 
 
 class TodoOut(BaseModel):

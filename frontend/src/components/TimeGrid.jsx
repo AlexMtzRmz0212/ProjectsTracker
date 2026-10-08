@@ -86,7 +86,7 @@ const LONG_PRESS = 380; // ms a finger rests on a block (or an empty spot) befor
  * (`onAddSpan({ start, end? })`). A day's heading opens that day. The running session stays put.
  */
 export default function TimeGrid({
-  mode, date, today, now, sessions, pomodoros, todos, projectsById, onNavigate, onOpenDay, onEditSession, onAddSpan, onMoveSession,
+  mode, date, today, now, sessions, pomodoros, todos, projectsById, onNavigate, onOpenDay, onEditSession, onAddSpan, onMoveSession, viewSwitch,
 }) {
   const days = useMemo(() => {
     if (mode === "day") return [new Date(date.getFullYear(), date.getMonth(), date.getDate())];
@@ -295,8 +295,9 @@ export default function TimeGrid({
   const dragCursor = drag?.kind === "move" ? "grabbing" : drag?.kind === "create" ? "cell" : "ns-resize";
 
   return (
-    <section className="min-w-0">
-      <div className="flex items-center gap-2">
+    <section className="flex h-full min-w-0 flex-col">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
+        {viewSwitch}
         <h2 className="min-w-0 truncate font-serif text-[17px] font-semibold">
           {title} <span className="figures font-normal text-muted">{format(last, "yyyy")}</span>
         </h2>
@@ -315,14 +316,14 @@ export default function TimeGrid({
           </NavButton>
         </div>
       </div>
-      <p className="font-serif text-xs italic text-muted">
+      <p className="shrink-0 font-serif text-xs italic text-muted">
         {fmtHM(rangeTotal)} {mode === "day" ? "logged" : "this week"}
         <span className="max-sm:hidden"> · drag a block to move it, its edges to change its times</span>
       </p>
 
-      <div className="mt-3 border border-line">
+      <div className="mt-2 flex min-h-0 flex-1 flex-col border border-line">
         {/* Day headings */}
-        <div className="grid border-b border-line-strong" style={{ gridTemplateColumns: `3rem repeat(${days.length}, minmax(0, 1fr))` }}>
+        <div className="grid shrink-0 border-b border-line-strong" style={{ gridTemplateColumns: `3rem repeat(${days.length}, minmax(0, 1fr))` }}>
           <div />
           {columns.map((c) => {
             const isToday = c.key === todayKey;
@@ -352,7 +353,7 @@ export default function TimeGrid({
         </div>
 
         {/* The hours */}
-        <div ref={scroller} className="relative overflow-y-auto" style={{ height: "clamp(22rem, calc(100dvh - 19rem), 60rem)" }}>
+        <div ref={scroller} className="relative min-h-[22rem] flex-1 overflow-y-auto">
           <div
             ref={gridRef}
             className="relative grid select-none"

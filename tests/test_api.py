@@ -759,6 +759,40 @@ def test_working_on_follows_the_flag_and_clears_when_done(client):
     assert client.patch(f"/api/todos/{b['id']}", json={"done": True}).json()["working_since"] is None
 
 
+def test_a_todo_can_be_moved_under_another_and_back_out(client):
+    project = make_project(client)
+    a = client.post("/api/todos", json={"project_id": project["id"], "text": "A"}).json()
+    b = client.post("/api/todos", json={"project_id": project["id"], "text": "B"}).json()
+    moved = client.patch(f"/api/todos/{b['id']}", json={"parent_id": a["id"]})
+    assert moved.status_code == 200 and moved.json()["parent_id"] == a["id"]
+    assert moved.json()["sort_order"] > a["sort_order"]
+    # Sub-to-dos go one level deep: a parent can't become a sub, nor a sub a parent
+    c = client.post("/api/todos", json={"project_id": project["id"], "text": "C"}).json()
+    assert client.patch(f"/api/todos/{a['id']}", json={"parent_id": c["id"]}).status_code == 422
+    assert client.patch(f"/api/todos/{c['id']}", json={"parent_id": b['id']}).status_code == 422
+    assert client.patch(f"/api/todos/{a['id']}", json={"parent_id": a["id"]}).status_code == 422
+    # Under a to-do of another project, or of no project, isn't allowed either
+    other = make_project(client, name="Other")
+    elsewhere = client.post("/api/todos", json={"project_id": other["id"], "text": "X"}).json()
+    assert client.patch(f"/api/todos/{c['id']}", json={"parent_id": elsewhere["id"]}).status_code == 422
+    # Null puts it back at the top level; other edits leave its place alone
+    assert client.patch(f"/api/todos/{b['id']}", json={"text": "B2"}).json()["parent_id"] == a["id"]
+    assert client.patch(f"/api/todos/{b['id']}", json={"parent_id": None}).json()["parent_id"] is None
+
+
+def test_a_task_moved_under_another_task_brings_its_time_along(client):
+    parent = make_task(client)
+    child = make_task(client)
+    t1 = now() - timedelta(hours=2)
+    client.post("/api/sessions", json={"todo_id": child["id"], "start": iso(t1), "end": iso(t1 + timedelta(minutes=30))})
+    client.post("/api/open-items", json={"todo_id": child["id"]})
+    assert client.patch(f"/api/todos/{child['id']}", json={"parent_id": parent["id"]}).status_code == 200
+    assert {s["todo_id"] for s in client.get("/api/sessions").json()} == {parent["id"]}
+    assert {o["todo_id"] for o in client.get("/api/open-items").json()} == {parent["id"]}
+    totals = {x["id"]: x["total_seconds"] for x in client.get("/api/todos").json()}
+    assert totals[parent["id"]] == 30 * 60
+
+
 # ── Open items ──────────────────────────────────────────────────────────────
 
 def test_open_items_run_alongside_the_timer_and_close_into_sessions(client):
