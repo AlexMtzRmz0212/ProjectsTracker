@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import Modal from "./Modal";
-import { ON_INK, inkFor, iconFor } from "../lib/palette";
+import { ON_INK, TASK_ICON, TASK_INK, inkFor, iconFor } from "../lib/palette";
+
+/** Not a project: the Tasks tab, offered at the top of every search (here, in the pomodoro's full screen and
+ *  in the mini clock) so the tasks are a Ctrl+F away from anywhere in the app. */
+export const TASKS_TAB = { id: "tab:tasks", kind: "tab", name: "Tasks", color: TASK_INK, icon: TASK_ICON, archived_at: null };
+
+/** The list a search works through: the Tasks tab first when there is somewhere to show it (`onTasks`). */
+export const withTasksTab = (projects, onTasks) => (onTasks ? [TASKS_TAB, ...projects] : projects);
 
 /** The projects whose name holds every word typed, best first: names that start with the
  *  query, then ones with a word that does, then the rest. Live projects come before archived
@@ -21,12 +28,14 @@ export function matchProjects(projects, query) {
     .map((x) => x.project);
 }
 
-/** Find a project by name: type, move with the arrow keys, Enter (or a click) opens it. */
-export default function ProjectSearch({ projects, statusesById, onPick, onClose, title = "Find a project or task" }) {
+/** Find a project by name: type, move with the arrow keys, Enter (or a click) opens it. With `onTasks`,
+ *  the Tasks tab is one of the results, and picking it calls that instead. */
+export default function ProjectSearch({ projects, statusesById, onPick, onTasks, onClose, title = "Find a project or task" }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const listRef = useRef(null);
-  const results = useMemo(() => matchProjects(projects, query), [projects, query]);
+  const results = useMemo(() => matchProjects(withTasksTab(projects, onTasks), query), [projects, onTasks, query]);
+  const choose = (id) => (id === TASKS_TAB.id ? onTasks() : onPick(id));
   const current = Math.min(active, results.length - 1);
 
   useEffect(() => {
@@ -39,7 +48,7 @@ export default function ProjectSearch({ projects, statusesById, onPick, onClose,
       if (results.length) setActive((current + (e.key === "ArrowDown" ? 1 : -1) + results.length) % results.length);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (results[current]) onPick(results[current].id);
+      if (results[current]) choose(results[current].id);
     }
   };
 
@@ -81,7 +90,7 @@ export default function ProjectSearch({ projects, statusesById, onPick, onClose,
                 id={`project-search-${p.id}`}
                 role="option"
                 aria-selected={i === current}
-                onClick={() => onPick(p.id)}
+                onClick={() => choose(p.id)}
                 onMouseMove={() => i !== current && setActive(i)}
                 className={`flex cursor-pointer items-center gap-3 border-b border-rule px-1 py-2 ${i === current ? "bg-surface-2" : ""}`}
               >
@@ -89,7 +98,9 @@ export default function ProjectSearch({ projects, statusesById, onPick, onClose,
                   <Icon size={15} />
                 </span>
                 <span className="min-w-0 flex-1 truncate font-serif text-[15px] font-medium">{p.name}</span>
-                {p.kind === "task" ? (
+                {p.kind === "tab" ? (
+                  <span className="shrink-0 font-serif text-xs italic text-muted">Go to tab</span>
+                ) : p.kind === "task" ? (
                   <span className="shrink-0 font-serif text-xs italic text-muted">Task</span>
                 ) : p.archived_at ? (
                   <span className="shrink-0 font-serif text-xs italic text-muted">Archived</span>

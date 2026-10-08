@@ -1,8 +1,9 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { GripHorizontal, MoveDiagonal2, Search, X } from "lucide-react";
+import { format } from "date-fns";
+import { CircleDot, GripHorizontal, MoveDiagonal2, Search, X } from "lucide-react";
 import { ActionButton, controlsFor, phaseView } from "./PomodoroScreen";
-import { matchProjects } from "./ProjectSearch";
+import { TASKS_TAB, matchProjects, withTasksTab } from "./ProjectSearch";
 import { iconFor, inkText, tint } from "../lib/palette";
 import { fmtClock, fmtCountdown } from "../lib/time";
 
@@ -36,7 +37,8 @@ function save(key, value) {
  * The pomodoro as a mini clock, laid out like Spotify's mini player: drawn into the floating window when
  * there is one (`pip`), otherwise as a small widget over the page that can be dragged by its top edge,
  * resized from its top-left corner, and remembers both. What it shows follows the shape it is given (see
- * ClockFace). Ctrl+F (⌘F) inside it finds an open project to work on (`onPickProject`).
+ * ClockFace). Ctrl+F (⌘F) inside it finds an open project to work on (`onPickProject`), or the Tasks tab
+ * (`onTasks`), shown on the page.
  * `hidden` keeps the widget away while the full screen is up; a floating window is left alone.
  */
 export default function MiniPlayer({ pip, hidden = false, onClose, ...rest }) {
@@ -73,7 +75,7 @@ function MiniClock(props) {
   const ref = useRef(null);
   const { w, h } = useBox(ref);
   const [searching, setSearching] = useState(false);
-  const canSearch = Boolean(props.onPickProject) && props.projects?.length > 0;
+  const canSearch = Boolean(props.onPickProject) && (props.projects?.length > 0 || Boolean(props.onTasks));
 
   useEffect(() => {
     const doc = ref.current?.ownerDocument;
@@ -103,10 +105,12 @@ function MiniClock(props) {
         <MiniSearch
           projects={props.projects}
           runningId={props.runningProject?.id}
+          onTasks={props.onTasks}
           onClose={() => setSearching(false)}
           onPick={(id) => {
             setSearching(false);
-            props.onPickProject(id);
+            if (id === TASKS_TAB.id) props.onTasks();
+            else props.onPickProject(id);
           }}
         />
       )}
@@ -441,11 +445,8 @@ function TodoList({ project, open, todoOps, timedTodoId }) {
                   <span className="blink-dot size-1.5 rounded-full bg-accent" aria-hidden="true" />
                   Timing
                 </span>
-              ) : x.working_since && (
-                <span className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-accent" title="Working on this">
-                  <span className="blink-dot size-1.5 rounded-full bg-accent" aria-hidden="true" />
-                  Working on
-                </span>
+              ) : (
+                <WorkingToggle todo={x} todoOps={todoOps} />
               )}
             </li>
           ))}
@@ -455,12 +456,33 @@ function TodoList({ project, open, todoOps, timedTodoId }) {
   );
 }
 
-/** Find an open project by name inside the mini clock: type, arrows, Enter starts it; Esc goes back. */
-function MiniSearch({ projects, runningId, onPick, onClose }) {
+/** Marks a to-do as being worked on, or lets go of it, as the dot beside a to-do in the project does. It is
+ *  always shown, not only on hover: the floating window doesn't always apply :hover (see ClockFace). */
+function WorkingToggle({ todo, todoOps }) {
+  const working = Boolean(todo.working_since);
+  return (
+    <button
+      onClick={() => todoOps?.update(todo.id, { working: !working })}
+      aria-pressed={working}
+      aria-label={working ? `Stop marking "${todo.text}" as being worked on` : `Mark "${todo.text}" as being worked on`}
+      title={working ? `Working on this since ${format(new Date(todo.working_since), "EEE d MMM, HH:mm")}. Click to unmark` : "Currently working on this"}
+      className={`flex h-7 shrink-0 items-center gap-1 px-1 text-[11px] font-semibold transition-colors hover:bg-surface-2 ${
+        working ? "text-accent" : "text-faint hover:text-text"
+      }`}
+    >
+      <CircleDot size={13} className={working ? "blink-dot" : ""} aria-hidden="true" />
+      {working && "Working on"}
+    </button>
+  );
+}
+
+/** Find an open project by name inside the mini clock: type, arrows, Enter starts it; Esc goes back.
+ *  With `onTasks`, the Tasks tab is one of the results. */
+function MiniSearch({ projects, runningId, onTasks, onPick, onClose }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const listRef = useRef(null);
-  const results = useMemo(() => matchProjects(projects, query), [projects, query]);
+  const results = useMemo(() => matchProjects(withTasksTab(projects, onTasks), query), [projects, onTasks, query]);
   const current = Math.min(active, results.length - 1);
 
   useEffect(() => {
@@ -530,6 +552,7 @@ function MiniSearch({ projects, runningId, onPick, onClose }) {
               >
                 <Icon size={14} style={{ color: inkText(p.color) }} className="shrink-0" aria-hidden="true" />
                 <span className="min-w-0 flex-1 truncate font-serif">{p.name}</span>
+                {p.kind === "tab" && <span className="shrink-0 font-serif text-[11px] italic text-muted">Tab</span>}
                 {p.id === runningId && <span className="blink-dot size-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />}
               </li>
             );

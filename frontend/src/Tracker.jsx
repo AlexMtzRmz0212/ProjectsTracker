@@ -218,6 +218,15 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     };
   }, [demo]);
 
+  /** The Tasks tab, picked from any of the searches: whatever is over the page (the search, the pomodoro's
+   *  full screen) goes so it can be seen. From the floating mini clock, the app's own window is brought up. */
+  const showTasks = useCallback(() => {
+    setSearchOpen(false);
+    setScreenOpen(false);
+    setTab("tasks");
+    window.focus();
+  }, []);
+
   const selectDay = (d) => {
     setSelected(d);
     if (!isSameMonth(d, cursor)) setCursor(d);
@@ -613,6 +622,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           onMiniPlayer={mini.open ? mini.close : mini.show}
           statusesById={statusesById}
           searchHint={searchHint}
+          onTasks={showTasks}
         />
       )}
 
@@ -630,6 +640,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           timedTodoId={t.running?.todo_id ?? null}
           projects={pickSubjects}
           onPickProject={pickFromMini}
+          onTasks={showTasks}
           onStopFocus={stopFocus}
           onClose={mini.close}
         />
@@ -657,6 +668,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
         <ProjectSearch
           projects={[...projects, ...openTaskSubjects]}
           statusesById={statusesById}
+          onTasks={showTasks}
           onClose={() => setSearchOpen(false)}
           onPick={(id) => {
             setSearchOpen(false);

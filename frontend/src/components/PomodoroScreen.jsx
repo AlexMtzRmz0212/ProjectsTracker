@@ -69,10 +69,11 @@ export function phaseView(pomodoro) {
  *  Once a project timer is running, or a focus is already going, there is no next focus to wait for,
  *  so picking one starts its timer now (switching away from the one that was running).
  *  The choice lives in this screen and goes when it closes. Ctrl+F (⌘F) finds a project to pick by name
- *  (`searchHint`, the shortcut as shown; without one the screen leaves the keys to the browser). */
+ *  (`searchHint`, the shortcut as shown; without one the screen leaves the keys to the browser), or the
+ *  Tasks tab (`onTasks`, which leaves the screen for it). */
 export default function PomodoroScreen({
   pomodoro, pomodorosToday = 0, projects, runningProject, runningSession, clock, heldProject, heldSeconds,
-  onStartTimer, onStopTimer, onStopFocus, onSaveNote, settingsOpen, onClose, renderDetail, onMiniPlayer, statusesById, searchHint,
+  onStartTimer, onStopTimer, onStopFocus, onSaveNote, settingsOpen, onClose, renderDetail, onMiniPlayer, statusesById, searchHint, onTasks,
 }) {
   const { phase, settings } = pomodoro;
   const focusing = phase === "focus" || phase === "focusPaused";
@@ -192,7 +193,7 @@ export default function PomodoroScreen({
           <Timer size={20} aria-hidden="true" className="ml-1 max-sm:hidden" />
           <h1 className="font-serif text-lg font-semibold tracking-tight max-sm:sr-only">Pomodoro</h1>
           <div className="ml-auto flex items-center gap-2 sm:gap-3">
-            {projects.length > 0 && (
+            {(projects.length > 0 || onTasks) && (
               <Button
                 variant="outline"
                 onClick={() => setSearchOpen(true)}
@@ -348,7 +349,13 @@ export default function PomodoroScreen({
       </div>
 
       {searchOpen && (
-        <ProjectSearch projects={projects} statusesById={statusesById} onClose={() => setSearchOpen(false)} onPick={pickFound} />
+        <ProjectSearch
+          projects={projects}
+          statusesById={statusesById}
+          onClose={() => setSearchOpen(false)}
+          onPick={pickFound}
+          onTasks={onTasks}
+        />
       )}
     </div>,
     document.body
