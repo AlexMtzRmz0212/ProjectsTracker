@@ -272,7 +272,7 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
           </div>
           <ProgressBar progress={view.progress} color={view.color} />
           {buttons}
-          {withTodos && <TodoList project={project} open={open} todoOps={todoOps} />}
+          {withTodos && <TodoList project={project} open={open} todoOps={todoOps} timedTodoId={timedTodoId} />}
         </div>
       </div>
     );
@@ -310,7 +310,7 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
       {tall && (
         <div className="flex min-h-0 flex-1 flex-col gap-2 p-2.5">
           <div className="flex justify-center">{buttons}</div>
-          <TodoList project={project} open={open} todoOps={todoOps} />
+          <TodoList project={project} open={open} todoOps={todoOps} timedTodoId={timedTodoId} />
         </div>
       )}
     </div>
@@ -412,7 +412,7 @@ function HoverLayer({ shown, className, children }) {
   );
 }
 
-function TodoList({ project, open, todoOps }) {
+function TodoList({ project, open, todoOps, timedTodoId }) {
   return (
     <section className="flex min-h-0 flex-1 flex-col border-t border-line pt-2" aria-label="To-dos">
       <h2 className="flex shrink-0 items-baseline gap-1.5 font-serif text-xs italic text-muted">

@@ -34,7 +34,8 @@ export default function Header({
           />
         </div>
 
-        {/* Below a wide screen this row keeps to the timers: the rest of the buttons are behind the More menu */}
+        {/* Below a wide screen this row keeps to the timers: the rest of the buttons are behind the More menu.
+            On a wide one, finding and adding projects stay out; the inbox, theme and sign out stay in the menu */}
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           {/* In the header rather than the tab bar: the side peek covers the tab bar's right end, never this */}
           {workingMenu}
@@ -52,32 +53,6 @@ export default function Header({
               <Plus size={16} strokeWidth={2.5} />
               <span className="hidden md:inline">New project</span>
             </Button>
-            {onInbox && (
-              <Button
-                onClick={onInbox}
-                className="relative w-9 shrink-0 px-0"
-                aria-label={inboxUnread ? `Interest, ${inboxUnread} new` : "Interest"}
-              >
-                <Inbox size={17} />
-                {inboxUnread > 0 && (
-                  <span className="figures absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center bg-accent px-1 text-[10px] font-semibold leading-none text-bg">
-                    {inboxUnread}
-                  </span>
-                )}
-              </Button>
-            )}
-            <Button
-              onClick={onToggleTheme}
-              className="w-9 shrink-0 px-0"
-              aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-            >
-              {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
-            </Button>
-            {onSignOut && (
-              <Button onClick={onSignOut} className="w-9 shrink-0 px-0" aria-label={signOutLabel} title={signOutLabel}>
-                <LogOut size={17} />
-              </Button>
-            )}
           </div>
 
           <MoreMenu
@@ -97,8 +72,8 @@ export default function Header({
   );
 }
 
-/** Everything the header row has no room for below a wide screen, in one menu. Closes on a pick, an outside
- *  press or Esc. */
+/** Everything the header row has no room for, in one menu: on a wide screen the inbox, the theme and sign
+ *  out; below that, finding and adding projects too. Closes on a pick, an outside press or Esc. */
 function MoreMenu({ theme, onToggleTheme, onSearch, onNewProject, onInbox, inboxUnread, onStatuses, onSignOut, signOutLabel }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -137,7 +112,7 @@ function MoreMenu({ theme, onToggleTheme, onSearch, onNewProject, onInbox, inbox
   );
 
   return (
-    <div ref={ref} className="relative xl:hidden">
+    <div ref={ref} className="relative">
       <Button
         onClick={() => setOpen((o) => !o)}
         className="relative w-9 shrink-0 px-0"
@@ -154,8 +129,8 @@ function MoreMenu({ theme, onToggleTheme, onSearch, onNewProject, onInbox, inbox
           aria-label="More"
           className="fade-in absolute right-0 top-full z-50 mt-2 w-[min(15rem,calc(100vw-2rem))] border border-line-strong bg-surface py-1"
         >
-          {item("Find a project", Search, onSearch)}
-          {item("New project", Plus, onNewProject)}
+          {item("Find a project", Search, onSearch, 0, "xl:hidden")}
+          {item("New project", Plus, onNewProject, 0, "xl:hidden")}
           {/* from sm up the tab bar has its own Statuses button */}
           {onStatuses && item("Statuses", SlidersHorizontal, onStatuses, 0, "sm:hidden")}
           {onInbox && item("Interest", Inbox, onInbox, inboxUnread)}
