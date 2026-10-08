@@ -100,23 +100,27 @@ export function projectPomodoroCount(projectId, sessions, pomodoros, now) {
   return completedPomodoros(pomodoros).filter((p) => own.some((s) => s.start < p.end && (s.end ?? now) > p.start)).length;
 }
 
-/** Map<projectId, Date>: when each project was last worked on, the later of the end of its latest
- *  session (`now` for one whose timer is running) and the moment one of its to-dos was ticked off
- *  (work done without a timer). Projects with neither in `sessions`/`todos` are absent. */
+/** Map<projectId, Date>: when each project was last worked on, the latest of the end of its latest
+ *  session (`now` for one whose timer is running), the moment one of its to-dos was added and the
+ *  moment one was ticked off (attention paid without a timer). Projects with none of these in
+ *  `sessions`/`todos` are absent. */
 function lastWorkedByProject(sessions, now, todos) {
   const last = new Map();
   const note = (projectId, at) => {
     if (!last.has(projectId) || at > last.get(projectId)) last.set(projectId, at);
   };
   for (const s of sessions) note(s.project_id, s.end ?? now);
-  for (const todo of todos) if (todo.done && todo.completed_at) note(todo.project_id, new Date(todo.completed_at));
+  for (const todo of todos) {
+    if (todo.created_at) note(todo.project_id, new Date(todo.created_at));
+    if (todo.done && todo.completed_at) note(todo.project_id, new Date(todo.completed_at));
+  }
   return last;
 }
 
 /** The open project that most needs attention: { project, since, never } or null.
  *  Projects never worked on rank above any that have logs (oldest-created first); otherwise the
  *  one idle longest wins. "Last worked" is the end of its latest session (now, if its timer is
- *  running) or when it last had a to-do ticked, whichever is later; a project with neither in the
+ *  running) or when it last had a to-do added or ticked, whichever is later; a project with none in the
  *  loaded window counts from when it was created (and is "never" worked only if it has no logged
  *  time at all, since older sessions may sit outside the window). */
 export function mostNeglected(projects, sessions, now, todos = []) {

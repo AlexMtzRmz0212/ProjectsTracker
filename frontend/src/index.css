@@ -78,6 +78,14 @@ html {
   overflow-x: clip;
 }
 
+/* The phone tab bar along the bottom (set on <html> by the owner's tracker): fixed layers such as the
+   side peek and the toast stay clear of it. */
+@media (max-width: 639px) {
+  html[data-bottom-bar] {
+    --bottom-bar: calc(4rem + env(safe-area-inset-bottom));
+  }
+}
+
 body {
   margin: 0;
   min-height: 100dvh;

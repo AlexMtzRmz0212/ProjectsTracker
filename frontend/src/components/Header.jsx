@@ -1,19 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import { Coffee, Inbox, LogOut, Maximize2, Moon, NotebookPen, Pause, Play, Plus, Search, SkipForward, Square, Sun, Timer } from "lucide-react";
+import { Coffee, Ellipsis, Inbox, LogOut, Maximize2, Moon, NotebookPen, Pause, PictureInPicture2, Play, Plus, Search, SkipForward, SlidersHorizontal, Square, Sun, Timer } from "lucide-react";
 import { Button } from "./Modal";
 import { tint } from "../lib/palette";
 import { fmtClock, fmtCountdown, fmtHM } from "../lib/time";
 
 export default function Header({
-  runningProject, runningSession, elapsed, heldProject, heldSeconds, onSaveNote, pomodoro, pomodorosToday = 0, onStop, onStopFocus, onExpand, onNewProject,
-  theme, onToggleTheme, onSignOut, signOutLabel = "Sign out", onInbox, inboxUnread = 0, onSearch, searchHint,
+  runningProject, runningSession, elapsed, heldProject, heldSeconds, onSaveNote, pomodoro, pomodorosToday = 0, onStop, onStopFocus, onExpand, onMini, miniOpen, onNewProject,
+  theme, onToggleTheme, onSignOut, signOutLabel = "Sign out", onInbox, inboxUnread = 0, onSearch, searchHint, onStatuses,
 }) {
   return (
     <header data-app-header className="relative z-40 shrink-0 border-b-[3px] border-double border-line-strong bg-bg">
-      <div className="mx-auto flex h-14 max-w-7xl items-center gap-2 px-4 sm:h-16 sm:gap-3 sm:px-6">
-        <div className="flex shrink-0 items-center gap-2">
+      <div className="mx-auto flex h-14 max-w-7xl items-center gap-2 px-3 sm:h-16 sm:gap-3 sm:px-6">
+        <div className="flex shrink-0 items-center gap-2 max-[380px]:hidden">
           <Timer size={20} className="text-text" aria-hidden="true" />
-          <span className="hidden font-serif text-lg font-semibold tracking-tight sm:block">ProjectsTracker</span>
+          <span className="hidden font-serif text-lg font-semibold tracking-tight lg:block">ProjectsTracker</span>
         </div>
 
         <div className="flex min-w-0 flex-1 justify-center">
@@ -29,52 +29,139 @@ export default function Header({
             onStop={onStop}
             onStopFocus={onStopFocus}
             onExpand={onExpand}
+            onMini={onMini}
+            miniOpen={miniOpen}
           />
         </div>
 
+        {/* Below a wide screen this row keeps to the timers: the rest of the buttons are behind the More menu */}
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          <Button
-            onClick={onSearch}
-            className="shrink-0 px-2.5 sm:px-3"
-            aria-label={searchHint ? `Find a project (${searchHint})` : "Find a project"}
-            title={searchHint ? `Find a project (${searchHint})` : "Find a project"}
-          >
-            <Search size={16} />
-            {searchHint && <span className="figures hidden text-xs font-normal text-faint lg:inline">{searchHint}</span>}
-          </Button>
-          <Button variant="outline" onClick={onNewProject} className="shrink-0 px-2.5 sm:px-3.5" aria-label="New project">
-            <Plus size={16} strokeWidth={2.5} />
-            <span className="hidden md:inline">New project</span>
-          </Button>
-          {onInbox && (
+          <div className="contents max-xl:hidden">
             <Button
-              onClick={onInbox}
-              className="relative w-9 shrink-0 px-0"
-              aria-label={inboxUnread ? `Interest, ${inboxUnread} new` : "Interest"}
+              onClick={onSearch}
+              className="shrink-0 px-2.5 sm:px-3"
+              aria-label={searchHint ? `Find a project (${searchHint})` : "Find a project"}
+              title={searchHint ? `Find a project (${searchHint})` : "Find a project"}
             >
-              <Inbox size={17} />
-              {inboxUnread > 0 && (
-                <span className="figures absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center bg-accent px-1 text-[10px] font-semibold leading-none text-bg">
-                  {inboxUnread}
-                </span>
-              )}
+              <Search size={16} />
+              {searchHint && <span className="figures hidden text-xs font-normal text-faint lg:inline">{searchHint}</span>}
             </Button>
-          )}
-          <Button
-            onClick={onToggleTheme}
-            className="w-9 shrink-0 px-0"
-            aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-          >
-            {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
-          </Button>
-          {onSignOut && (
-            <Button onClick={onSignOut} className="w-9 shrink-0 px-0" aria-label={signOutLabel} title={signOutLabel}>
-              <LogOut size={17} />
+            <Button variant="outline" onClick={onNewProject} className="shrink-0 px-2.5 sm:px-3.5" aria-label="New project">
+              <Plus size={16} strokeWidth={2.5} />
+              <span className="hidden md:inline">New project</span>
             </Button>
-          )}
+            {onInbox && (
+              <Button
+                onClick={onInbox}
+                className="relative w-9 shrink-0 px-0"
+                aria-label={inboxUnread ? `Interest, ${inboxUnread} new` : "Interest"}
+              >
+                <Inbox size={17} />
+                {inboxUnread > 0 && (
+                  <span className="figures absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center bg-accent px-1 text-[10px] font-semibold leading-none text-bg">
+                    {inboxUnread}
+                  </span>
+                )}
+              </Button>
+            )}
+            <Button
+              onClick={onToggleTheme}
+              className="w-9 shrink-0 px-0"
+              aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+            >
+              {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
+            </Button>
+            {onSignOut && (
+              <Button onClick={onSignOut} className="w-9 shrink-0 px-0" aria-label={signOutLabel} title={signOutLabel}>
+                <LogOut size={17} />
+              </Button>
+            )}
+          </div>
+
+          <MoreMenu
+            theme={theme}
+            onToggleTheme={onToggleTheme}
+            onSearch={onSearch}
+            onNewProject={onNewProject}
+            onInbox={onInbox}
+            inboxUnread={inboxUnread}
+            onStatuses={onStatuses}
+            onSignOut={onSignOut}
+            signOutLabel={signOutLabel}
+          />
         </div>
       </div>
     </header>
+  );
+}
+
+/** Everything the header row has no room for below a wide screen, in one menu. Closes on a pick, an outside
+ *  press or Esc. */
+function MoreMenu({ theme, onToggleTheme, onSearch, onNewProject, onInbox, inboxUnread, onStatuses, onSignOut, signOutLabel }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const item = (label, Icon, onClick, badge, className = "") => (
+    <button
+      role="menuitem"
+      onClick={() => {
+        setOpen(false);
+        onClick();
+      }}
+      className={`flex h-11 w-full items-center gap-3 px-3 text-left text-[14px] transition-colors hover:bg-surface-2 ${className}`}
+    >
+      <Icon size={17} className="shrink-0 text-muted" aria-hidden="true" />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {badge > 0 && (
+        <span className="figures grid h-4 min-w-4 place-items-center bg-accent px-1 text-[10px] font-semibold leading-none text-bg">{badge}</span>
+      )}
+    </button>
+  );
+
+  return (
+    <div ref={ref} className="relative xl:hidden">
+      <Button
+        onClick={() => setOpen((o) => !o)}
+        className="relative w-9 shrink-0 px-0"
+        aria-label={inboxUnread ? `More, ${inboxUnread} new` : "More"}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <Ellipsis size={20} />
+        {inboxUnread > 0 && <span className="absolute right-1 top-1 size-2 bg-accent" aria-hidden="true" />}
+      </Button>
+      {open && (
+        <div
+          role="menu"
+          aria-label="More"
+          className="fade-in absolute right-0 top-full z-50 mt-2 w-[min(15rem,calc(100vw-2rem))] border border-line-strong bg-surface py-1"
+        >
+          {item("Find a project", Search, onSearch)}
+          {item("New project", Plus, onNewProject)}
+          {/* from sm up the tab bar has its own Statuses button */}
+          {onStatuses && item("Statuses", SlidersHorizontal, onStatuses, 0, "sm:hidden")}
+          {onInbox && item("Interest", Inbox, onInbox, inboxUnread)}
+          {item(theme === "dark" ? "Light theme" : "Dark theme", theme === "dark" ? Sun : Moon, onToggleTheme)}
+          {onSignOut && item(signOutLabel, LogOut, onSignOut)}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -83,7 +170,7 @@ function ChipButton({ edge, onClick, label, text, className = "", children }) {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1.5 border-l text-xs font-semibold transition-colors hover:bg-surface-2 ${text ? "px-3" : "px-2.5"} ${className}`}
+      className={`flex items-center gap-1.5 border-l text-xs font-semibold transition-colors hover:bg-surface-2 ${text ? "px-2.5 sm:px-3" : "px-2 sm:px-2.5"} ${className}`}
       style={{ borderColor: edge }}
       aria-label={label}
       title={label}
@@ -96,13 +183,13 @@ function ChipButton({ edge, onClick, label, text, className = "", children }) {
 
 /** The pomodoro, always there, and next to it the project timer while one runs (or is paused for the break). */
 function NowTracking({
-  project, session, elapsed, heldProject, heldSeconds, onSaveNote, pomodoro, pomodorosToday, onStop, onStopFocus, onExpand,
+  project, session, elapsed, heldProject, heldSeconds, onSaveNote, pomodoro, pomodorosToday, onStop, onStopFocus, onExpand, onMini, miniOpen,
 }) {
   return (
     <div className="flex min-w-0 items-center gap-2">
       {/* The settings' top peek hangs its tab from the top edge right above this */}
       <div data-pomodoro-anchor className="flex shrink-0">
-        <PomodoroChip pomodoro={pomodoro} doneToday={pomodorosToday} onStopFocus={onStopFocus} projectRunning={Boolean(project)} onExpand={onExpand} />
+        <PomodoroChip pomodoro={pomodoro} doneToday={pomodorosToday} onStopFocus={onStopFocus} projectRunning={Boolean(project)} onExpand={onExpand} onMini={onMini} miniOpen={miniOpen} />
       </div>
       {project ? (
         <ProjectChip project={project} session={session} elapsed={elapsed} onSaveNote={onSaveNote} onStop={onStop} />
@@ -136,10 +223,10 @@ function ProjectChip({ project, session, elapsed, onSaveNote, onStop }) {
   const edge = tint(project.color, 55);
   return (
     <div className="relative flex h-[34px] min-w-0 items-stretch border" style={{ borderColor: edge, background: tint(project.color, 10) }}>
-      <div className="flex min-w-0 items-center gap-2 pl-3 pr-2.5">
+      <div className="flex min-w-0 items-center gap-2 pl-2.5 pr-2 sm:pl-3 sm:pr-2.5">
         <span className="blink-dot size-2 shrink-0 rounded-full bg-accent" aria-hidden="true" />
         <span className="hidden max-w-[10rem] truncate font-serif text-[15px] italic lg:block">{project.name}</span>
-        <span className="figures whitespace-nowrap text-[15px] font-semibold" role="timer" aria-label={`Time on ${project.name}`}>
+        <span className="figures min-w-0 truncate text-[15px] font-semibold" role="timer" aria-label={`Time on ${project.name}`}>
           <span className="max-sm:hidden">{fmtClock(elapsed)}</span>
           <span className="sm:hidden">{fmtHM(elapsed)}</span>
         </span>
@@ -158,10 +245,10 @@ function ProjectChip({ project, session, elapsed, onSaveNote, onStop }) {
 }
 
 /** The pomodoro's own countdown: idle and ready to start, focusing (or paused), or on a break. */
-function PomodoroChip({ pomodoro, doneToday, onStopFocus, projectRunning, onExpand }) {
+function PomodoroChip({ pomodoro, doneToday, onStopFocus, projectRunning, onExpand, onMini, miniOpen }) {
   const { phase } = pomodoro;
   if (phase === "breakWait" || phase === "break" || phase === "breakPaused" || phase === "ready") {
-    return <BreakChip pomodoro={pomodoro} onExpand={onExpand} />;
+    return <BreakChip pomodoro={pomodoro} onExpand={onExpand} onMini={onMini} miniOpen={miniOpen} />;
   }
   const focus = phase === "focus";
   const paused = phase === "focusPaused";
@@ -171,7 +258,7 @@ function PomodoroChip({ pomodoro, doneToday, onStopFocus, projectRunning, onExpa
       className="relative flex h-[34px] min-w-0 shrink-0 items-stretch border"
       style={{ borderColor: edge, background: focus ? "color-mix(in srgb, var(--accent) 8%, transparent)" : undefined }}
     >
-      <div className="flex min-w-0 items-center gap-2 pl-3 pr-2.5">
+      <div className="flex min-w-0 items-center gap-2 pl-2.5 pr-2 sm:pl-3 sm:pr-2.5">
         {paused ? (
           <Pause size={13} fill="currentColor" className="shrink-0 text-muted max-sm:hidden" aria-hidden="true" />
         ) : (
@@ -224,6 +311,7 @@ function PomodoroChip({ pomodoro, doneToday, onStopFocus, projectRunning, onExpa
           <Square size={10} fill="currentColor" />
         </ChipButton>
       )}
+      <MiniButton edge={edge} onMini={onMini} open={miniOpen} />
       <ExpandButton edge={edge} onExpand={onExpand} />
       {(focus || paused) && <Progress value={pomodoro.focusProgress} color={focus ? "var(--accent)" : "var(--muted)"} />}
     </div>
@@ -231,7 +319,7 @@ function PomodoroChip({ pomodoro, doneToday, onStopFocus, projectRunning, onExpa
 }
 
 /** The rest between focus periods: waiting to be started, counting down (or paused), then waiting to be asked back. */
-function BreakChip({ pomodoro, onExpand }) {
+function BreakChip({ pomodoro, onExpand, onMini, miniOpen }) {
   const { phase } = pomodoro;
   const waiting = phase === "breakWait";
   const paused = phase === "breakPaused";
@@ -243,7 +331,7 @@ function BreakChip({ pomodoro, onExpand }) {
       className="relative flex h-[34px] min-w-0 shrink-0 items-stretch border"
       style={{ borderColor: edge, background: "color-mix(in srgb, var(--accent-2) 10%, transparent)" }}
     >
-      <div className="flex min-w-0 items-center gap-2 pl-3 pr-2.5">
+      <div className="flex min-w-0 items-center gap-2 pl-2.5 pr-2 sm:pl-3 sm:pr-2.5">
         <Coffee size={15} className="shrink-0 max-sm:hidden" style={{ color: edge }} aria-hidden="true" />
         {ready ? (
           <span className="truncate text-[13px] font-semibold">Break over</span>
@@ -287,9 +375,20 @@ function BreakChip({ pomodoro, onExpand }) {
       <ChipButton edge={edge} onClick={pomodoro.dismiss} label="Stop the break">
         <Square size={10} fill="currentColor" />
       </ChipButton>
+      <MiniButton edge={edge} onMini={onMini} open={miniOpen} />
       <ExpandButton edge={edge} onExpand={onExpand} />
       {(phase === "break" || paused) && <Progress value={pomodoro.breakProgress} color={edge} />}
     </div>
+  );
+}
+
+/** Opens the mini clock (a small floating window), or puts it away again while it is out. Not on phones. */
+function MiniButton({ edge, onMini, open }) {
+  if (!onMini) return null;
+  return (
+    <ChipButton edge={edge} onClick={onMini} label={open ? "Close the mini clock" : "Mini clock"} className="max-sm:hidden">
+      <PictureInPicture2 size={14} className={open ? "text-accent" : ""} />
+    </ChipButton>
   );
 }
 

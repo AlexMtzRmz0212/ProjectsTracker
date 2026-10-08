@@ -94,7 +94,7 @@ export default function PomodoroDrawer({ open, onOpenChange, anchor = "header", 
             Chime when a focus or break ends
           </Check>
           <p className="mt-1 text-xs text-muted">
-            A focus is saved as a pomodoro (one cut short is kept but not counted). When a focus ends, a running project timer is paused for the break and picks up again with the next focus.
+            A focus is saved as a pomodoro (one cut short is kept but not counted). When a break starts, a running project timer is paused for it and picks up again with the next focus.
           </p>
           <button
             onClick={onReset}

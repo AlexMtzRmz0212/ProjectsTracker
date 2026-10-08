@@ -32,7 +32,7 @@ export default function ArchiveDrawer({ projects, statusesById, dragging, over, 
     <section
       data-drop="archive"
       aria-label={`Archive, ${count}`}
-      className={`fixed inset-x-0 bottom-0 z-30 mx-auto w-[min(44rem,calc(100vw-2rem))] border-x border-t bg-surface transition-[transform,border-color] duration-200 ease-out ${edge}`}
+      className={`fixed inset-x-0 bottom-[var(--bottom-bar,0px)] z-30 mx-auto w-[min(44rem,calc(100vw-2rem))] border-x border-t bg-surface transition-[transform,border-color] duration-200 ease-out ${edge}`}
       style={{ transform: open ? "translateY(0)" : "translateY(100%)" }}
     >
       {/* The tab stays on screen when the drawer is away, so there is always something to pull it up by, or drop on */}

@@ -78,9 +78,10 @@ function chime() {
 /**
  * A pomodoro with a clock of its own: it counts down whether or not a project timer is
  * running, and nothing it does is logged. Project timers count up on their own and are
- * what lands in the log. The one link: when a focus ends (or "Break now"), a running
- * project timer is paused for the break (its session is stopped and kept) and the project
- * is `held`. Starting the next focus starts it again, and its clock carries on from the time
+ * what lands in the log. The one link: when a break starts (the focus ending with auto-break,
+ * "Break now", or Start break after the focus ended), a running project timer is paused for the
+ * break (its session is stopped and kept) and the project is `held`. A focus that ends into a
+ * waiting break pauses it then too. Starting the next focus starts it again, and its clock carries on from the time
  * it had (`carry`) rather than from zero. Stopping the break, or starting a timer by hand
  * while it runs, lets the hold go. The link runs the other way too: starting a project timer by
  * hand starts the focus as well, if the pomodoro isn't already going (`followTimer`). A focus can also be
@@ -259,11 +260,13 @@ export function usePomodoro({ running, startTimer, stopTimer, onFocusDone, scope
     setCycle((c) => ({ ...c, phase: "break", kind: "short", left: 0, until: Date.now() + settings.shortBreak * 60_000 }));
   }, [settings.shortBreak, setCycle]);
 
-  /** A break that was waiting: begin counting it down. */
-  const startBreak = useCallback(
-    () => setCycle((c) => ({ ...c, phase: "break", until: Date.now() + (c.kind === "long" ? settings.longBreak : settings.shortBreak) * 60_000 })),
-    [settings.longBreak, settings.shortBreak, setCycle]
-  );
+  /** A break that was waiting: begin counting it down. A project timer running by now (one started after
+   *  the focus ended, or after the hold was let go) is paused for the break like the one running when
+   *  the focus ended. */
+  const startBreak = useCallback(() => {
+    holdRunning.current();
+    setCycle((c) => ({ ...c, phase: "break", until: Date.now() + (c.kind === "long" ? settings.longBreak : settings.shortBreak) * 60_000 }));
+  }, [settings.longBreak, settings.shortBreak, setCycle]);
 
   const pauseBreak = useCallback(
     () => setCycle((c) => ({ ...c, phase: "breakPaused", left: Math.max(1, Math.round((c.until - Date.now()) / 1000)) })),

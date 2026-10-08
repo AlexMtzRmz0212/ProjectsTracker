@@ -10,7 +10,7 @@ export default function Toast({ notice, onDismiss }) {
 
   if (!notice) return null;
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[60] flex justify-center px-4">
+    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(1rem+var(--bottom-bar,0px))] z-[60] flex justify-center px-4">
       <div
         key={notice.id}
         role="alert"

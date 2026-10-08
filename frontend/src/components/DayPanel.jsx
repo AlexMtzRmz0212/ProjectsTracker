@@ -3,6 +3,7 @@ import { CalendarPlus, Check, Moon, Pencil, Plus, Square, Trash2 } from "lucide-
 import { iconFor, inkText } from "../lib/palette";
 import { completedPomodoros, dayKey, fmtHM, fmtTime, pomodoroProjects, pomodorosOnDay, sessionSeconds } from "../lib/time";
 import { SplitBar } from "./StatsStrip";
+import ParentTag from "./ParentTag";
 
 /** The selected day as a time card: In, Out, Project, Hours, then the pomodoros finished and the to-dos ticked off that day. */
 export default function DayPanel({ date, sessions, pomodoros, todos, byDay, projectsById, now, onAdd, onEdit, onDelete, onStop }) {
@@ -16,6 +17,8 @@ export default function DayPanel({ date, sessions, pomodoros, todos, byDay, proj
     .sort((a, b) => a.start - b.start);
 
   const dayPomodoros = pomodorosOnDay(pomodoros, date);
+
+  const todosById = new Map(todos.map((x) => [x.id, x]));
 
   // Whether or not a timer was running when they were ticked
   const ticked = todos
@@ -181,7 +184,10 @@ export default function DayPanel({ date, sessions, pomodoros, todos, byDay, proj
                 <li key={x.id} className="flex min-h-9 items-center gap-3 border-b border-rule py-1 text-[13px]">
                   <span className="figures shrink-0 whitespace-nowrap text-muted">{fmtTime(x.at)}</span>
                   <Check size={13} className="shrink-0 text-muted" aria-hidden="true" />
-                  <span className="min-w-0 flex-1 break-words">{x.text}</span>
+                  <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <span className="min-w-0 break-words">{x.text}</span>
+                    <ParentTag todo={x} todosById={todosById} />
+                  </span>
                   <span className="flex shrink-0 items-center gap-1.5 text-muted" title={project.name}>
                     <Icon size={14} style={{ color: inkText(project.color) }} aria-hidden="true" />
                     <span className="max-w-[9rem] truncate max-sm:sr-only">{project.name}</span>

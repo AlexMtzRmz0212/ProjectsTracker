@@ -1,20 +1,24 @@
+import { useEffect, useState } from "react";
 import { formatDistanceToNowStrict } from "date-fns";
-import { Play, SkipForward, Square } from "lucide-react";
+import { Play, Plus, SkipForward, Square } from "lucide-react";
 import { ON_INK, iconFor, inkFor, inkText, tint } from "../lib/palette";
 import { fmtClock } from "../lib/time";
 import { Button } from "./Modal";
+import ParentTag from "./ParentTag";
 
 const SHOWN_TODOS = 5; // more than this and the rest are behind "+N more", which opens the project
 
 /**
  * What to work on next: the open projects as a queue, the one idle longest first, each with
- * its open to-dos. Starting a timer (from the project or from one of its to-dos) puts the
- * project at the back once time is logged; Skip puts it there straight away. `queue` is
- * [{ project, lastWorked }] in order (see feedQueue), `todosByProject` maps a project id to
- * its open to-dos.
+ * its open to-dos, which can be added, edited and ticked right here (adding or ticking one
+ * counts as working on the project, so it goes to the back too). Starting a timer (from the
+ * project or from one of its to-dos) puts the project at the back once time is logged; Skip
+ * puts it there straight away. `queue` is [{ project, lastWorked }] in order (see feedQueue),
+ * `todosByProject` maps a project id to its open to-dos, `todosById` holds every to-do (to name
+ * a sub-to-do's parent) and `todoOps` is the tracker's add / update.
  */
 export default function FeedView({
-  queue, todosByProject, statusesById, runningId, elapsed, onOpen, onStart, onStop, onSkip,
+  queue, todosByProject, todosById, todoOps, statusesById, runningId, elapsed, onOpen, onStart, onStop, onSkip,
 }) {
   if (queue.length === 0) {
     return (
@@ -43,6 +47,8 @@ export default function FeedView({
             lastWorked={lastWorked}
             status={statusesById.get(project.status_id)}
             todos={todosByProject.get(project.id) ?? []}
+            todosById={todosById}
+            todoOps={todoOps}
             isRunning={project.id === runningId}
             isNext={project.id === nextId}
             canSkip={queue.length > 1 && project.id !== runningId}
@@ -59,11 +65,12 @@ export default function FeedView({
 }
 
 function FeedCard({
-  position, project, lastWorked, status, todos, isRunning, isNext, canSkip, elapsed, onOpen, onStart, onStop, onSkip,
+  position, project, lastWorked, status, todos, todosById, todoOps, isRunning, isNext, canSkip, elapsed, onOpen, onStart, onStop, onSkip,
 }) {
   const { color, name } = project;
   const Icon = iconFor(project.icon);
-  const shown = todos.slice(0, SHOWN_TODOS);
+  const [expanded, setExpanded] = useState(false);
+  const shown = expanded ? todos : todos.slice(0, SHOWN_TODOS);
   const more = todos.length - shown.length;
   const edge = isRunning ? tint(color, 55) : "var(--line)";
 
@@ -121,35 +128,32 @@ function FeedCard({
       {todos.length > 0 ? (
         <ul className="mx-3 mt-2.5 border-t border-rule sm:ml-[2.125rem]">
           {shown.map((todo) => (
-            <li key={todo.id} className="flex items-center gap-2.5 border-b border-rule pl-1">
-              <span className="size-1.5 shrink-0 bg-faint" aria-hidden="true" />
-              <span className="min-w-0 flex-1 break-words py-2 text-[14px]">{todo.text}</span>
-              {!isRunning && (
-                <button
-                  onClick={onStart}
-                  aria-label={`Work on "${todo.text}"`}
-                  title="Work on this"
-                  className="grid size-8 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
-                >
-                  <Play size={12} fill="currentColor" />
-                </button>
-              )}
-            </li>
+            <TodoLine
+              key={todo.id}
+              todo={todo}
+              todosById={todosById}
+              ops={todoOps}
+              canStart={!isRunning}
+              onStart={onStart}
+            />
           ))}
-          {more > 0 && (
+          {(more > 0 || expanded) && todos.length > SHOWN_TODOS && (
             <li className="py-1.5 pl-1">
               <button
-                onClick={onOpen}
+                onClick={() => setExpanded((e) => !e)}
+                aria-expanded={expanded}
                 className="text-[13px] text-muted underline underline-offset-2 transition-colors hover:text-text"
               >
-                +{more} more to-do{more === 1 ? "" : "s"}
+                {expanded ? "Show fewer" : `+${more} more to-do${more === 1 ? "" : "s"}`}
               </button>
             </li>
           )}
         </ul>
       ) : (
-        <p className="px-3 pt-2.5 font-serif text-xs italic text-faint sm:pl-[2.125rem]">No open to-dos</p>
+        <p className="px-3 py-2 font-serif text-xs italic text-faint sm:pl-[2.125rem]">No open to-dos</p>
       )}
+
+      <AddTodo projectId={project.id} name={name} ops={todoOps} />
 
       <div className="flex items-center justify-end gap-2 px-3 pb-3 pt-2.5">
         {canSkip && (
@@ -184,5 +188,83 @@ function FeedCard({
         </button>
       </div>
     </li>
+  );
+}
+
+/** One open to-do: tick it, rename it (saved on blur or Enter; an emptied line goes back to what it was)
+ *  or start the project's timer from it. */
+function TodoLine({ todo, todosById, ops, canStart, onStart }) {
+  const [draft, setDraft] = useState(todo.text);
+  useEffect(() => setDraft(todo.text), [todo.text]);
+
+  const commit = () => {
+    const text = draft.trim();
+    if (!text || text === todo.text) return setDraft(todo.text);
+    ops.update(todo.id, { text });
+  };
+
+  return (
+    <li className="flex items-center gap-2.5 border-b border-rule pl-1">
+      <input
+        type="checkbox"
+        checked={false}
+        onChange={() => ops.update(todo.id, { done: true })}
+        aria-label={`Mark "${todo.text}" done`}
+        className="size-4 shrink-0 cursor-pointer accent-(--text)"
+      />
+      <ParentTag todo={todo} todosById={todosById} className="max-sm:max-w-[6rem]" />
+      <input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          else if (e.key === "Escape") {
+            setDraft(todo.text);
+            e.currentTarget.blur();
+          }
+        }}
+        maxLength={200}
+        aria-label="To-do"
+        className="h-9 min-w-0 flex-1 bg-transparent text-[14px] outline-none focus:bg-surface-2"
+      />
+      {canStart && (
+        <button
+          onClick={onStart}
+          aria-label={`Work on "${todo.text}"`}
+          title="Work on this"
+          className="grid size-8 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
+        >
+          <Play size={12} fill="currentColor" />
+        </button>
+      )}
+    </li>
+  );
+}
+
+/** The line under a card's to-dos for a new one. */
+function AddTodo({ projectId, name, ops }) {
+  const [draft, setDraft] = useState("");
+
+  const add = async (e) => {
+    e.preventDefault();
+    const text = draft.trim();
+    if (!text) return;
+    setDraft("");
+    if (!(await ops.add(projectId, text))) setDraft(text);
+  };
+
+  return (
+    <form onSubmit={add} className="mx-3 flex items-center gap-2 border-b border-rule focus-within:border-text sm:ml-[2.125rem]">
+      <Plus size={14} className="shrink-0 text-muted" aria-hidden="true" />
+      <input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        maxLength={200}
+        placeholder="Add a to-do and press Enter"
+        aria-label={`New to-do for ${name}`}
+        className="h-9 min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-faint"
+      />
+    </form>
   );
 }

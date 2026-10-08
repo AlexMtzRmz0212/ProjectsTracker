@@ -3,6 +3,7 @@ import { format } from "date-fns";
 import { ArchiveRestore, Check, ChevronDown, GripVertical, ListChecks, NotebookText, History, Pencil, Play, Plus, Square, Trash2 } from "lucide-react";
 import { Button } from "./Modal";
 import TabBar from "./TabBar";
+import ParentTag from "./ParentTag";
 import { ON_INK, inkFor, iconFor } from "../lib/palette";
 import { fmtClock, fmtHM, fmtTime, sessionSeconds } from "../lib/time";
 import { useReorder } from "../hooks/useReorder";
@@ -438,6 +439,7 @@ function RecentSessions({ sessions, todos, now, onSaveNote }) {
     return <p className="py-6 text-center font-serif text-sm italic text-muted">No time logged on this project yet.</p>;
   }
   const shown = all ? sessions : sessions.slice(0, RECENT);
+  const todosById = new Map(todos.map((t) => [t.id, t]));
 
   return (
     <section>
@@ -458,7 +460,10 @@ function RecentSessions({ sessions, todos, now, onSaveNote }) {
             {doneDuring(todos, s, now).map((t) => (
               <p key={t.id} className="mt-0.5 flex items-start gap-1.5 px-2 text-[13px] text-muted">
                 <Check size={13} className="mt-[3px] shrink-0" aria-hidden="true" />
-                <span className="min-w-0 break-words">{t.text}</span>
+                <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <span className="min-w-0 break-words">{t.text}</span>
+                  <ParentTag todo={t} todosById={todosById} />
+                </span>
               </p>
             ))}
           </li>

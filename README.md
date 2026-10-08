@@ -22,8 +22,9 @@ with the time you worked, and a year-long activity heatmap.
   to see what's archived (newest first, with total time and the date), open a project to read it, or
   press *Restore* to send it back to the column it left. The shelf remembers whether it was open.
 - **Feed** (what to work on next): the projects on the board whose status isn't finished, as a queue with the one
-  you worked on longest ago first (never-worked projects lead; ticking a to-do counts as working on
-  a project) and each one's open to-dos listed.
+  you worked on longest ago first (never-worked projects lead; adding or ticking a to-do counts as working on
+  a project) and each one's open to-dos listed. To-dos can be added, ticked and renamed right on the
+  card.
   Press ▶ on a project or on one of its to-dos to start its timer, or **Skip** to send the project to
   the back of the queue. A skip is saved on the server, and a project that gets worked on after it
   moves back too. The project with a running timer stays pinned at the top.
@@ -37,7 +38,8 @@ with the time you worked, and a year-long activity heatmap.
   (or pull it out from shut to the width you want); the width is remembered. It holds a checklist of
   to-dos, free-form notes (saved as you leave the box) and the sessions logged on it, on three tabs.
   Cards show how many to-dos are open and a notebook mark when there are notes. A to-do remembers
-  when it was ticked off, and the Sessions tab lists it under the session it was done in.
+  when it was ticked off, and the Sessions tab lists it under the session it was done in. A sub-to-do ticked off is listed with a tag naming its
+  parent, on the Sessions tab and on the Calendar's *Ticked off* list.
 - **One timer at a time**: starting a project stops whatever was running. Timers live on the
   server, so they survive reloads and keep counting with the tab closed. A project timer counts up,
   and the running one is in the header (next to the pomodoro) and the browser tab title.
@@ -45,14 +47,18 @@ with the time you worked, and a year-long activity heatmap.
   project running. It runs focus, then a short break, with a long break after every few focus
   periods; each can be paused, a break can be skipped, and ■ stops it (stopping a focus also stops the
   project timer that is running; stopping a break leaves it be). The expand button on the chip
-  gives the pomodoro the whole screen, with the same buttons, an optional project to pick (it starts
-  together with the next focus, or right away once a focus or a project timer is already going) and a
-  button for the browser's own full screen. A focus is saved as a pomodoro
+  gives the pomodoro the whole screen, with the same buttons and a button for the browser's own full
+  screen. On its left is the list of open projects to pick from (a pick starts together with the next
+  focus, or right away once a focus or a project timer is already going); on its right, the project being
+  worked on, with its to-dos, notes and sessions. Each side can be put away with the buttons in the top bar
+  (remembered in this browser; on a narrow screen they slide over the timer). The **mini clock** button
+  on the chip pops the countdown out into a small always-on-top window (Chrome and Edge on a computer), like
+  a music player's miniplayer; elsewhere it is a small widget you can drag around the page. A focus is saved as a pomodoro
   (its start and end): one that runs out counts, one you stop or cut short with *Break now* is kept
   too, marked *cut short* and not counted (under 2 minutes it is dropped, like a project timer). Project
   timers you click during it are logged as usual, and the pomodoro's day on the Calendar lists which
   projects ran inside it and for how long. The header, the Stats strip and a project's detail show
-  the counts. When a focus ends (or you press *Break now*), a running project
+  the counts. When a break starts (the focus ending with auto-break, *Break now*, or *Start break*), a running project
   timer is paused for the break: its time so far is saved and it shows as paused beside the break.
   Pressing *Focus* again starts it back up, with its clock carrying on from where it was. Stopping
   the break, or starting a timer by hand during it, leaves the project stopped. Lengths, the long
@@ -71,7 +77,8 @@ with the time you worked, and a year-long activity heatmap.
 - **Stats strip**: today, this week, streak, open projects (archived ones don't count), and the open
   project that has gone longest without a session ("most neglected"). Ticking off one of a project's
   to-dos counts as working on it, timer or not.
-- Light/dark theme, responsive down to phone width.
+- Light/dark theme, responsive down to phone width. On a phone the header keeps to the timers and a **More** menu
+  (search, new project, statuses, interest, theme, sign out), and the four sections sit in a tab bar along the bottom.
 
 ## Quick start
 

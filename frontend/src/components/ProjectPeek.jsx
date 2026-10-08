@@ -116,7 +116,7 @@ export default function ProjectPeek({ open, onOpenChange, project, escPaused = f
     <aside
       ref={panel}
       aria-label={project ? `${project.name}, side peek` : "Side peek"}
-      className="fixed bottom-0 right-0 z-[35] flex flex-col border-l border-line-strong bg-surface transition-transform duration-200 ease-out"
+      className="fixed bottom-[var(--bottom-bar,0px)] right-0 z-[35] flex flex-col border-l border-line-strong bg-surface transition-transform duration-200 ease-out"
       style={{ top, width: `min(${shownWidth}px, calc(100vw - ${GAP}px))`, transform, transition: dragging ? "none" : undefined }}
     >
       {/* The tab stays on screen when the panel is away, so there is always something to pull it in by */}

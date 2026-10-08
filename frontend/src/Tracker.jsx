@@ -6,16 +6,19 @@ import { useTheme } from "./hooks/useTheme";
 import { useInbox } from "./hooks/useInbox";
 import { useNow } from "./hooks/useNow";
 import { usePomodoro } from "./hooks/usePomodoro";
+import { useMiniPlayer } from "./hooks/useMiniPlayer";
 import {
   aggregateByDay, dayKey, daySeconds, feedQueue, fmtClock, fmtCountdown, fmtHM, fmtTime, completedPomodoros, mostNeglected, pomodorosOnDay, projectPomodoroCount, sessionSeconds, streak, withLive,
 } from "./lib/time";
 import Header from "./components/Header";
 import PomodoroDrawer from "./components/PomodoroDrawer";
 import PomodoroScreen from "./components/PomodoroScreen";
+import MiniPlayer from "./components/MiniPlayer";
 import StatsStrip from "./components/StatsStrip";
 import ProjectBoard from "./components/ProjectBoard";
 import FeedView from "./components/FeedView";
 import TabBar from "./components/TabBar";
+import BottomTabBar from "./components/BottomTabBar";
 import MonthCalendar from "./components/MonthCalendar";
 import DayPanel from "./components/DayPanel";
 import Heatmap from "./components/Heatmap";
@@ -50,6 +53,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   });
   const [pomodoroOpen, setPomodoroOpen] = useState(false);
   const [screenOpen, setScreenOpen] = useState(false); // the pomodoro full screen
+  const mini = useMiniPlayer(); // the mini clock: a floating window, or a widget over the page
 
   const [cursor, setCursor] = useState(() => new Date());
   const [selected, setSelected] = useState(() => new Date());
@@ -103,6 +107,8 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     return byProject;
   }, [t.todos]);
 
+  const todosById = useMemo(() => new Map(t.todos.map((x) => [x.id, x])), [t.todos]);
+
   const baseByDay = useMemo(() => aggregateByDay(t.sessions), [t.sessions]);
   const byDay = useMemo(() => withLive(baseByDay, t.running, now), [baseByDay, t.running, now]);
   const elapsed = t.running ? sessionSeconds(t.running, now) : 0;
@@ -155,6 +161,15 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [demo, searchOpen]);
+
+  // The owner's phone layout has a tab bar along the bottom: let fixed layers (peek, toast) know to clear it
+  useEffect(() => {
+    if (demo) return;
+    document.documentElement.dataset.bottomBar = "";
+    return () => {
+      delete document.documentElement.dataset.bottomBar;
+    };
+  }, [demo]);
 
   const selectDay = (d) => {
     setSelected(d);
@@ -224,6 +239,32 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     };
   };
 
+  /** A project opened up (to-dos, notes, sessions): in the side peek, and in the pomodoro's full screen. */
+  const projectDetail = (project) => {
+    const isRunning = t.running?.project_id === project.id;
+    return (
+      <ProjectDetail
+        key={project.id}
+        project={project}
+        status={statusesById.get(project.status_id)}
+        todos={t.todos.filter((x) => x.project_id === project.id)}
+        sessions={t.sessions.filter((x) => x.project_id === project.id).sort((a, b) => b.start - a.start)}
+        pomodoroCount={projectPomodoroCount(project.id, t.sessions, t.pomodoros, now)}
+        isRunning={isRunning}
+        elapsed={clock}
+        totalSeconds={project.total_seconds + (isRunning ? elapsed : 0)}
+        now={now}
+        archived={Boolean(project.archived_at)}
+        onRestore={() => t.restoreProject(project.id)}
+        onEdit={() => setProjectModal({ project })}
+        onToggleTimer={() => (isRunning ? t.stopTimer() : startProject(project.id))}
+        onSaveNotes={(notes) => saveProject(project.id, { notes })}
+        onSaveSessionNote={(id, note) => t.updateSession(id, { note })}
+        todoOps={t.todoOps}
+      />
+    );
+  };
+
   const peekProject = peekId ? projectsById.get(peekId) ?? null : null;
   // Time can be logged on open projects that are on the board; a session already logged on any
   // other project can still be edited
@@ -255,6 +296,8 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           onStop={t.stopTimer}
           onStopFocus={stopFocus}
           onExpand={() => setScreenOpen(true)}
+          onMini={mini.open ? mini.close : mini.show}
+          miniOpen={mini.open}
           onNewProject={() => setProjectModal({})}
           onSearch={() => setSearchOpen(true)}
           searchHint={demo ? undefined : /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘F" : "Ctrl F"}
@@ -264,6 +307,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           signOutLabel={signOutLabel}
           onInbox={demo ? undefined : () => setInboxOpen(true)}
           inboxUnread={inbox.unread}
+          onStatuses={!demo && tab === "projects" && t.status === "ready" ? () => setStatusesOpen(true) : undefined}
         />
 
         <TabBar
@@ -271,10 +315,10 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           value={tab}
           onChange={setTab}
           label="Sections"
-          className="mx-auto w-full max-w-7xl shrink-0 px-2 sm:px-5"
+          className={`mx-auto w-full max-w-7xl shrink-0 px-2 sm:px-5 ${demo ? "" : "max-sm:hidden"}`}
           right={
             <>
-              <span className="figures hidden whitespace-nowrap text-xs text-muted sm:inline">
+              <span className="figures hidden whitespace-nowrap text-xs text-muted md:inline">
                 Today <span className="font-semibold text-text">{fmtHM(todaySecs)}</span>
                 <span className="mx-2 text-faint">·</span>
                 Week <span className="font-semibold text-text">{fmtHM(weekSecs)}</span>
@@ -323,6 +367,8 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
               <FeedView
                 queue={queue}
                 todosByProject={openTodosByProject}
+                todosById={todosById}
+                todoOps={t.todoOps}
                 statusesById={statusesById}
                 runningId={runningId}
                 elapsed={clock}
@@ -385,6 +431,8 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
             </>
           )}
         </main>
+
+        {!demo && <BottomTabBar tabs={tabs} value={tab} onChange={setTab} label="Sections" />}
       </div>
 
       {screenOpen && (
@@ -403,6 +451,22 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           onSaveNote={(note) => t.updateSession(t.running.id, { note })}
           settingsOpen={pomodoroOpen}
           onClose={() => setScreenOpen(false)}
+          renderDetail={projectDetail}
+          onMiniPlayer={mini.open ? mini.close : mini.show}
+        />
+      )}
+
+      {mini.open && (
+        <MiniPlayer
+          pomodoro={pomodoro}
+          pip={mini.pip}
+          hidden={screenOpen}
+          runningProject={runningProject}
+          clock={clock}
+          heldProject={heldProject}
+          heldSeconds={pomodoro.heldSeconds}
+          onStopFocus={stopFocus}
+          onClose={mini.close}
         />
       )}
 
@@ -437,31 +501,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
       )}
 
       <ProjectPeek open={peekOpen} onOpenChange={setPeekOpen} project={peekProject} escPaused={pomodoroOpen}>
-        {peekProject && (
-          <ProjectDetail
-            key={peekProject.id}
-            project={peekProject}
-            status={statusesById.get(peekProject.status_id)}
-            todos={t.todos.filter((x) => x.project_id === peekProject.id)}
-            sessions={t.sessions
-              .filter((x) => x.project_id === peekProject.id)
-              .sort((a, b) => b.start - a.start)}
-            pomodoroCount={projectPomodoroCount(peekProject.id, t.sessions, t.pomodoros, now)}
-            isRunning={t.running?.project_id === peekProject.id}
-            elapsed={clock}
-            totalSeconds={peekProject.total_seconds + (t.running?.project_id === peekProject.id ? elapsed : 0)}
-            now={now}
-            archived={Boolean(peekProject.archived_at)}
-            onRestore={() => t.restoreProject(peekProject.id)}
-            onEdit={() => setProjectModal({ project: peekProject })}
-            onToggleTimer={() =>
-              t.running?.project_id === peekProject.id ? t.stopTimer() : startProject(peekProject.id)
-            }
-            onSaveNotes={(notes) => saveProject(peekProject.id, { notes })}
-            onSaveSessionNote={(id, note) => t.updateSession(id, { note })}
-            todoOps={t.todoOps}
-          />
-        )}
+        {peekProject && projectDetail(peekProject)}
       </ProjectPeek>
 
       {projectModal && (
