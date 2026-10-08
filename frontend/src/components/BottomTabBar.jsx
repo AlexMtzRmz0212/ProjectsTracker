@@ -7,7 +7,7 @@ export default function BottomTabBar({ tabs, value, onChange, label }) {
       aria-label={label}
       className="relative z-[31] shrink-0 border-t-[3px] border-double border-line-strong bg-bg pb-[env(safe-area-inset-bottom)] sm:hidden"
     >
-      <ul className="grid grid-cols-4">
+      <ul className="grid" style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}>
         {tabs.map(({ id, label: text, icon: Icon }) => {
           const active = id === value;
           return (

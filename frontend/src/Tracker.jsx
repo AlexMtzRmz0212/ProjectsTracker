@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { format, isSameMonth, startOfMonth, startOfWeek } from "date-fns";
-import { CalendarDays, ChartColumn, Columns3, ListTodo, RotateCw, ServerOff, SlidersHorizontal } from "lucide-react";
+import { CalendarDays, ChartColumn, Columns3, ListChecks, ListTodo, RotateCw, ServerOff, SlidersHorizontal } from "lucide-react";
 import { useTracker } from "./hooks/useTracker";
 import { useTheme } from "./hooks/useTheme";
 import { useInbox } from "./hooks/useInbox";
@@ -21,18 +21,22 @@ import TabBar from "./components/TabBar";
 import BottomTabBar from "./components/BottomTabBar";
 import MonthCalendar from "./components/MonthCalendar";
 import DayPanel from "./components/DayPanel";
+import TimeGrid from "./components/TimeGrid";
 import Heatmap from "./components/Heatmap";
 import ProjectModal from "./components/ProjectModal";
 import StatusModal from "./components/StatusModal";
 import ProjectDetail from "./components/ProjectDetail";
 import ProjectPeek from "./components/ProjectPeek";
 import ProjectSearch from "./components/ProjectSearch";
+import TasksView, { TaskDetail } from "./components/TasksView";
+import OpenItemsBar from "./components/OpenItemsBar";
 import SessionModal from "./components/SessionModal";
 import ConfirmDialog from "./components/ConfirmDialog";
 import InterestInbox from "./components/InterestInbox";
 import Toast from "./components/Toast";
 import { Button } from "./components/Modal";
-import { inkFor } from "./lib/palette";
+import { TASK_ICON, TASK_INK, inkFor } from "./lib/palette";
+import { taskKey } from "./api";
 
 /**
  * The whole tracker. `api` is where its data lives: the real server for the
@@ -48,8 +52,17 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   // Keyed on the date string so "today" only changes identity at midnight, not every tick
   const today = useMemo(() => new Date(`${todayKey}T00:00:00`), [todayKey]);
   const [theme, toggleTheme] = useTheme();
+  // The to-do the timer was last on, if it was timing one: a pomodoro that picks the project back up after
+  // a break picks that to-do up with it
+  const lastTodo = useRef(null);
+  if (t.running) lastTodo.current = t.running.todo_id ? { projectId: t.running.project_id, todoId: t.running.todo_id } : null;
+  const { startTimer: startTimerOn } = t;
+  const resumeTimer = useCallback(
+    (id) => startTimerOn(id, lastTodo.current?.projectId === id ? lastTodo.current.todoId : null),
+    [startTimerOn]
+  );
   const pomodoro = usePomodoro({
-    running: t.running, startTimer: t.startTimer, stopTimer: t.stopTimer, onFocusDone: t.addPomodoro, scope: demo ? "demo" : "app",
+    running: t.running, startTimer: resumeTimer, stopTimer: t.stopTimer, onFocusDone: t.addPomodoro, scope: demo ? "demo" : "app",
   });
   const [pomodoroOpen, setPomodoroOpen] = useState(false);
   const [screenOpen, setScreenOpen] = useState(false); // the pomodoro full screen
@@ -58,6 +71,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   const [cursor, setCursor] = useState(() => new Date());
   const [selected, setSelected] = useState(() => new Date());
   const [tab, setTab] = useState("projects"); // projects | feed | calendar | stats
+  const [calView, setCalView] = useCalendarView(); // month | week | day
   const [statusesOpen, setStatusesOpen] = useState(false);
   // The side peek: the project last clicked (its notes, to-dos and sessions), and whether the panel is out
   const [peekId, setPeekId] = useState(null);
@@ -68,7 +82,8 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   };
   const [searchOpen, setSearchOpen] = useState(false);
   const [projectModal, setProjectModal] = useState(null); // { project? }
-  const [sessionModal, setSessionModal] = useState(null); // { session? , projectId?, date? }
+  // { session?, openItem?, projectId?, date?, span?, startOpen? }: a session to log or edit, or an open item
+  const [sessionModal, setSessionModal] = useState(null);
   const [confirm, setConfirm] = useState(null); // { kind: "session", item }; projects are deleted on the board's trash can
 
   // Projects saved with a v1 neon color are shown in the nearest ledger ink.
@@ -76,7 +91,21 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   // the archived ones to name and add up the time logged on them. The board, the Feed and the
   // open stats work from `liveProjects`; the archive drawer from `archivedProjects`.
   const projects = useMemo(() => t.projects.map((p) => ({ ...p, color: inkFor(p.color) })), [t.projects]);
-  const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
+  // Tasks: to-dos with no project. Time on one is filed under "task:" and its id (see api.js), and the
+  // task stands in for a project wherever time is named, colored and added up: `projectsById` holds both.
+  const tasks = useMemo(() => t.todos.filter((x) => !x.project_id), [t.todos]);
+  const taskSubjects = useMemo(
+    () =>
+      tasks
+        .filter((x) => !x.parent_id)
+        .map((x) => ({
+          id: taskKey(x.id), kind: "task", todoId: x.id, name: x.text, color: TASK_INK, icon: TASK_ICON,
+          total_seconds: x.total_seconds ?? 0, done: x.done, created_at: x.created_at, archived_at: null, status_id: null,
+        })),
+    [tasks]
+  );
+  const openTaskSubjects = useMemo(() => taskSubjects.filter((x) => !x.done), [taskSubjects]);
+  const projectsById = useMemo(() => new Map([...projects, ...taskSubjects].map((p) => [p.id, p])), [projects, taskSubjects]);
   const liveProjects = useMemo(() => projects.filter((p) => !p.archived_at), [projects]);
   const archivedProjects = useMemo(
     () => projects.filter((p) => p.archived_at).sort((a, b) => new Date(b.archived_at) - new Date(a.archived_at)),
@@ -86,6 +115,8 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   const isOpen = (p) => !statusesById.get(p.status_id)?.is_done;
 
   const openProjects = useMemo(() => liveProjects.filter(isOpen), [liveProjects, statusesById]);
+  // What a timer can be started on from the pomodoro screen, the mini clock and the Add time window
+  const pickSubjects = useMemo(() => [...openProjects, ...openTaskSubjects], [openProjects, openTaskSubjects]);
   // Only re-evaluated once per day (and when sessions change): "days idle" doesn't move by the second
   const neglected = useMemo(
     () => mostNeglected(openProjects, t.sessions, new Date(`${todayKey}T23:59:59`), t.todos),
@@ -110,7 +141,22 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   const todosById = useMemo(() => new Map(t.todos.map((x) => [x.id, x])), [t.todos]);
 
   const baseByDay = useMemo(() => aggregateByDay(t.sessions), [t.sessions]);
-  const byDay = useMemo(() => withLive(baseByDay, t.running, now), [baseByDay, t.running, now]);
+  // The running timer and every open item count as they go
+  const byDay = useMemo(
+    () => t.openItems.reduce((map, item) => withLive(map, item, now), withLive(baseByDay, t.running, now)),
+    [baseByDay, t.running, t.openItems, now]
+  );
+  /** Seconds open items on a project (or task) have run so far. */
+  const openSeconds = (subjectId) =>
+    t.openItems.reduce((sum, x) => (x.project_id === subjectId ? sum + Math.max(0, (now - x.start) / 1000) : sum), 0);
+  // Open items shown on the calendar like sessions still going, which open the item when clicked
+  const calendarSessions = useMemo(
+    () => [
+      ...t.sessions,
+      ...t.openItems.map((x) => ({ id: `open-${x.id}`, project_id: x.project_id, start: x.start, end: null, note: x.note, openItem: x })),
+    ],
+    [t.sessions, t.openItems]
+  );
   const elapsed = t.running ? sessionSeconds(t.running, now) : 0;
   // What the running timer's clock shows: a project picked back up after a pomodoro break carries
   // on from the time it had. That earlier time is already logged, so totals use `elapsed` alone.
@@ -209,23 +255,40 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     return started;
   };
 
+  /** A project found from the mini clock: with no pomodoro going it starts the way a card's timer does (a
+   *  focus with it); otherwise it takes over the timer, as picking one in the full screen does. */
+  const pickFromMini = (id) => {
+    if (t.running?.project_id === id) return;
+    if (!t.running && (pomodoro.phase === "idle" || pomodoro.phase === "ready")) startProject(id);
+    else t.startTimer(id);
+  };
+
+  /** Time one of a project's to-dos: the project's timer, on that to-do (which is marked as being worked on). */
+  const startTodo = (todo) => {
+    const started = t.startTimer(todo.project_id, todo.id);
+    pomodoro.followTimer();
+    if (!todo.working_since) t.todoOps.update(todo.id, { working: true });
+    return started;
+  };
+
   /** Stop a focus, and the project timer that goes with it. Stopping a break leaves a running timer alone. */
   const stopFocus = () => {
     pomodoro.dismiss();
     if (t.running) t.stopTimer();
   };
 
-  const openAddTime = (projectId, date) =>
-    liveProjects.some(isOpen)
-      ? setSessionModal({ projectId, date: date ?? today })
-      : setProjectModal({});
+  const openAddTime = (projectId, date, span) =>
+    pickSubjects.length > 0 ? setSessionModal({ projectId, date: date ?? today, span }) : setProjectModal({});
+  /** A session or an open item from the calendar or the day's list: an open item opens as one. */
+  const editEntry = (s) => setSessionModal(s.openItem ? { openItem: s.openItem } : { session: s });
+  const stopEntry = (s) => (s?.openItem ? t.openOps.close(s.openItem.id) : t.stopTimer());
 
   const cardProps = (p) => {
     const isRunning = t.running?.project_id === p.id;
     return {
       isRunning,
       elapsed: clock,
-      totalSeconds: p.total_seconds + (isRunning ? elapsed : 0),
+      totalSeconds: p.total_seconds + (isRunning ? elapsed : 0) + openSeconds(p.id),
       todaySeconds: daySeconds(byDay, today, p.id),
       lastSeven: Array.from({ length: 7 }, (_, i) => {
         const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6 + i);
@@ -239,9 +302,28 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     };
   };
 
-  /** A project opened up (to-dos, notes, sessions): in the side peek, and in the pomodoro's full screen. */
+  /** A project opened up (to-dos, notes, sessions): in the side peek, and in the pomodoro's full screen.
+   *  A task opens as one too, with what a task has. */
   const projectDetail = (project) => {
     const isRunning = t.running?.project_id === project.id;
+    if (project.kind === "task") {
+      const task = todosById.get(project.todoId);
+      if (!task) return null;
+      return (
+        <TaskDetail
+          key={project.id}
+          task={task}
+          sessions={t.sessions.filter((x) => x.project_id === project.id).sort((a, b) => b.start - a.start)}
+          totalSeconds={project.total_seconds + (isRunning ? elapsed : 0) + openSeconds(project.id)}
+          isRunning={isRunning}
+          elapsed={clock}
+          now={now}
+          todoOps={t.todoOps}
+          onToggleTimer={() => (isRunning ? t.stopTimer() : startProject(project.id))}
+          onLeaveOpen={() => setSessionModal({ projectId: project.id, startOpen: true })}
+        />
+      );
+    }
     return (
       <ProjectDetail
         key={project.id}
@@ -252,7 +334,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
         pomodoroCount={projectPomodoroCount(project.id, t.sessions, t.pomodoros, now)}
         isRunning={isRunning}
         elapsed={clock}
-        totalSeconds={project.total_seconds + (isRunning ? elapsed : 0)}
+        totalSeconds={project.total_seconds + (isRunning ? elapsed : 0) + openSeconds(project.id)}
         now={now}
         archived={Boolean(project.archived_at)}
         onRestore={() => t.restoreProject(project.id)}
@@ -261,21 +343,29 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
         onSaveNotes={(notes) => saveProject(project.id, { notes })}
         onSaveSessionNote={(id, note) => t.updateSession(id, { note })}
         todoOps={t.todoOps}
+        timedTodoId={isRunning ? t.running.todo_id ?? null : null}
+        onTimeTodo={(todo) => (isRunning && t.running.todo_id === todo.id ? t.stopTimer() : startTodo(todo))}
       />
     );
   };
 
   const peekProject = peekId ? projectsById.get(peekId) ?? null : null;
-  // Time can be logged on open projects that are on the board; a session already logged on any
-  // other project can still be edited
-  const pickableProjects = projects.filter(
-    (p) => (!p.archived_at && isOpen(p)) || p.id === sessionModal?.session?.project_id || p.id === sessionModal?.projectId
-  );
+  // Time can be logged on open projects that are on the board and on tasks still to do; a session
+  // already logged on anything else can still be edited
+  const editedSubject = sessionModal?.session?.project_id ?? sessionModal?.openItem?.project_id ?? sessionModal?.projectId;
+  const pickableProjects =
+    editedSubject && !pickSubjects.some((p) => p.id === editedSubject) && projectsById.has(editedSubject)
+      ? [...pickSubjects, projectsById.get(editedSubject)]
+      : pickSubjects;
+
+  // How the find shortcut reads on this machine; the demo doesn't take the shortcut (see above)
+  const searchHint = demo ? undefined : /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘F" : "Ctrl F";
 
   if (t.status === "error") return <ServerDown onRetry={t.reload} />;
 
   const tabs = [
     { id: "projects", label: "Projects", icon: Columns3 },
+    { id: "tasks", label: "Tasks", icon: ListChecks },
     { id: "feed", label: "Feed", icon: ListTodo },
     { id: "calendar", label: "Calendar", icon: CalendarDays },
     { id: "stats", label: "Stats", icon: ChartColumn },
@@ -300,7 +390,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           miniOpen={mini.open}
           onNewProject={() => setProjectModal({})}
           onSearch={() => setSearchOpen(true)}
-          searchHint={demo ? undefined : /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘F" : "Ctrl F"}
+          searchHint={searchHint}
           theme={theme}
           onToggleTheme={toggleTheme}
           onSignOut={onSignOut}
@@ -335,6 +425,15 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           }
         />
 
+        <OpenItemsBar
+          items={t.openItems}
+          subjectsById={projectsById}
+          now={now}
+          onOpen={(item) => setSessionModal({ openItem: item })}
+          onClose={(item) => t.openOps.close(item.id)}
+          className="mx-auto w-full max-w-7xl shrink-0 border-b border-line px-4 sm:px-6"
+        />
+
         <main
           role="tabpanel"
           id={`panel-${tab}`}
@@ -360,6 +459,23 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                 onOpenArchived={peek}
               />
             )
+          ) : tab === "tasks" ? (
+            <TasksView
+              tasks={tasks}
+              todoOps={t.todoOps}
+              runningId={runningId}
+              clock={clock}
+              openItems={t.openItems}
+              now={now}
+              secondsFor={(task) =>
+                (task.total_seconds ?? 0) + (runningId === taskKey(task.id) ? elapsed : 0) + openSeconds(taskKey(task.id))
+              }
+              onStart={startProject}
+              onStop={t.stopTimer}
+              onLeaveOpen={(key) => setSessionModal({ projectId: key, startOpen: true })}
+              onLogTime={(key) => setSessionModal({ projectId: key, date: today })}
+              onOpenItem={(item) => setSessionModal({ openItem: item })}
+            />
           ) : tab === "feed" ? (
             projects.length === 0 ? (
               <EmptyBoard onCreate={() => setProjectModal({})} />
@@ -379,30 +495,62 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
               />
             )
           ) : tab === "calendar" ? (
-            <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,32rem)_minmax(0,1fr)] lg:gap-10">
-              <MonthCalendar
-                cursor={cursor}
-                onCursor={setCursor}
-                selected={selected}
-                onSelect={selectDay}
-                byDay={byDay}
-                projectsById={projectsById}
-                today={today}
-              />
-              <DayPanel
-                date={selected}
-                sessions={t.sessions}
-                pomodoros={t.pomodoros}
-                todos={t.todos}
-                byDay={byDay}
-                projectsById={projectsById}
-                now={now}
-                onAdd={() => openAddTime(undefined, selected)}
-                onEdit={(s) => setSessionModal({ session: s })}
-                onDelete={(s) => setConfirm({ kind: "session", item: s })}
-                onStop={t.stopTimer}
-              />
-            </div>
+            <>
+              <CalendarViews value={calView} onChange={setCalView} />
+              <div
+                className={`grid items-start gap-6 lg:gap-10 ${
+                  calView === "month" ? "lg:grid-cols-[minmax(0,32rem)_minmax(0,1fr)]"
+                  : calView === "day" ? "lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]"
+                  : ""
+                }`}
+              >
+                {calView === "month" ? (
+                  <MonthCalendar
+                    cursor={cursor}
+                    onCursor={setCursor}
+                    selected={selected}
+                    onSelect={selectDay}
+                    byDay={byDay}
+                    projectsById={projectsById}
+                    today={today}
+                  />
+                ) : (
+                  <TimeGrid
+                    mode={calView}
+                    date={selected}
+                    today={today}
+                    now={now}
+                    sessions={calendarSessions}
+                    pomodoros={t.pomodoros}
+                    todos={t.todos}
+                    projectsById={projectsById}
+                    onNavigate={selectDay}
+                    onOpenDay={(d) => {
+                      selectDay(d);
+                      setCalView("day");
+                    }}
+                    onEditSession={editEntry}
+                    onAddSpan={(span) => openAddTime(undefined, span.start, span)}
+                    onMoveSession={(s, span) => t.updateSession(s.id, span)}
+                  />
+                )}
+                {calView !== "week" && (
+                  <DayPanel
+                    date={selected}
+                    sessions={calendarSessions}
+                    pomodoros={t.pomodoros}
+                    todos={t.todos}
+                    byDay={byDay}
+                    projectsById={projectsById}
+                    now={now}
+                    onAdd={() => openAddTime(undefined, selected)}
+                    onEdit={editEntry}
+                    onDelete={(s) => setConfirm({ kind: "session", item: s })}
+                    onStop={stopEntry}
+                  />
+                )}
+              </div>
+            </>
           ) : (
             <>
               <StatsStrip
@@ -439,7 +587,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
         <PomodoroScreen
           pomodoro={pomodoro}
           pomodorosToday={pomodorosToday}
-          projects={openProjects}
+          projects={pickSubjects}
           runningProject={runningProject}
           runningSession={t.running}
           clock={clock}
@@ -453,6 +601,8 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           onClose={() => setScreenOpen(false)}
           renderDetail={projectDetail}
           onMiniPlayer={mini.open ? mini.close : mini.show}
+          statusesById={statusesById}
+          searchHint={searchHint}
         />
       )}
 
@@ -465,6 +615,11 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           clock={clock}
           heldProject={heldProject}
           heldSeconds={pomodoro.heldSeconds}
+          todos={t.todos}
+          todoOps={t.todoOps}
+          timedTodoId={t.running?.todo_id ?? null}
+          projects={pickSubjects}
+          onPickProject={pickFromMini}
           onStopFocus={stopFocus}
           onClose={mini.close}
         />
@@ -490,7 +645,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
 
       {searchOpen && (
         <ProjectSearch
-          projects={projects}
+          projects={[...projects, ...openTaskSubjects]}
           statusesById={statusesById}
           onClose={() => setSearchOpen(false)}
           onPick={(id) => {
@@ -518,16 +673,23 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
       {sessionModal && (
         <SessionModal
           session={sessionModal.session}
+          openItem={sessionModal.openItem}
           projectId={sessionModal.projectId}
           date={sessionModal.date ?? today}
+          span={sessionModal.span}
+          startOpen={sessionModal.startOpen}
           projects={pickableProjects}
           onClose={() => setSessionModal(null)}
           onSave={(data) =>
             sessionModal.session ? t.updateSession(sessionModal.session.id, data) : t.addSession(data)
           }
+          onSaveOpen={(item, data) => (item ? t.openOps.update(item.id, data) : t.openOps.start(data))}
+          onCloseOpen={async (item, { end, ...data }) => (await t.openOps.update(item.id, data)) && t.openOps.close(item.id, end)}
           onDelete={(s) => {
             setSessionModal(null);
-            setConfirm({ kind: "session", item: s });
+            // An open item has nothing logged yet: it is just let go
+            if (sessionModal.openItem) t.openOps.discard(s.id);
+            else setConfirm({ kind: "session", item: s });
           }}
         />
       )}
@@ -546,6 +708,55 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
         />
       )}
     </>
+  );
+}
+
+const CAL_VIEW_KEY = "pt-cal-view";
+const CAL_VIEWS = [
+  { id: "month", label: "Month" },
+  { id: "week", label: "Week" },
+  { id: "day", label: "Day" },
+];
+
+/** Which calendar is up: the month of ink washes, or a week or day laid out hour by hour. Remembered in this browser. */
+function useCalendarView() {
+  const [view, setView] = useState(() => {
+    try {
+      const saved = localStorage.getItem(CAL_VIEW_KEY);
+      if (CAL_VIEWS.some((v) => v.id === saved)) return saved;
+    } catch {
+      // storage blocked: it just starts on the month
+    }
+    return "month";
+  });
+  const set = (next) => {
+    setView(next);
+    try {
+      localStorage.setItem(CAL_VIEW_KEY, next);
+    } catch {
+      // storage blocked: it just won't survive a reload
+    }
+  };
+  return [view, set];
+}
+
+function CalendarViews({ value, onChange }) {
+  return (
+    <div role="radiogroup" aria-label="Calendar view" className="mb-4 inline-flex border border-line-strong">
+      {CAL_VIEWS.map((v) => (
+        <button
+          key={v.id}
+          role="radio"
+          aria-checked={v.id === value}
+          onClick={() => onChange(v.id)}
+          className={`h-8 border-l border-line-strong px-3.5 text-[13px] font-semibold transition-colors first:border-l-0 ${
+            v.id === value ? "bg-text text-bg" : "text-muted hover:bg-surface-2 hover:text-text"
+          }`}
+        >
+          {v.label}
+        </button>
+      ))}
+    </div>
   );
 }
 

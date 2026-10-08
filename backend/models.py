@@ -56,20 +56,23 @@ class Project(Base):
         back_populates="project", cascade="all, delete-orphan"
     )
     todos: Mapped[list["Todo"]] = relationship(cascade="all, delete-orphan")
+    open_items: Mapped[list["OpenItem"]] = relationship(cascade="all, delete-orphan")
 
 
 class Todo(Base):
-    """One line on a project's to-do list. `completed_at` is when it was ticked off (NULL
-    while open, and for to-dos finished before the column existed); the server sets it,
-    which is how a session can list what got done during it. `parent_id` makes it a sub-to-do
-    of another to-do on the same project (NULL for a top-level one); only one level deep,
-    and the delete route removes a to-do's sub-to-dos with it."""
+    """One line on a project's to-do list, or, with no project (`project_id` NULL), a task of its
+    own: something to do and time that isn't part of any project. `completed_at` is when it was
+    ticked off (NULL while open, and for to-dos finished before the column existed); the server
+    sets it, which is how a session can list what got done during it. `parent_id` makes it a
+    sub-to-do of another to-do on the same project (NULL for a top-level one); only one level deep,
+    and the delete route removes a to-do's sub-to-dos with it. `working_since` is when it was
+    marked as being worked on (NULL when it isn't); any number can be, and ticking one off clears it."""
 
     __tablename__ = "todos"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
-    project_id: Mapped[str] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    project_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True
     )
     parent_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("todos.id", ondelete="CASCADE"), nullable=True, index=True
@@ -79,22 +82,47 @@ class Todo(Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    working_since: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
 class Session(Base):
-    """One block of time worked on a project. `end` is NULL while the timer runs."""
+    """One block of time worked on a project, or on a task (a to-do with no project: `project_id`
+    NULL, `todo_id` set). A project's session may name one of its to-dos too. `end` is NULL while
+    the timer runs."""
 
     __tablename__ = "sessions"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
-    project_id: Mapped[str] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    project_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    todo_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("todos.id", ondelete="SET NULL"), nullable=True, index=True
     )
     start: Mapped[datetime] = mapped_column(DateTime, index=True)
     end: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
     note: Mapped[str] = mapped_column(String(280), default="")
 
     project: Mapped[Project] = relationship(back_populates="sessions")
+
+
+class OpenItem(Base):
+    """Something started and left open to be closed later: a long piece of work on a project or a
+    task that runs alongside the timer (and may run for days). It isn't a session until it is
+    closed; closing it makes one from `start` to the moment it was closed."""
+
+    __tablename__ = "open_items"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    project_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    todo_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("todos.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    start: Mapped[datetime] = mapped_column(DateTime)
+    note: Mapped[str] = mapped_column(String(280), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class Pomodoro(Base):

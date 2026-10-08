@@ -22,7 +22,7 @@ export function matchProjects(projects, query) {
 }
 
 /** Find a project by name: type, move with the arrow keys, Enter (or a click) opens it. */
-export default function ProjectSearch({ projects, statusesById, onPick, onClose }) {
+export default function ProjectSearch({ projects, statusesById, onPick, onClose, title = "Find a project or task" }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const listRef = useRef(null);
@@ -44,7 +44,7 @@ export default function ProjectSearch({ projects, statusesById, onPick, onClose 
   };
 
   return (
-    <Modal title="Find a project" onClose={onClose}>
+    <Modal title={title} onClose={onClose}>
       <div className="flex items-center gap-2 border-b border-line-strong focus-within:border-text">
         <Search size={15} className="shrink-0 text-muted" aria-hidden="true" />
         <input
@@ -89,7 +89,9 @@ export default function ProjectSearch({ projects, statusesById, onPick, onClose 
                   <Icon size={15} />
                 </span>
                 <span className="min-w-0 flex-1 truncate font-serif text-[15px] font-medium">{p.name}</span>
-                {p.archived_at ? (
+                {p.kind === "task" ? (
+                  <span className="shrink-0 font-serif text-xs italic text-muted">Task</span>
+                ) : p.archived_at ? (
                   <span className="shrink-0 font-serif text-xs italic text-muted">Archived</span>
                 ) : (
                   status && (

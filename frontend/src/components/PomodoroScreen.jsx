@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Coffee, Maximize, Minimize, PanelLeft, PanelRight, Pause, PictureInPicture2, Play, SkipForward, Square, Timer, X } from "lucide-react";
+import { Coffee, Maximize, Minimize, PanelLeft, PanelRight, Pause, PictureInPicture2, Play, Search, SkipForward, Square, Timer, X } from "lucide-react";
 import { Button } from "./Modal";
 import { TimerNote } from "./Header";
+import ProjectSearch from "./ProjectSearch";
 import { iconFor, inkText, tint } from "../lib/palette";
 import { fmtClock, fmtCountdown } from "../lib/time";
 
@@ -67,10 +68,11 @@ export function phaseView(pomodoro) {
  *  A project picked here is only chosen: it starts together with the next focus (`startFocusOn`).
  *  Once a project timer is running, or a focus is already going, there is no next focus to wait for,
  *  so picking one starts its timer now (switching away from the one that was running).
- *  The choice lives in this screen and goes when it closes. */
+ *  The choice lives in this screen and goes when it closes. Ctrl+F (⌘F) finds a project to pick by name
+ *  (`searchHint`, the shortcut as shown; without one the screen leaves the keys to the browser). */
 export default function PomodoroScreen({
   pomodoro, pomodorosToday = 0, projects, runningProject, runningSession, clock, heldProject, heldSeconds,
-  onStartTimer, onStopTimer, onStopFocus, onSaveNote, settingsOpen, onClose, renderDetail, onMiniPlayer,
+  onStartTimer, onStopTimer, onStopFocus, onSaveNote, settingsOpen, onClose, renderDetail, onMiniPlayer, statusesById, searchHint,
 }) {
   const { phase, settings } = pomodoro;
   const focusing = phase === "focus" || phase === "focusPaused";
@@ -98,16 +100,40 @@ export default function PomodoroScreen({
   };
   const startFocus = () => (chosen ? pomodoro.startFocusOn(chosen.id) : pomodoro.startFocus());
 
-  // Esc leaves, unless it is meant for the settings drawer or the session note, which handle it themselves
+  // A project found by name: picked as from the list (never un-picked), and shown in the right panel
+  const [searchOpen, setSearchOpen] = useState(false);
+  const pickFound = (id) => {
+    setSearchOpen(false);
+    if (id !== runningProject?.id) {
+      if (live) onStartTimer(id);
+      else setChosenId(id);
+    }
+    setRightOpen(true);
+  };
+
+  // Esc leaves, unless it is meant for the settings drawer, the search or the session note, which handle it themselves
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key !== "Escape" || settingsOpen) return;
+      if (e.key !== "Escape" || settingsOpen || searchOpen) return;
       if (e.target instanceof Element && e.target.closest("textarea, input")) return;
       onClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [settingsOpen, onClose]);
+  }, [settingsOpen, searchOpen, onClose]);
+
+  // Ctrl+F (⌘F) finds a project here too, unless the settings drawer is out
+  useEffect(() => {
+    if (!searchHint) return;
+    const onKey = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== "f" || settingsOpen) return;
+      e.preventDefault();
+      if (searchOpen) document.getElementById("project-search")?.select();
+      else setSearchOpen(true);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [searchHint, searchOpen, settingsOpen]);
 
   useEffect(() => {
     const prevOverflow = document.body.style.overflow;
@@ -166,6 +192,17 @@ export default function PomodoroScreen({
           <Timer size={20} aria-hidden="true" className="ml-1 max-sm:hidden" />
           <h1 className="font-serif text-lg font-semibold tracking-tight max-sm:sr-only">Pomodoro</h1>
           <div className="ml-auto flex items-center gap-2 sm:gap-3">
+            {projects.length > 0 && (
+              <Button
+                variant="outline"
+                onClick={() => setSearchOpen(true)}
+                className="w-9 px-0"
+                aria-label="Find a project"
+                title={searchHint ? `Find a project (${searchHint})` : "Find a project"}
+              >
+                <Search size={16} />
+              </Button>
+            )}
             {onMiniPlayer && (
               <Button
                 variant="outline"
@@ -301,6 +338,10 @@ export default function PomodoroScreen({
           </SidePanel>
         )}
       </div>
+
+      {searchOpen && (
+        <ProjectSearch projects={projects} statusesById={statusesById} onClose={() => setSearchOpen(false)} onPick={pickFound} />
+      )}
     </div>,
     document.body
   );

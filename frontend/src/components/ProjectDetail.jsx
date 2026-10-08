@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
-import { ArchiveRestore, Check, ChevronDown, GripVertical, ListChecks, NotebookText, History, Pencil, Play, Plus, Square, Trash2 } from "lucide-react";
+import { ArchiveRestore, Check, ChevronDown, CircleDot, GripVertical, ListChecks, NotebookText, History, Pencil, Play, Plus, Square, Trash2 } from "lucide-react";
 import { Button } from "./Modal";
 import TabBar from "./TabBar";
 import ParentTag from "./ParentTag";
@@ -15,12 +15,17 @@ const RECENT = 8;
  *  An archived project has no timer, and offers Restore in its place. */
 export default function ProjectDetail({
   project, status, todos, sessions, pomodoroCount = 0, isRunning, elapsed, totalSeconds, now, archived,
-  onEdit, onToggleTimer, onRestore, onSaveNotes, onSaveSessionNote, todoOps,
+  onEdit, onToggleTimer, onRestore, onSaveNotes, onSaveSessionNote, todoOps, timedTodoId = null, onTimeTodo,
 }) {
   const Icon = iconFor(project.icon);
   const finished = status.is_done;
   const [tab, setTab] = useState("todos");
   const openTodos = todos.filter((t) => !t.done).length;
+  // A ▶ on each open to-do times it: the project's timer, on that to-do
+  const todoTimer = (todo) =>
+    todo.done || finished || archived || !onTimeTodo ? null : (
+      <TodoTimer todo={todo} timed={todo.id === timedTodoId} elapsed={elapsed} color={project.color} onClick={() => onTimeTodo(todo)} />
+    );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -87,7 +92,7 @@ export default function ProjectDetail({
           Everything above stays put; only the open panel's own list scrolls. */}
       <div className="flex min-h-[19rem] flex-1 flex-col">
         <div className={tab === "todos" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
-          <TodoList todos={todos} projectId={project.id} ops={todoOps} />
+          <TodoList todos={todos} projectId={project.id} ops={todoOps} rowExtra={todoTimer} />
         </div>
         <div className={tab === "notes" ? "min-h-0 flex-1 overflow-y-auto" : "hidden"}>
           <Notes key={project.id} value={project.notes} onSave={onSaveNotes} />
@@ -102,7 +107,36 @@ export default function ProjectDetail({
 
 // ── To-dos ───────────────────────────────────────────────────────────────────
 
-function TodoList({ todos, projectId, ops }) {
+/** The ▶ on a to-do: times it, or, while it is being timed, shows the clock and stops it. Out of the way
+ *  (until the row is hovered) when it isn't running. */
+function TodoTimer({ todo, timed, elapsed, color, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={timed ? `Stop timing "${todo.text}"` : `Time "${todo.text}"`}
+      title={timed ? "Stop the timer" : "Time this to-do (the project's timer, on this to-do)"}
+      className={`inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-1.5 border px-1.5 text-xs font-semibold transition-colors ${
+        timed
+          ? ""
+          : "border-line-strong text-muted hover:border-text hover:text-text sm:opacity-0 sm:focus:opacity-100 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
+      }`}
+      style={timed ? { background: color, borderColor: color, color: ON_INK } : undefined}
+    >
+      {timed ? (
+        <>
+          <Square size={9} fill="currentColor" aria-hidden="true" />
+          <span className="figures">{fmtClock(elapsed)}</span>
+        </>
+      ) : (
+        <Play size={11} fill="currentColor" aria-hidden="true" />
+      )}
+    </button>
+  );
+}
+
+/** A to-do list: a project's (`projectId`), or the tasks of their own (`projectId` null). `rowExtra(todo)`
+ *  adds controls of the caller's to each top-level row (the Tasks tab's timer, for one). */
+export function TodoList({ todos, projectId, ops, rowExtra, placeholder = "Add a to-do and press Enter", label = "New to-do" }) {
   const [draft, setDraft] = useState("");
   const [showDone, setShowDone] = useState(false);
   const [collapsed, setCollapsed] = useState(() => new Set()); // parents whose sub-to-dos are folded away
@@ -134,6 +168,7 @@ function TodoList({ todos, projectId, ops }) {
     subs: subsOf.get(t.id) ?? [],
     folded: collapsed.has(t.id),
     onToggle: () => toggle(t.id),
+    rowExtra,
   });
   // Days that more than one to-do was added on: those show the time too, to tell them apart
   const dayCounts = new Map();
@@ -159,8 +194,8 @@ function TodoList({ todos, projectId, ops }) {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           maxLength={200}
-          placeholder="Add a to-do and press Enter"
-          aria-label="New to-do"
+          placeholder={placeholder}
+          aria-label={label}
           className="h-10 min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-faint"
         />
       </form>
@@ -199,7 +234,8 @@ function TodoList({ todos, projectId, ops }) {
 /** The calendar day a to-do was added, in local time; null if the server sent no date. */
 const dayKey = (todo) => (todo.created_at ? format(new Date(todo.created_at), "yyyy-MM-dd") : null);
 
-function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], folded = false, onToggle, isSub = false }) {
+function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], folded = false, onToggle, isSub = false, rowExtra }) {
+  const extra = rowExtra?.(todo);
   const [draft, setDraft] = useState(todo.text);
   useEffect(() => setDraft(todo.text), [todo.text]);
   const [adding, setAdding] = useState(false);
@@ -230,10 +266,15 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
   };
 
   const reveal = "sm:opacity-0 sm:focus:opacity-100 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100";
+  const working = Boolean(todo.working_since) && !todo.done;
 
   return (
     <li {...sort.row} className={`${isSub ? "" : "border-b border-rule"} ${sort.row.className ?? ""}`}>
-      <div className={`group flex items-center gap-2.5 ${isSub ? "border-t border-rule pl-11" : ""}`}>
+      <div
+        className={`group flex items-center gap-2.5 ${isSub ? "border-t border-rule pl-11" : ""} ${
+          working ? "bg-[color-mix(in_srgb,var(--accent)_7%,transparent)] shadow-[inset_3px_0_0_var(--accent)]" : ""
+        }`}
+      >
         {!isSub && (
           <button
             onClick={subs.length > 0 ? onToggle : openAdd}
@@ -271,6 +312,21 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
             todo.done ? "text-muted line-through" : ""
           }`}
         />
+        {!todo.done && (
+          <button
+            onClick={() => ops.update(todo.id, { working: !working })}
+            aria-pressed={working}
+            aria-label={working ? `Stop marking "${todo.text}" as being worked on` : `Mark "${todo.text}" as being worked on`}
+            title={working ? `Working on this since ${format(new Date(todo.working_since), "EEE d MMM, HH:mm")}. Click to unmark` : "Currently working on this"}
+            className={`inline-flex h-7 shrink-0 items-center gap-1.5 px-1.5 text-xs font-semibold transition-colors ${
+              working ? "text-accent hover:bg-surface-2" : `text-muted hover:bg-surface-2 hover:text-text ${reveal}`
+            }`}
+          >
+            <CircleDot size={14} className={working ? "blink-dot" : ""} aria-hidden="true" />
+            {working && <span className="max-sm:sr-only">Working on</span>}
+          </button>
+        )}
+        {extra}
         {subs.length > 0 && (
           <span
             title={`${subsDone} of ${subs.length} sub-to-dos done`}
@@ -321,6 +377,7 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
                 projectId={projectId}
                 showTime={sharesDay(s)}
                 sharesDay={sharesDay}
+                rowExtra={rowExtra}
                 isSub
               />
             ))}
@@ -456,6 +513,12 @@ function RecentSessions({ sessions, todos, now, onSaveNote }) {
               </span>
               <span className="figures w-14 shrink-0 text-right font-semibold">{fmtHM(sessionSeconds(s, now))}</span>
             </div>
+            {s.todo_id && todosById.has(s.todo_id) && (
+              <p className="mt-0.5 flex items-center gap-1.5 px-2 text-[13px]">
+                <Play size={10} fill="currentColor" className="shrink-0 text-muted" aria-label="On the to-do" />
+                <span className="min-w-0 truncate">{todosById.get(s.todo_id).text}</span>
+              </p>
+            )}
             <SessionNote session={s} onSave={onSaveNote} />
             {doneDuring(todos, s, now).map((t) => (
               <p key={t.id} className="mt-0.5 flex items-start gap-1.5 px-2 text-[13px] text-muted">

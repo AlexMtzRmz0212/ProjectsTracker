@@ -1,11 +1,12 @@
 import { format } from "date-fns";
-import { CalendarPlus, Check, Moon, Pencil, Plus, Square, Trash2 } from "lucide-react";
+import { CalendarPlus, Check, Hourglass, Moon, Pencil, Plus, Square, Trash2 } from "lucide-react";
 import { iconFor, inkText } from "../lib/palette";
 import { completedPomodoros, dayKey, fmtHM, fmtTime, pomodoroProjects, pomodorosOnDay, sessionSeconds } from "../lib/time";
 import { SplitBar } from "./StatsStrip";
 import ParentTag from "./ParentTag";
 
-/** The selected day as a time card: In, Out, Project, Hours, then the pomodoros finished and the to-dos ticked off that day. */
+/** The selected day as a time card: In, Out, Project, Hours, then the pomodoros finished and the to-dos ticked off that day.
+ *  An open item (`openItem` on a session still going) is listed with the rest, to edit or close (`onStop(session)`). */
 export default function DayPanel({ date, sessions, pomodoros, todos, byDay, projectsById, now, onAdd, onEdit, onDelete, onStop }) {
   const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
@@ -85,7 +86,12 @@ export default function DayPanel({ date, sessions, pomodoros, todos, byDay, proj
                 <tr key={s.id} className="group h-9 border-b border-rule">
                   <td className="figures pr-3 whitespace-nowrap">{fmtTime(s.start)}</td>
                   <td className="figures pr-3 whitespace-nowrap">
-                    {running ? (
+                    {running && s.openItem ? (
+                      <span className="inline-flex items-center gap-1.5 font-semibold text-accent-2" title="Open: close it when it's done">
+                        <Hourglass size={12} aria-hidden="true" />
+                        open
+                      </span>
+                    ) : running ? (
                       <span className="inline-flex items-center gap-1.5 font-semibold text-accent">
                         <span className="blink-dot size-1.5 rounded-full bg-accent" aria-hidden="true" />
                         now
@@ -101,6 +107,11 @@ export default function DayPanel({ date, sessions, pomodoros, todos, byDay, proj
                     <div className="flex min-w-0 items-center gap-2">
                       <Icon size={14} className="shrink-0" style={{ color: inkText(project.color) }} aria-hidden="true" />
                       <span className="truncate">{project.name}</span>
+                      {s.todo_id && todosById.has(s.todo_id) && project.kind !== "task" && (
+                        <span className="min-w-0 shrink truncate text-muted" title={`On "${todosById.get(s.todo_id).text}"`}>
+                          · {todosById.get(s.todo_id).text}
+                        </span>
+                      )}
                       {/* the note only takes what the project name leaves over */}
                       {s.note && (
                         <span className="min-w-0 flex-1 basis-0 truncate font-serif text-xs italic text-muted">{s.note}</span>
@@ -112,8 +123,17 @@ export default function DayPanel({ date, sessions, pomodoros, todos, byDay, proj
                   </td>
                   <td className="pl-2">
                     <div className="flex justify-end gap-0.5 transition-opacity sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100">
-                      {running ? (
-                        <RowButton label="Stop timer" onClick={onStop}>
+                      {running && s.openItem ? (
+                        <>
+                          <RowButton label="Edit the open item" onClick={() => onEdit(s)}>
+                            <Pencil size={14} />
+                          </RowButton>
+                          <RowButton label="Close it now" onClick={() => onStop(s)}>
+                            <Check size={14} />
+                          </RowButton>
+                        </>
+                      ) : running ? (
+                        <RowButton label="Stop timer" onClick={() => onStop(s)}>
                           <Square size={12} fill="currentColor" />
                         </RowButton>
                       ) : (

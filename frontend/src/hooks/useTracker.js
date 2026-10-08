@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api as realApi } from "../api";
+import { api as realApi, taskKey } from "../api";
 import { heatmapStart, tooShort } from "../lib/time";
 
 /** `prev` and `incoming` merged by id, earliest first. Works for sessions and pomodoros alike. */
@@ -13,6 +13,16 @@ function mergeSessions(prev, incoming) {
  *  cleared when unticked, as on the server. Shown at once; the server's value replaces it. */
 const completion = (todo, data) =>
   "done" in data && data.done !== todo.done ? { completed_at: data.done ? new Date().toISOString() : null } : {};
+
+/** A change to a to-do as it shows at once: `working` becomes when it started being worked on (kept if it
+ *  already was), and ticking it off ends that, as on the server. */
+function applyTodo(todo, data) {
+  const { working, ...rest } = data;
+  const next = { ...todo, ...rest, ...completion(todo, data) };
+  if (working !== undefined) next.working_since = working ? todo.working_since ?? new Date().toISOString() : null;
+  if (next.done) next.working_since = null;
+  return next;
+}
 
 /**
  * All app data and every mutation. Sessions are held as Date-parsed objects;
@@ -29,6 +39,7 @@ export function useTracker(api = realApi) {
   const [todos, setTodos] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [pomodoros, setPomodoros] = useState([]);
+  const [openItems, setOpenItems] = useState([]); // started, to be closed later; they run alongside the timer
   const [status, setStatus] = useState("loading"); // loading | ready | error
   const [notice, setNotice] = useState(null);
   const loadedFrom = useRef(null);
@@ -39,12 +50,13 @@ export function useTracker(api = realApi) {
     setStatus((s) => (s === "ready" ? s : "loading"));
     try {
       const from = heatmapStart(new Date());
-      const [p, st, td, s, pm] = await Promise.all([
+      const [p, st, td, s, pm, oi] = await Promise.all([
         api.listProjects(),
         api.listStatuses(),
         api.listTodos(),
         api.listSessions({ start: from }),
         api.listPomodoros({ start: from }),
+        api.listOpenItems(),
       ]);
       loadedFrom.current = from;
       setProjects(p);
@@ -52,6 +64,7 @@ export function useTracker(api = realApi) {
       setTodos(td);
       setSessions(s);
       setPomodoros(pm);
+      setOpenItems(oi);
       setStatus("ready");
     } catch {
       setStatus("error");
@@ -62,9 +75,14 @@ export function useTracker(api = realApi) {
     load();
   }, [load]);
 
+  /** Fresh totals after time was logged: the projects', and the tasks' (only their totals are taken,
+   *  so a to-do ticked meanwhile isn't undone). */
   const refreshProjects = useCallback(async () => {
     try {
-      setProjects(await api.listProjects());
+      const [fresh, freshTodos] = await Promise.all([api.listProjects(), api.listTodos()]);
+      setProjects(fresh);
+      const totals = new Map(freshTodos.map((x) => [x.id, x.total_seconds]));
+      setTodos((prev) => prev.map((x) => (totals.has(x.id) && totals.get(x.id) !== x.total_seconds ? { ...x, total_seconds: totals.get(x.id) } : x)));
     } catch {
       // totals just stay slightly stale until the next refresh
     }
@@ -114,11 +132,13 @@ export function useTracker(api = realApi) {
 
   // ── Timer ──────────────────────────────────────────────────────────────────
 
+  /** Start the timer on a project (or task); `todoId` times one of the project's to-dos. Starting it on
+   *  another to-do of the same project closes the running session and opens one for that to-do. */
   const startTimer = useCallback(
-    (projectId) =>
+    (projectId, todoId = null) =>
       attempt(async () => {
         const current = sessionsRef.current.find((s) => !s.end);
-        if (current?.project_id === projectId) return;
+        if (current?.project_id === projectId && (current.todo_id ?? null) === todoId) return;
         const now = new Date();
         const tempId = `temp-${now.getTime()}`;
         // Optimistic: close whatever was running (or drop it, if it was only a blip)
@@ -129,9 +149,9 @@ export function useTracker(api = realApi) {
           prev
             .filter((s) => !(dropped && s.id === current.id))
             .map((s) => (s.end ? s : { ...s, end: now }))
-            .concat({ id: tempId, project_id: projectId, start: now, end: null, note: "" })
+            .concat({ id: tempId, project_id: projectId, todo_id: todoId, start: now, end: null, note: "" })
         );
-        const started = await api.startTimer(projectId);
+        const started = await api.startTimer(projectId, todoId);
         setSessions((prev) => prev.map((s) => (s.id === tempId ? started : s)));
         if (current) refreshProjects();
       }),
@@ -286,6 +306,7 @@ export function useTracker(api = realApi) {
         setProjects((prev) => prev.filter((p) => p.id !== id));
         setSessions((prev) => prev.filter((s) => s.project_id !== id));
         setTodos((prev) => prev.filter((x) => x.project_id !== id));
+        setOpenItems((prev) => prev.filter((x) => x.project_id !== id));
         await api.deleteProject(id);
       }),
     [api, attempt]
@@ -331,6 +352,7 @@ export function useTracker(api = realApi) {
   // ── To-dos ─────────────────────────────────────────────────────────────────
 
   const todoOps = {
+    /** A to-do on a project, or with no project (`projectId` null), a task of its own. */
     add: (projectId, text, parentId = null) =>
       attempt(async () => {
         const created = await api.createTodo({ project_id: projectId, text, parent_id: parentId });
@@ -339,12 +361,18 @@ export function useTracker(api = realApi) {
     // Ticking and deleting show at once; a failure resyncs from the server (see attempt)
     update: (id, data) =>
       attempt(async () => {
-        setTodos((prev) => prev.map((x) => (x.id === id ? { ...x, ...data, ...completion(x, data) } : x)));
+        setTodos((prev) => prev.map((x) => (x.id === id ? applyTodo(x, data) : x)));
         const saved = await api.updateTodo(id, data);
-        // The server stamps the real moment; adopt it unless a later click has already moved on
+        // The server stamps the real moments; adopt them unless a later click has already moved on
         setTodos((prev) =>
-          prev.map((x) => (x.id === id && x.done === saved.done ? { ...x, completed_at: saved.completed_at } : x))
+          prev.map((x) =>
+            x.id === id && x.done === saved.done && Boolean(x.working_since) === Boolean(saved.working_since)
+              ? { ...x, completed_at: saved.completed_at, working_since: saved.working_since }
+              : x
+          )
         );
+        // A task ticked off with its timer running: the server stopped the timer
+        if (data.done && sessionsRef.current.some((x) => !x.end && x.project_id === taskKey(id))) load();
       }),
     /** Put these to-dos (one list: a project's open ones, a to-do's sub-to-dos...) in the order of
      *  `ids`. They trade the sort_order values they already hold, so other lists keep their places.
@@ -362,8 +390,46 @@ export function useTracker(api = realApi) {
       }),
     remove: (id) =>
       attempt(async () => {
+        const gone = todos.find((x) => x.id === id);
         setTodos((prev) => prev.filter((x) => x.id !== id && x.parent_id !== id)); // its sub-to-dos go with it
+        if (gone && !gone.project_id) {
+          // A task's time and open items go with it
+          setSessions((prev) => prev.filter((x) => x.project_id !== taskKey(id)));
+          setOpenItems((prev) => prev.filter((x) => x.project_id !== taskKey(id)));
+        }
         await api.deleteTodo(id);
+      }),
+  };
+
+  // ── Open items ─────────────────────────────────────────────────────────────
+  // Long pieces of work started and left open, any number, alongside the timer. Closing one turns it
+  // into a session.
+
+  const openOps = {
+    /** Start one: { project_id (a subject id), start?, note? }. */
+    start: (data) =>
+      attempt(async () => {
+        const created = await api.createOpenItem(data);
+        setOpenItems((prev) => [...prev, created].sort((a, b) => a.start - b.start));
+      }),
+    update: (id, data) =>
+      attempt(async () => {
+        const updated = await api.updateOpenItem(id, data);
+        setOpenItems((prev) => prev.map((x) => (x.id === id ? updated : x)).sort((a, b) => a.start - b.start));
+      }),
+    /** Close it at `end` (now if not given): it becomes a session. */
+    close: (id, end) =>
+      attempt(async () => {
+        setOpenItems((prev) => prev.filter((x) => x.id !== id));
+        const session = await api.closeOpenItem(id, { end });
+        setSessions((prev) => mergeSessions(prev, [session]));
+        refreshProjects();
+      }),
+    /** Throw it away: nothing is logged. */
+    discard: (id) =>
+      attempt(async () => {
+        setOpenItems((prev) => prev.filter((x) => x.id !== id));
+        await api.deleteOpenItem(id);
       }),
   };
 
@@ -379,6 +445,8 @@ export function useTracker(api = realApi) {
     sessions,
     pomodoros,
     addPomodoro,
+    openItems,
+    openOps,
     running,
     status,
     notice,

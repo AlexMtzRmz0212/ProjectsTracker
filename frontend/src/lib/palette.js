@@ -1,7 +1,7 @@
 import {
   BookOpen, Briefcase, Camera, Code, Coffee, Cpu, Database, Dumbbell, Film,
   FlaskConical, Folder, Gamepad2, Globe, GraduationCap, Hammer, Heart, Leaf,
-  Lightbulb, Music, Palette, PenTool, Rocket, Smartphone, Wrench,
+  Lightbulb, Music, Palette, PenTool, Rocket, Smartphone, SquareCheckBig, Wrench,
 } from "lucide-react";
 
 // Printing inks: mid-tones dark enough to carry paper-colored text when filled,
@@ -71,8 +71,13 @@ export const PROJECT_ICONS = {
 };
 
 export function iconFor(key) {
+  if (key === TASK_ICON) return SquareCheckBig;
   return PROJECT_ICONS[key] ?? Folder;
 }
+
+/** A task (a to-do with no project) is drawn in this ink, with this icon: it has no color of its own. */
+export const TASK_INK = "#6f6758";
+export const TASK_ICON = "task";
 
 /** Translucent version of a hex color, via color-mix so it works with any input. */
 export function tint(color, percent) {

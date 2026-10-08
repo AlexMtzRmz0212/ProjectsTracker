@@ -181,6 +181,7 @@ export function createDemoApi() {
   let statuses = STATUSES.map((s, i) => ({ ...s, sort_order: i + 1 }));
   let sessions = seededSessions;
   let pomodoros = [];
+  let openItems = [];
   let seq = nextId;
   const newId = () => `demo-s${seq++}`;
 
@@ -188,6 +189,24 @@ export function createDemoApi() {
     const found = projects.find((p) => p.id === id);
     if (!found) throw httpError(404, "Project not found");
     return found;
+  };
+  // The demo keeps sessions the way the app holds them: a project's id, or "task:" and a task's id
+  const taskOf = (subjectId) => (subjectId?.startsWith("task:") ? subjectId.slice(5) : null);
+  const subject = (id) => {
+    if (!id) throw httpError(422, "Pick a project or a task");
+    const taskId = taskOf(id);
+    if (!taskId) return project(id);
+    const found = todo(taskId);
+    if (found.project_id) throw httpError(422, "That to-do belongs to a project");
+    return found;
+  };
+  const openItem = (id) => {
+    const found = openItems.find((x) => x.id === id);
+    if (!found) throw httpError(404, "Open item not found");
+    return found;
+  };
+  const checkOpenStart = (start) => {
+    if (start > Date.now() + 60_000) throw httpError(422, "Start can't be in the future");
   };
   const todo = (id) => {
     const found = todos.find((x) => x.id === id);
@@ -297,6 +316,7 @@ export function createDemoApi() {
       projects = projects.filter((p) => p.id !== id);
       sessions = sessions.filter((s) => s.project_id !== id);
       todos = todos.filter((x) => x.project_id !== id);
+      openItems = openItems.filter((x) => x.project_id !== id);
       return null;
     },
 
@@ -334,9 +354,17 @@ export function createDemoApi() {
       return null;
     },
 
-    listTodos: async () => [...todos].sort((a, b) => a.sort_order - b.sort_order).map((x) => ({ ...x })),
+    listTodos: async () =>
+      [...todos]
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((x) => ({
+          ...x,
+          total_seconds: x.project_id
+            ? 0
+            : Math.floor(sessions.reduce((sum, s) => (s.project_id === `task:${x.id}` && s.end ? sum + (s.end - s.start) / 1000 : sum), 0)),
+        })),
     createTodo: async (data) => {
-      project(data.project_id);
+      if (data.project_id) project(data.project_id);
       const text = data.text.trim();
       if (!text) throw httpError(422, "Write something first");
       const parent = data.parent_id ? todo(data.parent_id) : null;
@@ -344,7 +372,8 @@ export function createDemoApi() {
         throw httpError(422, "A sub-to-do goes under a top-level to-do of the same project");
       }
       const created = {
-        id: `demo-d${seq++}`, project_id: data.project_id, parent_id: parent?.id ?? null, text, done: false, completed_at: null,
+        id: `demo-d${seq++}`, project_id: data.project_id ?? null, parent_id: parent?.id ?? null, text, done: false, completed_at: null,
+        working_since: null, total_seconds: 0,
         sort_order: Math.max(0, ...todos.map((x) => x.sort_order)) + 1, created_at: new Date().toISOString(),
       };
       todos = [...todos, created];
@@ -352,14 +381,26 @@ export function createDemoApi() {
     },
     updateTodo: async (id, data) => {
       const current = todo(id);
-      const next = { ...current, ...data };
+      const { working, ...rest } = data;
+      const next = { ...current, ...rest };
+      if (working !== undefined) next.working_since = working ? current.working_since ?? new Date().toISOString() : null;
       if ("done" in data && data.done !== current.done) next.completed_at = data.done ? new Date().toISOString() : null;
+      if (next.done) {
+        next.working_since = null;
+        const current_ = running();
+        if (!next.project_id && current_?.project_id === `task:${id}`) endTimer(current_, new Date());
+      }
       todos = todos.map((x) => (x.id === id ? next : x));
       return { ...next };
     },
     deleteTodo: async (id) => {
-      todo(id);
-      todos = todos.filter((x) => x.id !== id && x.parent_id !== id);
+      const gone = todo(id);
+      const ids = new Set(todos.filter((x) => x.id === id || x.parent_id === id).map((x) => x.id));
+      if (!gone.project_id) {
+        sessions = sessions.filter((s) => !ids.has(taskOf(s.project_id)));
+        openItems = openItems.filter((x) => !ids.has(taskOf(x.project_id)));
+      }
+      todos = todos.filter((x) => !ids.has(x.id));
       return null;
     },
 
@@ -368,7 +409,7 @@ export function createDemoApi() {
         .filter((s) => (!end || s.start < end) && (!start || !s.end || s.end > start))
         .map((s) => ({ ...s })),
     createSession: async (data) => {
-      project(data.project_id);
+      subject(data.project_id);
       checkSpan(data.start, data.end);
       const created = { id: newId(), project_id: data.project_id, start: data.start, end: data.end, note: data.note ?? "" };
       sessions = [...sessions, created].sort((a, b) => a.start - b.start);
@@ -376,7 +417,7 @@ export function createDemoApi() {
     },
     updateSession: async (id, data) => {
       const current = session(id);
-      if (data.project_id) project(data.project_id);
+      if ("project_id" in data) subject(data.project_id);
       const next = { ...current, ...data };
       checkSpan(next.start, next.end);
       return replaceSession(id, next);
@@ -387,13 +428,14 @@ export function createDemoApi() {
       return null;
     },
 
-    startTimer: async (projectId) => {
-      project(projectId);
+    startTimer: async (projectId, todoId = null) => {
+      subject(projectId);
+      if (todoId && todo(todoId).project_id !== projectId) throw httpError(422, "That to-do belongs to another project");
       const current = running();
-      if (current?.project_id === projectId) return { ...current };
+      if (current?.project_id === projectId && (current.todo_id ?? null) === todoId) return { ...current };
       const now = new Date();
       if (current) endTimer(current, now);
-      const started = { id: newId(), project_id: projectId, start: now, end: null, note: "" };
+      const started = { id: newId(), project_id: projectId, todo_id: todoId, start: now, end: null, note: "" };
       sessions = [...sessions, started];
       return { ...started };
     },
@@ -409,6 +451,38 @@ export function createDemoApi() {
       const created = { id: `demo-m${seq++}`, start: data.start, end: data.end, completed: data.completed ?? true };
       pomodoros = [...pomodoros, created].sort((a, b) => a.start - b.start);
       return { ...created };
+    },
+
+    listOpenItems: async () => openItems.map((x) => ({ ...x })),
+    createOpenItem: async (data) => {
+      subject(data.project_id);
+      const start = data.start ?? new Date();
+      checkOpenStart(start);
+      const created = { id: `demo-o${seq++}`, project_id: data.project_id, start, note: data.note ?? "" };
+      openItems = [...openItems, created].sort((a, b) => a.start - b.start);
+      return { ...created };
+    },
+    updateOpenItem: async (id, data) => {
+      const current = openItem(id);
+      if ("project_id" in data) subject(data.project_id);
+      if (data.start) checkOpenStart(data.start);
+      const next = { ...current, ...Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)) };
+      openItems = openItems.map((x) => (x.id === id ? next : x));
+      return { ...next };
+    },
+    closeOpenItem: async (id, { end } = {}) => {
+      const item = openItem(id);
+      const closedAt = end ?? new Date();
+      checkSpan(item.start, closedAt);
+      const created = { id: newId(), project_id: item.project_id, start: item.start, end: closedAt, note: item.note };
+      sessions = [...sessions, created].sort((a, b) => a.start - b.start);
+      openItems = openItems.filter((x) => x.id !== id);
+      return { ...created };
+    },
+    deleteOpenItem: async (id) => {
+      openItem(id);
+      openItems = openItems.filter((x) => x.id !== id);
+      return null;
     },
   };
 }

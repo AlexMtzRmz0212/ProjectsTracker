@@ -220,6 +220,16 @@ body {
   animation: fade-in 0.15s ease-out both;
 }
 
+/* The mini clock's hourglass: grains running down through the neck while the period runs */
+@keyframes sand-fall {
+  to { stroke-dashoffset: -10; }
+}
+
+.sand-stream {
+  stroke-dasharray: 2 3;
+  animation: sand-fall 0.5s linear infinite;
+}
+
 /* A board column settling in; it plays again whenever the column is switched back on */
 @keyframes column-in {
   from { opacity: 0; transform: translateY(6px); }

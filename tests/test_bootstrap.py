@@ -188,3 +188,52 @@ def test_pomodoros_made_before_completed_keep_working(tmp_path):
 
     with engine.connect() as conn:
         assert conn.execute(text("SELECT completed FROM pomodoros WHERE id = 'm1'")).scalar() == 1
+
+
+def test_todos_and_sessions_made_when_every_one_had_a_project_take_tasks(tmp_path):
+    """A database whose todos and sessions need a project (and have no working_since or todo_id) is
+    rebuilt so that tasks of their own fit; every old row comes across untouched."""
+    engine = create_engine(f"sqlite:///{tmp_path / 'old-subjects.db'}")
+    init_db(engine)
+    with engine.begin() as conn:
+        status_id = conn.execute(text("SELECT id FROM statuses WHERE name = 'Active'")).scalar()
+        conn.execute(
+            text("INSERT INTO projects (id, name, color, icon, status_id, sort_order, created_at) "
+                 "VALUES ('p1', 'Old', '#2f5d8a', 'code', :s, 1, '2026-02-01')"),
+            {"s": status_id},
+        )
+        conn.execute(text("DROP TABLE open_items"))
+        conn.execute(text("DROP TABLE sessions"))
+        conn.execute(text("DROP TABLE todos"))
+        conn.execute(text(
+            "CREATE TABLE todos (id VARCHAR NOT NULL PRIMARY KEY, project_id VARCHAR NOT NULL REFERENCES projects(id) "
+            "ON DELETE CASCADE, parent_id VARCHAR REFERENCES todos(id) ON DELETE CASCADE, text VARCHAR(200) NOT NULL, "
+            "done BOOLEAN NOT NULL, sort_order INTEGER NOT NULL, created_at DATETIME NOT NULL, completed_at DATETIME)"
+        ))
+        conn.execute(text(
+            "CREATE TABLE sessions (id VARCHAR NOT NULL PRIMARY KEY, project_id VARCHAR NOT NULL REFERENCES projects(id) "
+            'ON DELETE CASCADE, start DATETIME NOT NULL, "end" DATETIME, note VARCHAR(280) NOT NULL)'
+        ))
+        conn.execute(text("INSERT INTO todos VALUES ('t1', 'p1', NULL, 'Old one', 0, 1, '2026-02-02', NULL)"))
+        conn.execute(text("INSERT INTO sessions VALUES ('s1', 'p1', '2026-02-02 10:00:00', '2026-02-02 11:00:00', 'hi')"))
+
+    init_db(engine)
+    init_db(engine)  # repeatable
+
+    todo_cols = {c["name"]: c for c in inspect(engine).get_columns("todos")}
+    session_cols = {c["name"]: c for c in inspect(engine).get_columns("sessions")}
+    assert todo_cols["project_id"]["nullable"] and "working_since" in todo_cols
+    assert session_cols["project_id"]["nullable"] and "todo_id" in session_cols
+    assert "open_items" in inspect(engine).get_table_names()
+    with engine.begin() as conn:
+        assert conn.execute(text("SELECT project_id, text FROM todos WHERE id = 't1'")).one() == ("p1", "Old one")
+        assert conn.execute(text("SELECT project_id, note, todo_id FROM sessions WHERE id = 's1'")).one() == ("p1", "hi", None)
+        # A task of its own, and time on it, now fit
+        conn.execute(text(
+            "INSERT INTO todos (id, project_id, text, done, sort_order, created_at) VALUES ('t2', NULL, 'Task', 0, 2, '2026-02-03')"
+        ))
+        conn.execute(text(
+            'INSERT INTO sessions (id, project_id, todo_id, start, "end", note) '
+            "VALUES ('s2', NULL, 't2', '2026-02-03 10:00:00', '2026-02-03 10:30:00', '')"
+        ))
+    assert "ix_todos_project_id" in {i["name"] for i in inspect(engine).get_indexes("todos")}

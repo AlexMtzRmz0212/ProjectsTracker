@@ -667,3 +667,154 @@ def test_owner_can_delete_a_note_but_the_vote_stays(client):
     assert client.delete(f"/api/interest/messages/{'a' * 24}").status_code == 204
     assert client.get("/api/interest/messages").json() == {"count": 1, "messages": []}
     assert client.delete(f"/api/interest/messages/{'a' * 24}").status_code == 404
+
+
+# ── Tasks (to-dos with no project) ──────────────────────────────────────────
+
+def make_task(client, text="Renew passport"):
+    res = client.post("/api/todos", json={"text": text})
+    assert res.status_code == 201, res.text
+    assert res.json()["project_id"] is None
+    return res.json()
+
+
+def test_a_task_can_be_timed_and_logged(client):
+    task = make_task(client)
+    run = client.post("/api/timer/start", json={"todo_id": task["id"]}).json()
+    assert run["project_id"] is None and run["todo_id"] == task["id"]
+
+    t1 = now() - timedelta(hours=2)
+    res = client.post("/api/sessions", json={"todo_id": task["id"], "start": iso(t1), "end": iso(t1 + timedelta(minutes=45))})
+    assert res.status_code == 201, res.text
+    listed = {t["id"]: t for t in client.get("/api/todos").json()}
+    assert listed[task["id"]]["total_seconds"] == 45 * 60
+
+    # A task's time isn't any project's
+    project = make_project(client)
+    assert client.get("/api/projects").json()[0]["total_seconds"] == 0
+    # ...and a project's session can't name a task
+    res = client.post(
+        "/api/sessions",
+        json={"project_id": project["id"], "todo_id": task["id"], "start": iso(t1), "end": iso(t1 + timedelta(minutes=5))},
+    )
+    assert res.status_code == 422
+
+
+def test_a_session_needs_a_project_or_a_task(client):
+    t1 = now() - timedelta(hours=1)
+    res = client.post("/api/sessions", json={"start": iso(t1), "end": iso(t1 + timedelta(minutes=5))})
+    assert res.status_code == 422
+    assert client.post("/api/timer/start", json={}).status_code == 422
+
+
+def test_a_session_moves_between_a_project_and_a_task(client):
+    project = make_project(client)
+    task = make_task(client)
+    t1 = now() - timedelta(hours=1)
+    session = client.post(
+        "/api/sessions", json={"project_id": project["id"], "start": iso(t1), "end": iso(t1 + timedelta(minutes=30))}
+    ).json()
+    moved = client.patch(f"/api/sessions/{session['id']}", json={"project_id": None, "todo_id": task["id"]}).json()
+    assert moved["project_id"] is None and moved["todo_id"] == task["id"]
+    back = client.patch(f"/api/sessions/{session['id']}", json={"project_id": project["id"], "todo_id": None}).json()
+    assert back["project_id"] == project["id"] and back["todo_id"] is None
+
+
+def test_ticking_a_task_off_stops_its_timer_and_deleting_it_takes_its_time(client):
+    task = make_task(client)
+    run = client.post("/api/timer/start", json={"todo_id": task["id"]}).json()
+    client.patch(f"/api/sessions/{run['id']}", json={"start": iso(now() - timedelta(minutes=10))})
+    client.patch(f"/api/todos/{task['id']}", json={"done": True})
+    assert client.get("/api/timer").json() is None
+    assert len(client.get("/api/sessions").json()) == 1
+
+    assert client.delete(f"/api/todos/{task['id']}").status_code == 204
+    assert client.get("/api/sessions").json() == []
+
+
+def test_deleting_a_project_todo_keeps_its_time_on_the_project(client):
+    project = make_project(client)
+    todo = client.post("/api/todos", json={"project_id": project["id"], "text": "Hero"}).json()
+    t1 = now() - timedelta(hours=1)
+    session = client.post(
+        "/api/sessions", json={"todo_id": todo["id"], "start": iso(t1), "end": iso(t1 + timedelta(minutes=30))}
+    ).json()
+    assert session["project_id"] == project["id"]  # filled in from the to-do
+    client.delete(f"/api/todos/{todo['id']}")
+    kept = client.get("/api/sessions").json()
+    assert len(kept) == 1 and kept[0]["project_id"] == project["id"] and kept[0]["todo_id"] is None
+
+
+def test_working_on_follows_the_flag_and_clears_when_done(client):
+    project = make_project(client)
+    a = client.post("/api/todos", json={"project_id": project["id"], "text": "A"}).json()
+    b = client.post("/api/todos", json={"project_id": project["id"], "text": "B"}).json()
+    assert a["working_since"] is None
+    marked = client.patch(f"/api/todos/{a['id']}", json={"working": True}).json()
+    assert marked["working_since"] is not None
+    # Any number at once, and marking again keeps the first moment
+    assert client.patch(f"/api/todos/{b['id']}", json={"working": True}).json()["working_since"] is not None
+    assert client.patch(f"/api/todos/{a['id']}", json={"working": True}).json()["working_since"] == marked["working_since"]
+    assert client.patch(f"/api/todos/{a['id']}", json={"working": False}).json()["working_since"] is None
+    assert client.patch(f"/api/todos/{b['id']}", json={"done": True}).json()["working_since"] is None
+
+
+# ── Open items ──────────────────────────────────────────────────────────────
+
+def test_open_items_run_alongside_the_timer_and_close_into_sessions(client):
+    project = make_project(client)
+    task = make_task(client)
+    started = now() - timedelta(days=1, hours=2)
+    long_one = client.post("/api/open-items", json={"project_id": project["id"], "start": iso(started), "note": "Render"}).json()
+    other = client.post("/api/open-items", json={"todo_id": task["id"]}).json()
+    run = client.post("/api/timer/start", json={"project_id": project["id"]}).json()
+    assert run["end"] is None
+    assert len(client.get("/api/open-items").json()) == 2
+
+    session = client.post(f"/api/open-items/{long_one['id']}/close", json={}).json()
+    assert session["project_id"] == project["id"] and session["note"] == "Render" and session["end"] is not None
+    assert [i["id"] for i in client.get("/api/open-items").json()] == [other["id"]]
+    # The timer is untouched
+    assert client.get("/api/timer").json()["id"] == run["id"]
+
+    # Closing at a set moment, and throwing one away
+    third = client.post("/api/open-items", json={"todo_id": task["id"], "start": iso(now() - timedelta(hours=3))}).json()
+    closed = client.post(f"/api/open-items/{third['id']}/close", json={"end": iso(now() - timedelta(hours=1))}).json()
+    assert closed["todo_id"] == task["id"]
+    assert client.delete(f"/api/open-items/{other['id']}").status_code == 204
+    assert client.get("/api/open-items").json() == []
+
+
+def test_open_item_validation(client):
+    project = make_project(client)
+    assert client.post("/api/open-items", json={}).status_code == 422
+    future = iso(now() + timedelta(hours=1))
+    assert client.post("/api/open-items", json={"project_id": project["id"], "start": future}).status_code == 422
+    item = client.post("/api/open-items", json={"project_id": project["id"], "start": iso(now() - timedelta(hours=1))}).json()
+    # Can't close before it started
+    res = client.post(f"/api/open-items/{item['id']}/close", json={"end": iso(now() - timedelta(hours=2))})
+    assert res.status_code == 422
+    edited = client.patch(f"/api/open-items/{item['id']}", json={"note": "Long render"}).json()
+    assert edited["note"] == "Long render"
+    # Deleting the project takes its open items with it
+    client.delete(f"/api/projects/{project['id']}")
+    assert client.get("/api/open-items").json() == []
+
+
+def test_a_project_todo_can_be_timed(client):
+    project = make_project(client)
+    a = client.post("/api/todos", json={"project_id": project["id"], "text": "Hero"}).json()
+    b = client.post("/api/todos", json={"project_id": project["id"], "text": "Footer"}).json()
+
+    run = client.post("/api/timer/start", json={"project_id": project["id"], "todo_id": a["id"]}).json()
+    assert run["project_id"] == project["id"] and run["todo_id"] == a["id"]
+    # Starting the same to-do again keeps the session; another to-do of the project closes it and opens one
+    assert client.post("/api/timer/start", json={"project_id": project["id"], "todo_id": a["id"]}).json()["id"] == run["id"]
+    client.patch(f"/api/sessions/{run['id']}", json={"start": iso(now() - timedelta(minutes=10))})
+    switched = client.post("/api/timer/start", json={"project_id": project["id"], "todo_id": b["id"]}).json()
+    assert switched["id"] != run["id"] and switched["todo_id"] == b["id"]
+    sessions = {s["id"]: s for s in client.get("/api/sessions").json()}
+    assert sessions[run["id"]]["end"] is not None and sessions[run["id"]]["todo_id"] == a["id"]
+    # Time on a project's to-do is the project's
+    client.post("/api/timer/stop")
+    assert client.get("/api/projects").json()[0]["total_seconds"] >= 10 * 60

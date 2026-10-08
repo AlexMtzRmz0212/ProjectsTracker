@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session as DbSession
 from . import auth, schemas
 from .bootstrap import init_db
 from .database import engine, get_db
-from .models import InterestMessage, InterestVote, Pomodoro, Project, Session, Status, Todo, utcnow
+from .models import InterestMessage, InterestVote, OpenItem, Pomodoro, Project, Session, Status, Todo, utcnow
 
 init_db(engine)
 
@@ -124,11 +124,45 @@ def _totals(db: DbSession) -> dict[str, int]:
     between SQLite and Postgres date arithmetic."""
     totals: dict[str, float] = defaultdict(float)
     rows = db.execute(
-        select(Session.project_id, Session.start, Session.end).where(Session.end.is_not(None))
+        select(Session.project_id, Session.start, Session.end).where(
+            Session.end.is_not(None), Session.project_id.is_not(None)
+        )
     )
     for project_id, start, end in rows:
         totals[project_id] += (end - start).total_seconds()
     return {pid: int(seconds) for pid, seconds in totals.items()}
+
+
+def _task_totals(db: DbSession) -> dict[str, int]:
+    """Closed-session seconds per task (a to-do with no project)."""
+    totals: dict[str, float] = defaultdict(float)
+    rows = db.execute(
+        select(Session.todo_id, Session.start, Session.end).where(
+            Session.end.is_not(None), Session.project_id.is_(None), Session.todo_id.is_not(None)
+        )
+    )
+    for todo_id, start, end in rows:
+        totals[todo_id] += (end - start).total_seconds()
+    return {tid: int(seconds) for tid, seconds in totals.items()}
+
+
+def _subject(db: DbSession, project_id: Optional[str], todo_id: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """What time is logged on: a project, a task (a to-do with no project), or a project and one of
+    its to-dos (the project is filled in from the to-do when left out). Returns (project_id, todo_id)."""
+    if todo_id is not None:
+        todo = _get_todo(db, todo_id)
+        if todo.project_id is None:
+            if project_id is not None:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A task isn't part of a project")
+        elif project_id not in (None, todo.project_id):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "That to-do belongs to another project")
+        else:
+            project_id = todo.project_id
+    elif project_id is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Pick a project or a task")
+    else:
+        _get_project(db, project_id)
+    return project_id, todo_id
 
 
 def _project_out(project: Project, total_seconds: int = 0) -> schemas.ProjectOut:
@@ -294,15 +328,24 @@ def _get_todo(db: DbSession, todo_id: str) -> Todo:
     return todo
 
 
+def _todo_out(todo: Todo, totals: dict[str, int]) -> schemas.TodoOut:
+    out = schemas.TodoOut.model_validate(todo)
+    out.total_seconds = totals.get(todo.id, 0) if todo.project_id is None else 0
+    return out
+
+
 @api.get("/todos", response_model=list[schemas.TodoOut])
 def list_todos(db: DbSession = Depends(get_db)):
-    """Every project's to-dos at once; there are few, and the app shows counts on the list."""
-    return db.scalars(select(Todo).order_by(Todo.sort_order, Todo.created_at)).all()
+    """Every project's to-dos, and the tasks of their own, at once; there are few, and the app
+    shows counts on the list. A task carries the time logged on it."""
+    totals = _task_totals(db)
+    return [_todo_out(t, totals) for t in db.scalars(select(Todo).order_by(Todo.sort_order, Todo.created_at)).all()]
 
 
 @api.post("/todos", response_model=schemas.TodoOut, status_code=status.HTTP_201_CREATED)
 def create_todo(body: schemas.TodoCreate, db: DbSession = Depends(get_db)):
-    _get_project(db, body.project_id)
+    if body.project_id is not None:
+        _get_project(db, body.project_id)
     if body.parent_id is not None:
         parent = _get_todo(db, body.parent_id)
         if parent.project_id != body.project_id or parent.parent_id is not None:
@@ -318,20 +361,40 @@ def create_todo(body: schemas.TodoCreate, db: DbSession = Depends(get_db)):
 def update_todo(todo_id: str, body: schemas.TodoUpdate, db: DbSession = Depends(get_db)):
     todo = _get_todo(db, todo_id)
     was_done = todo.done
-    for field, value in body.model_dump(exclude_unset=True).items():
+    changes = body.model_dump(exclude_unset=True)
+    working = changes.pop("working", None)
+    for field, value in changes.items():
         if value is not None:
             setattr(todo, field, value)
+    if working is not None:  # marking it again keeps when it was first marked
+        todo.working_since = (todo.working_since or utcnow()) if working else None
     if todo.done != was_done:  # ticking again keeps the first time; unticking forgets it
         todo.completed_at = utcnow() if todo.done else None
+    if todo.done:
+        todo.working_since = None
+        # A task ticked off is finished: its timer stops, as a finished project's does
+        current = _running(db)
+        if todo.project_id is None and current is not None and current.todo_id == todo.id:
+            _end_timer(db, current, utcnow())
     db.commit()
     db.refresh(todo)
-    return todo
+    return _todo_out(todo, _task_totals(db))
 
 
 @api.delete("/todos/{todo_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_todo(todo_id: str, db: DbSession = Depends(get_db)):
     todo = _get_todo(db, todo_id)
-    for sub in db.scalars(select(Todo).where(Todo.parent_id == todo.id)).all():
+    subs = db.scalars(select(Todo).where(Todo.parent_id == todo.id)).all()
+    ids = [todo.id, *(sub.id for sub in subs)]
+    if todo.project_id is None:
+        # A task's time and open items have nothing else to belong to: they go with it
+        db.execute(Session.__table__.delete().where(Session.todo_id.in_(ids)))
+        db.execute(OpenItem.__table__.delete().where(OpenItem.todo_id.in_(ids)))
+    else:
+        # A project's to-do: its time stays the project's
+        db.execute(update(Session).where(Session.todo_id.in_(ids)).values(todo_id=None))
+        db.execute(update(OpenItem).where(OpenItem.todo_id.in_(ids)).values(todo_id=None))
+    for sub in subs:
         db.delete(sub)
     db.delete(todo)
     db.commit()
@@ -358,9 +421,9 @@ def list_sessions(
 
 @api.post("/sessions", response_model=schemas.SessionOut, status_code=status.HTTP_201_CREATED)
 def create_session(body: schemas.SessionCreate, db: DbSession = Depends(get_db)):
-    _get_project(db, body.project_id)
+    project_id, todo_id = _subject(db, body.project_id, body.todo_id)
     _validate_span(body.start, body.end)
-    session = Session(**body.model_dump())
+    session = Session(**{**body.model_dump(), "project_id": project_id, "todo_id": todo_id})
     db.add(session)
     db.commit()
     db.refresh(session)
@@ -371,8 +434,10 @@ def create_session(body: schemas.SessionCreate, db: DbSession = Depends(get_db))
 def update_session(session_id: str, body: schemas.SessionUpdate, db: DbSession = Depends(get_db)):
     session = _get_session(db, session_id)
     changes = body.model_dump(exclude_unset=True)
-    if "project_id" in changes:
-        _get_project(db, changes["project_id"])
+    if "project_id" in changes or "todo_id" in changes:
+        changes["project_id"], changes["todo_id"] = _subject(
+            db, changes.get("project_id", session.project_id), changes.get("todo_id", session.todo_id)
+        )
     _validate_span(changes.get("start", session.start), changes.get("end", session.end))
     for field, value in changes.items():
         setattr(session, field, value)
@@ -398,15 +463,15 @@ def get_timer(db: DbSession = Depends(get_db)):
 
 @api.post("/timer/start", response_model=schemas.SessionOut)
 def start_timer(body: schemas.TimerStart, db: DbSession = Depends(get_db)):
-    """Only one timer runs at a time: starting a project stops whatever was running."""
-    _get_project(db, body.project_id)
+    """Only one timer runs at a time: starting a project (or a task) stops whatever was running."""
+    project_id, todo_id = _subject(db, body.project_id, body.todo_id)
     now = utcnow()
     current = _running(db)
     if current is not None:
-        if current.project_id == body.project_id:
+        if current.project_id == project_id and current.todo_id == todo_id:
             return current
         _end_timer(db, current, now)
-    session = Session(project_id=body.project_id, start=now, end=None)
+    session = Session(project_id=project_id, todo_id=todo_id, start=now, end=None)
     db.add(session)
     db.commit()
     db.refresh(session)
@@ -424,6 +489,79 @@ def stop_timer(keep: bool = False, db: DbSession = Depends(get_db)):
         return None
     db.refresh(stopped)
     return stopped
+
+#endregion
+# ─────────────────────────────────────────────────────────────────────────────
+#region Open items
+
+def _get_open_item(db: DbSession, item_id: str) -> OpenItem:
+    item = db.get(OpenItem, item_id)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Open item not found")
+    return item
+
+
+def _validate_open_start(start: datetime) -> None:
+    if start > utcnow() + FUTURE_TOLERANCE:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Start can't be in the future")
+
+
+@api.get("/open-items", response_model=list[schemas.OpenItemOut])
+def list_open_items(db: DbSession = Depends(get_db)):
+    return db.scalars(select(OpenItem).order_by(OpenItem.start)).all()
+
+
+@api.post("/open-items", response_model=schemas.OpenItemOut, status_code=status.HTTP_201_CREATED)
+def create_open_item(body: schemas.OpenItemCreate, db: DbSession = Depends(get_db)):
+    """Start something to close later. Any number can be open, alongside the timer."""
+    project_id, todo_id = _subject(db, body.project_id, body.todo_id)
+    start = body.start or utcnow()
+    _validate_open_start(start)
+    item = OpenItem(project_id=project_id, todo_id=todo_id, start=start, note=body.note)
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@api.patch("/open-items/{item_id}", response_model=schemas.OpenItemOut)
+def update_open_item(item_id: str, body: schemas.OpenItemUpdate, db: DbSession = Depends(get_db)):
+    item = _get_open_item(db, item_id)
+    changes = body.model_dump(exclude_unset=True)
+    if "project_id" in changes or "todo_id" in changes:
+        changes["project_id"], changes["todo_id"] = _subject(
+            db, changes.get("project_id", item.project_id), changes.get("todo_id", item.todo_id)
+        )
+    if changes.get("start") is not None:
+        _validate_open_start(changes["start"])
+    for field, value in changes.items():
+        if value is not None or field in ("project_id", "todo_id"):
+            setattr(item, field, value)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@api.post("/open-items/{item_id}/close", response_model=schemas.SessionOut)
+def close_open_item(item_id: str, body: schemas.OpenItemClose, db: DbSession = Depends(get_db)):
+    """Close it: it becomes a session from its start to `end` (now if not given)."""
+    item = _get_open_item(db, item_id)
+    end = body.end or utcnow()
+    _validate_span(item.start, end)
+    session = Session(project_id=item.project_id, todo_id=item.todo_id, start=item.start, end=end, note=item.note)
+    db.add(session)
+    db.delete(item)
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+@api.delete("/open-items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_open_item(item_id: str, db: DbSession = Depends(get_db)):
+    """Throw it away: nothing is logged."""
+    db.delete(_get_open_item(db, item_id))
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 #endregion
 # ─────────────────────────────────────────────────────────────────────────────

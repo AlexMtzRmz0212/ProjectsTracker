@@ -36,10 +36,32 @@ export async function fetchApi(path, options = {}) {
 
 const json = (method, body) => ({ method, body: JSON.stringify(body) });
 
-/** API sessions carry ISO strings; the app works with Date objects. */
-export function parseSession(s) {
-  return { ...s, start: new Date(s.start), end: s.end ? new Date(s.end) : null };
+// ── Subjects ────────────────────────────────────────────────────────────────
+// Time is logged on a project or on a task (a to-do with no project). The server keeps the two apart
+// (`project_id`, or `todo_id` alone); the app names whatever time is on by one id, its "subject": a
+// project's id, or "task:" and the task's id. So the calendar, the stats and the timer, which all
+// look a session up by `project_id`, work the same for both. The conversion happens here.
+
+const TASK = "task:";
+export const taskKey = (todoId) => TASK + todoId;
+export const isTaskKey = (id) => typeof id === "string" && id.startsWith(TASK);
+export const taskIdOf = (key) => key.slice(TASK.length);
+
+/** The subject of something the server sent: its project, or its task. */
+const subjectOf = (row) => row.project_id ?? (row.todo_id ? taskKey(row.todo_id) : null);
+
+/** The server's fields for a subject id (and the project to-do it names, if any). */
+export function subjectFields(subjectId, todoId = null) {
+  return isTaskKey(subjectId) ? { project_id: null, todo_id: taskIdOf(subjectId) } : { project_id: subjectId, todo_id: todoId };
 }
+
+/** API sessions carry ISO strings; the app works with Date objects, and a subject id in `project_id`. */
+export function parseSession(s) {
+  return { ...s, project_id: subjectOf(s), start: new Date(s.start), end: s.end ? new Date(s.end) : null };
+}
+
+/** An open item: like a session that hasn't ended. */
+export const parseOpenItem = (item) => ({ ...item, project_id: subjectOf(item), start: new Date(item.start) });
 
 export function parsePomodoro(p) {
   return { ...p, start: new Date(p.start), end: new Date(p.end) };
@@ -77,8 +99,9 @@ export const api = {
     parseSession(await fetchApi(`/sessions/${id}`, json("PATCH", serialize(data)))),
   deleteSession: (id) => fetchApi(`/sessions/${id}`, { method: "DELETE" }),
 
-  startTimer: async (projectId) =>
-    parseSession(await fetchApi("/timer/start", json("POST", { project_id: projectId }))),
+  /** Start the timer on a project or a task; on a project, `todoId` names the to-do being timed. */
+  startTimer: async (subjectId, todoId = null) =>
+    parseSession(await fetchApi("/timer/start", json("POST", subjectFields(subjectId, todoId)))),
   stopTimer: async ({ keep = false } = {}) => {
     const s = await fetchApi(`/timer/stop${keep ? "?keep=true" : ""}`, { method: "POST" });
     return s ? parseSession(s) : null;
@@ -93,10 +116,19 @@ export const api = {
     return rows.map(parsePomodoro);
   },
   createPomodoro: async (data) => parsePomodoro(await fetchApi("/pomodoros", json("POST", serialize(data)))),
+
+  listOpenItems: async () => (await fetchApi("/open-items")).map(parseOpenItem),
+  createOpenItem: async (data) => parseOpenItem(await fetchApi("/open-items", json("POST", serialize(data)))),
+  updateOpenItem: async (id, data) => parseOpenItem(await fetchApi(`/open-items/${id}`, json("PATCH", serialize(data)))),
+  /** Close it at `end` (now if left out); it comes back as the session it became. */
+  closeOpenItem: async (id, { end } = {}) =>
+    parseSession(await fetchApi(`/open-items/${id}/close`, json("POST", serialize({ end })))),
+  deleteOpenItem: (id) => fetchApi(`/open-items/${id}`, { method: "DELETE" }),
 };
 
+/** Dates as ISO strings, and a subject id as the server's project_id / todo_id. */
 function serialize(data) {
-  const out = { ...data };
+  const out = { ...data, ...("project_id" in data ? subjectFields(data.project_id, data.todo_id ?? null) : {}) };
   if (out.start instanceof Date) out.start = out.start.toISOString();
   if (out.end instanceof Date) out.end = out.end.toISOString();
   return out;

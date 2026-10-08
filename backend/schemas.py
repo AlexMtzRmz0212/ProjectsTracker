@@ -96,7 +96,7 @@ TodoText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1,
 
 
 class TodoCreate(BaseModel):
-    project_id: str
+    project_id: Optional[str] = None  # none: a task of its own
     text: TodoText
     parent_id: Optional[str] = None
 
@@ -105,25 +105,30 @@ class TodoUpdate(BaseModel):
     text: Optional[TodoText] = None
     done: Optional[bool] = None
     sort_order: Optional[int] = None
+    working: Optional[bool] = None  # being worked on (sets working_since), or not
 
 
 class TodoOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    project_id: str
+    project_id: Optional[str] = None
     parent_id: Optional[str] = None
     text: str
     done: bool
     sort_order: int
     created_at: UTCDateTime
     completed_at: Optional[UTCDateTime] = None
+    working_since: Optional[UTCDateTime] = None
+    total_seconds: int = 0  # closed-session time logged on a task (one with no project)
 
 
 # ── Sessions ────────────────────────────────────────────────────────────────
 
 class SessionCreate(BaseModel):
-    project_id: str
+    # A project, a task (a to-do with no project), or a project and one of its to-dos
+    project_id: Optional[str] = None
+    todo_id: Optional[str] = None
     start: UTCDateTime
     end: UTCDateTime
     note: Annotated[str, Field(max_length=280)] = ""
@@ -131,6 +136,7 @@ class SessionCreate(BaseModel):
 
 class SessionUpdate(BaseModel):
     project_id: Optional[str] = None
+    todo_id: Optional[str] = None
     start: Optional[UTCDateTime] = None
     end: Optional[UTCDateTime] = None
     note: Optional[Annotated[str, Field(max_length=280)]] = None
@@ -140,14 +146,46 @@ class SessionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    project_id: str
+    project_id: Optional[str] = None
+    todo_id: Optional[str] = None
     start: UTCDateTime
     end: Optional[UTCDateTime]
     note: str
 
 
 class TimerStart(BaseModel):
-    project_id: str
+    project_id: Optional[str] = None
+    todo_id: Optional[str] = None
+
+
+# ── Open items ──────────────────────────────────────────────────────────────
+
+class OpenItemCreate(BaseModel):
+    project_id: Optional[str] = None
+    todo_id: Optional[str] = None
+    start: Optional[UTCDateTime] = None  # none: now
+    note: Annotated[str, Field(max_length=280)] = ""
+
+
+class OpenItemUpdate(BaseModel):
+    project_id: Optional[str] = None
+    todo_id: Optional[str] = None
+    start: Optional[UTCDateTime] = None
+    note: Optional[Annotated[str, Field(max_length=280)]] = None
+
+
+class OpenItemClose(BaseModel):
+    end: Optional[UTCDateTime] = None  # none: now
+
+
+class OpenItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    project_id: Optional[str] = None
+    todo_id: Optional[str] = None
+    start: UTCDateTime
+    note: str
 
 
 # ── Pomodoros ───────────────────────────────────────────────────────────────

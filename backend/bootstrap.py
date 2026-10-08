@@ -7,7 +7,10 @@ so changes to an existing table (projects, todos) are applied by hand below, and
 checks whether it is already done. Running this twice is harmless.
 """
 
-from sqlalchemy import Engine, inspect, select, text
+import re
+
+from sqlalchemy import Engine, Table, inspect, select, text
+from sqlalchemy.schema import CreateTable
 from sqlalchemy.orm import Session as DbSession
 
 from . import models
@@ -26,6 +29,10 @@ def init_db(engine: Engine) -> None:
     _add_todo_columns(engine)
     _add_status_columns(engine)
     _add_pomodoro_columns(engine)
+    _add_session_columns(engine)
+    # Tasks of their own are to-dos with no project, and their time is sessions with no project
+    _make_nullable(engine, models.Todo.__table__, "project_id")
+    _make_nullable(engine, models.Session.__table__, "project_id")
     with DbSession(engine) as db:
         _seed_statuses(db)
         _backfill_status_ids(db)
@@ -63,7 +70,8 @@ def _add_project_columns(engine: Engine) -> None:
 
 def _add_todo_columns(engine: Engine) -> None:
     """to-dos made before completed_at existed get NULL: when they were ticked off isn't known.
-    parent_id is NULL for to-dos made before sub-to-dos existed: they are all top-level."""
+    parent_id is NULL for to-dos made before sub-to-dos existed: they are all top-level.
+    working_since is NULL for to-dos made before it existed: none is being worked on."""
     columns = {c["name"] for c in inspect(engine).get_columns("todos")}
     with engine.begin() as conn:
         if "completed_at" not in columns:
@@ -71,6 +79,40 @@ def _add_todo_columns(engine: Engine) -> None:
             conn.execute(text(f"ALTER TABLE todos ADD COLUMN completed_at {column_type}"))
         if "parent_id" not in columns:
             conn.execute(text("ALTER TABLE todos ADD COLUMN parent_id VARCHAR REFERENCES todos(id) ON DELETE CASCADE"))
+        if "working_since" not in columns:
+            column_type = models.Todo.__table__.c.working_since.type.compile(dialect=engine.dialect)
+            conn.execute(text(f"ALTER TABLE todos ADD COLUMN working_since {column_type}"))
+
+
+def _add_session_columns(engine: Engine) -> None:
+    """Sessions made before todo_id existed are a project's, with no to-do named."""
+    if "todo_id" not in {c["name"] for c in inspect(engine).get_columns("sessions")}:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE sessions ADD COLUMN todo_id VARCHAR REFERENCES todos(id) ON DELETE SET NULL"))
+
+
+def _make_nullable(engine: Engine, table: Table, column: str) -> None:
+    """Let a NOT NULL column take NULL. Postgres can say so directly; SQLite can't change a column,
+    so the table is made again from the model and the rows copied across (the usual SQLite recipe).
+    Foreign keys aren't enforced on these connections, so the brief rename is safe."""
+    current = {c["name"]: c for c in inspect(engine).get_columns(table.name)}
+    if column not in current or current[column]["nullable"]:
+        return
+    if engine.dialect.name != "sqlite":
+        with engine.begin() as conn:
+            conn.execute(text(f'ALTER TABLE {table.name} ALTER COLUMN "{column}" DROP NOT NULL'))
+        return
+    new_name = f"{table.name}__new"
+    ddl = str(CreateTable(table).compile(dialect=engine.dialect))
+    ddl = re.sub(rf"CREATE TABLE {table.name}\b", f"CREATE TABLE {new_name}", ddl, count=1)
+    shared = ", ".join(f'"{c.name}"' for c in table.columns if c.name in current)
+    with engine.begin() as conn:
+        conn.execute(text(ddl))
+        conn.execute(text(f"INSERT INTO {new_name} ({shared}) SELECT {shared} FROM {table.name}"))
+        conn.execute(text(f"DROP TABLE {table.name}"))
+        conn.execute(text(f"ALTER TABLE {new_name} RENAME TO {table.name}"))
+    for index in table.indexes:
+        index.create(bind=engine, checkfirst=True)
 
 
 def _add_status_columns(engine: Engine) -> None:

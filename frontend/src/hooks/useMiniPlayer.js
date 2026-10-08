@@ -23,6 +23,29 @@ function copyStyles(win) {
   }
 }
 
+const PIP_SIZE_KEY = "pt-mini-pip";
+
+/** The size the floating window was last left at, so it opens the same way again. */
+function pipSize() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PIP_SIZE_KEY));
+    if (Number.isFinite(saved?.width) && Number.isFinite(saved?.height)) return saved;
+  } catch {
+    // nothing saved, or storage blocked
+  }
+  return { width: 360, height: 180 };
+}
+
+function rememberSize(win) {
+  try {
+    if (win.innerWidth && win.innerHeight) {
+      localStorage.setItem(PIP_SIZE_KEY, JSON.stringify({ width: win.innerWidth, height: win.innerHeight }));
+    }
+  } catch {
+    // storage blocked: it just opens at the default size
+  }
+}
+
 /** Keep a window's theme (the `data-theme` on <html>) in step with the page's. Returns a way to stop. */
 function followTheme(win) {
   const sync = () => {
@@ -55,6 +78,7 @@ export function useMiniPlayer() {
     winRef.current = null;
     setPip(null);
     setOpen(false);
+    if (win) rememberSize(win);
     win?.close();
   }, []);
 
@@ -63,12 +87,13 @@ export function useMiniPlayer() {
     if (!canFloat()) return setOpen(true);
     pending.current = true;
     try {
-      const win = await window.documentPictureInPicture.requestWindow({ width: 320, height: 176 });
+      const win = await window.documentPictureInPicture.requestWindow(pipSize());
       copyStyles(win);
       stopTheme.current = followTheme(win);
       win.addEventListener("pagehide", () => {
         // The window was closed from its own title bar
         if (winRef.current !== win) return;
+        rememberSize(win);
         stopTheme.current?.();
         stopTheme.current = null;
         winRef.current = null;
