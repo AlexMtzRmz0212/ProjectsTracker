@@ -93,7 +93,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
 
   const [cursor, setCursor] = useState(() => new Date());
   const [selected, setSelected] = useState(() => new Date());
-  const [tab, setTab] = useState("projects"); // projects | feed | calendar | stats
+  const [tab, setTab] = useState("feed"); // feed | projects | tasks | calendar | stats
   const [calView, setCalView] = useCalendarView(); // month | week | day
   const [statusesOpen, setStatusesOpen] = useState(false);
   // The side peek: the project last clicked (its notes, to-dos and sessions), and whether the panel is out
@@ -458,9 +458,9 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   if (t.status === "error") return <ServerDown onRetry={t.reload} />;
 
   const tabs = [
+    { id: "feed", label: "Feed", icon: ListTodo },
     { id: "projects", label: "Projects", icon: Columns3 },
     { id: "tasks", label: "Tasks", icon: ListChecks },
-    { id: "feed", label: "Feed", icon: ListTodo },
     { id: "calendar", label: "Calendar", icon: CalendarDays },
     { id: "stats", label: "Stats", icon: ChartColumn },
   ];
