@@ -5,6 +5,7 @@ import { iconFor, inkText } from "../lib/palette";
 import { completedPomodoros, dayKey, fmtHM, fmtTime, pomodoroProjects, pomodorosOnDay, sessionSeconds } from "../lib/time";
 import { SplitBar } from "./StatsStrip";
 import ParentTag from "./ParentTag";
+import DoneChart from "./DoneChart";
 import { todoSubject } from "../api";
 
 /** The selected day as a time card: In, Out, Project, Hours, then the pomodoros finished and the to-dos ticked off that day.
@@ -194,6 +195,8 @@ export default function DayPanel({ date, sessions, pomodoros, todos, todoOps, by
           </ul>
         </div>
       )}
+
+      <DoneChart ticked={ticked} projectsById={projectsById} />
 
       {ticked.length > 0 && (
         <div className="mt-5">

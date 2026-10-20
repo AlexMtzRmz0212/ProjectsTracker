@@ -313,7 +313,7 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
   return (
     <li {...sort.row} className={`${isSub ? "" : "border-b border-rule"} ${sort.row.className ?? ""}`}>
       <div
-        className={`group flex items-center gap-2.5 ${isSub ? "border-t border-rule pl-11" : ""} ${
+        className={`group flex items-center gap-2 ${isSub ? "border-t border-rule pl-11" : ""} ${
           sort.nestTarget
             ? "bg-[color-mix(in_srgb,var(--accent-2)_14%,transparent)] outline outline-1 -outline-offset-1 outline-accent-2"
             : working
@@ -354,74 +354,78 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
           onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
           maxLength={200}
           aria-label={isSub ? "Sub-to-do" : "To-do"}
+          title={todo.text}
           className={`h-9 min-w-0 flex-1 bg-transparent text-[14px] outline-none focus:bg-surface-2 ${
             todo.done ? "text-muted line-through" : ""
           }`}
         />
-        {cancelled && <span className="shrink-0 font-serif text-xs italic text-muted">Cancelled</span>}
-        {!todo.done && (
+        {/* The controls are kept close together at the end of the row, so the line takes the rest */}
+        <div className="flex shrink-0 items-center gap-0.5">
+          {cancelled && <span className="mr-1 shrink-0 font-serif text-xs italic text-muted">Cancelled</span>}
+          {!todo.done && (
+            <button
+              onClick={() => ops.update(todo.id, { working: !working })}
+              aria-pressed={working}
+              aria-label={working ? `Stop marking "${todo.text}" as being worked on` : `Mark "${todo.text}" as being worked on`}
+              title={working ? `Working on this since ${format(new Date(todo.working_since), "EEE d MMM, HH:mm")}. Click to unmark` : "Currently working on this"}
+              className={`inline-flex h-7 shrink-0 items-center gap-1 px-1 text-xs font-semibold transition-colors ${
+                working ? "text-accent hover:bg-surface-2" : `text-muted hover:bg-surface-2 hover:text-text ${reveal}`
+              }`}
+            >
+              <CircleDot size={14} className={working ? "blink-dot" : ""} aria-hidden="true" />
+              {working && <span className="max-sm:sr-only">Working on</span>}
+            </button>
+          )}
+          {extra}
+          {subs.length > 0 && (
+            <span
+              title={`${subsDone} of ${subs.length} sub-to-dos done`}
+              className="figures mx-1 shrink-0 font-serif text-xs italic text-muted"
+            >
+              {subsDone}/{subs.length}
+            </span>
+          )}
+          {created && (
+            <time
+              dateTime={created.toISOString()}
+              title={`Added ${format(created, "EEE d MMM yyyy, HH:mm")}`}
+              className="figures mx-1 shrink-0 font-serif text-xs italic text-faint"
+            >
+              {format(created, created.getFullYear() === new Date().getFullYear() ? "d MMM" : "d MMM yyyy")}
+              {showTime && `, ${format(created, "HH:mm")}`}
+            </time>
+          )}
           <button
-            onClick={() => ops.update(todo.id, { working: !working })}
-            aria-pressed={working}
-            aria-label={working ? `Stop marking "${todo.text}" as being worked on` : `Mark "${todo.text}" as being worked on`}
-            title={working ? `Working on this since ${format(new Date(todo.working_since), "EEE d MMM, HH:mm")}. Click to unmark` : "Currently working on this"}
-            className={`inline-flex h-7 shrink-0 items-center gap-1.5 px-1.5 text-xs font-semibold transition-colors ${
-              working ? "text-accent hover:bg-surface-2" : `text-muted hover:bg-surface-2 hover:text-text ${reveal}`
+            {...sort.grip}
+            aria-label={`Move "${todo.text}": drag, or use the up and down arrow keys. ${
+              isSub ? "Left arrow takes it out of its to-do" : "Right arrow puts it under the to-do above"
+            }`}
+            title={isSub ? "Drag to reorder; pull it left to take it out" : "Drag to reorder; pull it right to put it under the to-do above"}
+            className={`grid size-7 shrink-0 touch-none place-items-center text-faint transition-colors hover:bg-surface-2 hover:text-text ${
+              sort.held ? "cursor-grabbing text-text sm:opacity-100" : `cursor-grab ${reveal}`
             }`}
           >
-            <CircleDot size={14} className={working ? "blink-dot" : ""} aria-hidden="true" />
-            {working && <span className="max-sm:sr-only">Working on</span>}
+            <GripVertical size={14} />
           </button>
-        )}
-        {extra}
-        {subs.length > 0 && (
-          <span
-            title={`${subsDone} of ${subs.length} sub-to-dos done`}
-            className="figures shrink-0 font-serif text-xs italic text-muted"
-          >
-            {subsDone}/{subs.length}
-          </span>
-        )}
-        {created && (
-          <time
-            dateTime={created.toISOString()}
-            title={`Added ${format(created, "EEE d MMM yyyy, HH:mm")}`}
-            className="figures shrink-0 font-serif text-xs italic text-faint"
-          >
-            {format(created, created.getFullYear() === new Date().getFullYear() ? "d MMM" : "d MMM yyyy")}
-            {showTime && `, ${format(created, "HH:mm")}`}
-          </time>
-        )}
-        <button
-          {...sort.grip}
-          aria-label={`Move "${todo.text}": drag, or use the up and down arrow keys. ${
-            isSub ? "Left arrow takes it out of its to-do" : "Right arrow puts it under the to-do above"
-          }`}
-          title={isSub ? "Drag to reorder; pull it left to take it out" : "Drag to reorder; pull it right to put it under the to-do above"}
-          className={`grid size-8 shrink-0 touch-none place-items-center text-faint transition-colors hover:bg-surface-2 hover:text-text ${
-            sort.held ? "cursor-grabbing text-text sm:opacity-100" : `cursor-grab ${reveal}`
-          }`}
-        >
-          <GripVertical size={14} />
-        </button>
-        {(!todo.done || cancelled) && (
+          {(!todo.done || cancelled) && (
+            <button
+              onClick={() => ops.update(todo.id, { cancelled: !cancelled })}
+              aria-label={cancelled ? `Take back the cancelling of "${todo.text}"` : `Cancel "${todo.text}"`}
+              title={cancelled ? "Take back the cancelling" : "Cancel: call it off, keeping it in the list of what is over"}
+              className={`grid size-7 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text ${reveal}`}
+            >
+              {cancelled ? <Undo2 size={14} /> : <Ban size={14} />}
+            </button>
+          )}
           <button
-            onClick={() => ops.update(todo.id, { cancelled: !cancelled })}
-            aria-label={cancelled ? `Take back the cancelling of "${todo.text}"` : `Cancel "${todo.text}"`}
-            title={cancelled ? "Take back the cancelling" : "Cancel: call it off, keeping it in the list of what is over"}
-            className={`grid size-8 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text ${reveal}`}
+            onClick={() => ops.remove(todo.id)}
+            aria-label={`Delete "${todo.text}"`}
+            title={subs.length > 0 ? "Delete, with its sub-to-dos" : "Delete"}
+            className={`grid size-7 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-danger ${reveal}`}
           >
-            {cancelled ? <Undo2 size={14} /> : <Ban size={14} />}
+            <Trash2 size={14} />
           </button>
-        )}
-        <button
-          onClick={() => ops.remove(todo.id)}
-          aria-label={`Delete "${todo.text}"`}
-          title={subs.length > 0 ? "Delete, with its sub-to-dos" : "Delete"}
-          className={`grid size-8 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-danger ${reveal}`}
-        >
-          <Trash2 size={14} />
-        </button>
+        </div>
       </div>
 
       {(showSubs || adding) && (

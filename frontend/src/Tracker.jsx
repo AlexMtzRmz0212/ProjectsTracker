@@ -40,6 +40,7 @@ import { TASK_ICON, TASK_INK, inkFor } from "./lib/palette";
 import { isTaskKey, taskIdOf, taskKey } from "./api";
 
 const FEED_TASKS = "feed:tasks"; // the id of the Tasks card in the Feed
+const PEEK_ROOM = 760; // the least width the page keeps beside the side peek; short of it the peek goes over the page
 
 /**
  * The whole tracker. `api` is where its data lives: the real server for the
@@ -102,6 +103,17 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     setPeekId(id);
     setPeekOpen(true);
   };
+  // How much of the window's width the peek covers, and whether it is being dragged out; the page makes room
+  // for it when what is left is still wide enough to work in (a narrower window leaves the peek over the page)
+  const [peekPush, setPeekPush] = useState({ px: 0, dragging: false });
+  const onPeekWidth = useCallback((px, dragging) => setPeekPush({ px, dragging }), []);
+  const [viewportW, setViewportW] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setViewportW(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const pushPx = !demo && viewportW >= 1024 && viewportW - peekPush.px >= PEEK_ROOM ? peekPush.px : 0;
   const [searchOpen, setSearchOpen] = useState(false);
   const [projectModal, setProjectModal] = useState(null); // { project? }
   // { session?, openItem?, projectId?, date?, span?, startOpen? }: a session to log or edit, or an open item
@@ -487,192 +499,198 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           }
         />
 
-        <TabBar
-          tabs={tabs}
-          value={tab}
-          onChange={setTab}
-          label="Sections"
-          className={`mx-auto w-full max-w-7xl shrink-0 px-2 sm:px-5 ${demo ? "" : "max-sm:hidden"}`}
-          right={
-            <>
-              <span className="figures hidden whitespace-nowrap text-xs text-muted md:inline">
-                Today <span className="font-semibold text-text">{fmtHM(todaySecs)}</span>
-                <span className="mx-2 text-faint">·</span>
-                Week <span className="font-semibold text-text">{fmtHM(weekSecs)}</span>
-              </span>
-              {tab === "projects" && t.status === "ready" && (
-                <button
-                  onClick={() => setStatusesOpen(true)}
-                  className="inline-flex h-8 items-center gap-1.5 px-2 text-[13px] text-muted transition-colors hover:bg-surface-2 hover:text-text"
-                >
-                  <SlidersHorizontal size={14} /> <span className="max-sm:sr-only">Statuses</span>
-                </button>
-              )}
-            </>
-          }
-        />
-
-        <OpenItemsBar
-          items={t.openItems}
-          subjectsById={projectsById}
-          now={now}
-          onOpen={(item) => setSessionModal({ openItem: item })}
-          onClose={(item) => t.openOps.close(item.id)}
-          className="mx-auto w-full max-w-7xl shrink-0 border-b border-line px-4 sm:px-6"
-        />
-
-        <main
-          role="tabpanel"
-          id={`panel-${tab}`}
-          aria-labelledby={`tab-${tab}`}
-          className="relative mx-auto min-h-0 w-full max-w-7xl flex-1 overflow-y-auto px-4 py-3 sm:px-6"
+        {/* Everything under the header gives way to the side peek, where the window has room for both */}
+        <div
+          className="flex min-h-0 flex-1 flex-col transition-[padding] duration-200 ease-out"
+          style={{ paddingRight: pushPx, transition: peekPush.dragging ? "none" : undefined }}
         >
-          {t.status === "loading" ? (
-            <Skeleton />
-          ) : tab === "projects" ? (
-            projects.length === 0 ? (
-              <EmptyBoard onCreate={() => setProjectModal({})} />
-            ) : (
-              <ProjectBoard
-                projects={liveProjects}
-                archived={archivedProjects}
-                statuses={t.statuses}
-                cardProps={cardProps}
-                onMove={moveProject}
-                onCreate={(statusId) => setProjectModal({ statusId })}
-                onDelete={t.deleteProject}
-                onArchive={archiveProject}
-                onRestore={t.restoreProject}
-                onOpenArchived={peek}
-              />
-            )
-          ) : tab === "tasks" ? (
-            <TasksView
-              tasks={tasks}
-              todoOps={t.todoOps}
-              runningId={runningId}
-              clock={clock}
-              openItems={t.openItems}
-              now={now}
-              secondsFor={(task) =>
-                (task.total_seconds ?? 0) + (runningId === taskKey(task.id) ? elapsed : 0) + openSeconds(taskKey(task.id))
-              }
-              onStart={startProject}
-              onStop={t.stopTimer}
-              onLeaveOpen={(key) => setSessionModal({ projectId: key, startOpen: true })}
-              onLogTime={(key) => setSessionModal({ projectId: key, date: today })}
-              onOpenItem={(item) => setSessionModal({ openItem: item })}
-              onOpenTask={peek}
-            />
-          ) : tab === "feed" ? (
-            projects.length === 0 ? (
-              <EmptyBoard onCreate={() => setProjectModal({})} />
-            ) : (
-              <FeedView
-                queue={queue}
-                todosByProject={openTodosByProject}
-                todosById={todosById}
-                todoOps={t.todoOps}
-                statusesById={statusesById}
-                runningId={isTaskKey(runningId) ? FEED_TASKS : runningId}
-                elapsed={clock}
-                onOpen={(id) => (id === FEED_TASKS ? showTasks() : peek(id))}
-                onStart={startProject}
-                onStartTask={(todo) => startProject(taskKey(todo.parent_id ?? todo.id), todo.id)}
-                onStop={t.stopTimer}
-                onSkip={(id) => (id === FEED_TASKS ? skipTasks() : t.skipProject(id))}
-              />
-            )
-          ) : tab === "calendar" ? (
-            <div className="flex h-full flex-col">
-              {calView === "month" && <CalendarViews value={calView} onChange={setCalView} />}
-              {/* Week and day fill what is left of the window, so the page itself never scrolls: the hours do */}
-              <div
-                className={`grid gap-6 lg:gap-10 ${
-                  calView === "month" ? "items-start lg:grid-cols-[minmax(0,32rem)_minmax(0,1fr)]"
-                  : calView === "day" ? "min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:grid-rows-[minmax(0,1fr)]"
-                  : "min-h-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]"
-                }`}
-              >
-                {calView === "month" ? (
-                  <MonthCalendar
-                    cursor={cursor}
-                    onCursor={setCursor}
-                    selected={selected}
-                    onSelect={selectDay}
-                    byDay={byDay}
-                    projectsById={projectsById}
-                    today={today}
-                  />
-                ) : (
-                  <TimeGrid
-                    mode={calView}
-                    date={selected}
-                    today={today}
-                    now={now}
-                    sessions={calendarSessions}
-                    pomodoros={t.pomodoros}
-                    todos={t.todos}
-                    projectsById={projectsById}
-                    onNavigate={selectDay}
-                    onOpenDay={(d) => {
-                      selectDay(d);
-                      setCalView("day");
-                    }}
-                    onEditSession={editEntry}
-                    onAddSpan={(span) => openAddTime(undefined, span.start, span)}
-                    onMoveSession={(s, span) => t.updateSession(s.id, span)}
-                    viewSwitch={<CalendarViews value={calView} onChange={setCalView} className="max-sm:basis-full" />}
-                  />
+          <TabBar
+            tabs={tabs}
+            value={tab}
+            onChange={setTab}
+            label="Sections"
+            className={`mx-auto w-full max-w-7xl shrink-0 px-2 sm:px-5 ${demo ? "" : "max-sm:hidden"}`}
+            right={
+              <>
+                <span className="figures hidden whitespace-nowrap text-xs text-muted md:inline">
+                  Today <span className="font-semibold text-text">{fmtHM(todaySecs)}</span>
+                  <span className="mx-2 text-faint">·</span>
+                  Week <span className="font-semibold text-text">{fmtHM(weekSecs)}</span>
+                </span>
+                {tab === "projects" && t.status === "ready" && (
+                  <button
+                    onClick={() => setStatusesOpen(true)}
+                    className="inline-flex h-8 items-center gap-1.5 px-2 text-[13px] text-muted transition-colors hover:bg-surface-2 hover:text-text"
+                  >
+                    <SlidersHorizontal size={14} /> <span className="max-sm:sr-only">Statuses</span>
+                  </button>
                 )}
-                {calView !== "week" && (
-                  <div className={calView === "day" ? "min-h-0 lg:overflow-y-auto" : undefined}>
-                    <DayPanel
+              </>
+            }
+          />
+
+          <OpenItemsBar
+            items={t.openItems}
+            subjectsById={projectsById}
+            now={now}
+            onOpen={(item) => setSessionModal({ openItem: item })}
+            onClose={(item) => t.openOps.close(item.id)}
+            className="mx-auto w-full max-w-7xl shrink-0 border-b border-line px-4 sm:px-6"
+          />
+
+          <main
+            role="tabpanel"
+            id={`panel-${tab}`}
+            aria-labelledby={`tab-${tab}`}
+            className="relative mx-auto min-h-0 w-full max-w-7xl flex-1 overflow-y-auto px-4 py-3 sm:px-6"
+          >
+            {t.status === "loading" ? (
+              <Skeleton />
+            ) : tab === "projects" ? (
+              projects.length === 0 ? (
+                <EmptyBoard onCreate={() => setProjectModal({})} />
+              ) : (
+                <ProjectBoard
+                  projects={liveProjects}
+                  archived={archivedProjects}
+                  statuses={t.statuses}
+                  cardProps={cardProps}
+                  onMove={moveProject}
+                  onCreate={(statusId) => setProjectModal({ statusId })}
+                  onDelete={t.deleteProject}
+                  onArchive={archiveProject}
+                  onRestore={t.restoreProject}
+                  onOpenArchived={peek}
+                />
+              )
+            ) : tab === "tasks" ? (
+              <TasksView
+                tasks={tasks}
+                todoOps={t.todoOps}
+                runningId={runningId}
+                clock={clock}
+                openItems={t.openItems}
+                now={now}
+                secondsFor={(task) =>
+                  (task.total_seconds ?? 0) + (runningId === taskKey(task.id) ? elapsed : 0) + openSeconds(taskKey(task.id))
+                }
+                onStart={startProject}
+                onStop={t.stopTimer}
+                onLeaveOpen={(key) => setSessionModal({ projectId: key, startOpen: true })}
+                onLogTime={(key) => setSessionModal({ projectId: key, date: today })}
+                onOpenItem={(item) => setSessionModal({ openItem: item })}
+                onOpenTask={peek}
+              />
+            ) : tab === "feed" ? (
+              projects.length === 0 ? (
+                <EmptyBoard onCreate={() => setProjectModal({})} />
+              ) : (
+                <FeedView
+                  queue={queue}
+                  todosByProject={openTodosByProject}
+                  todosById={todosById}
+                  todoOps={t.todoOps}
+                  statusesById={statusesById}
+                  runningId={isTaskKey(runningId) ? FEED_TASKS : runningId}
+                  elapsed={clock}
+                  onOpen={(id) => (id === FEED_TASKS ? showTasks() : peek(id))}
+                  onStart={startProject}
+                  onStartTask={(todo) => startProject(taskKey(todo.parent_id ?? todo.id), todo.id)}
+                  onStop={t.stopTimer}
+                  onSkip={(id) => (id === FEED_TASKS ? skipTasks() : t.skipProject(id))}
+                />
+              )
+            ) : tab === "calendar" ? (
+              <div className="flex h-full flex-col">
+                {calView === "month" && <CalendarViews value={calView} onChange={setCalView} />}
+                {/* Week and day fill what is left of the window, so the page itself never scrolls: the hours do */}
+                <div
+                  className={`grid gap-6 lg:gap-10 ${
+                    calView === "month" ? "items-start lg:grid-cols-[minmax(0,32rem)_minmax(0,1fr)]"
+                    : calView === "day" ? "min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:grid-rows-[minmax(0,1fr)]"
+                    : "min-h-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]"
+                  }`}
+                >
+                  {calView === "month" ? (
+                    <MonthCalendar
+                      cursor={cursor}
+                      onCursor={setCursor}
+                      selected={selected}
+                      onSelect={selectDay}
+                      byDay={byDay}
+                      projectsById={projectsById}
+                      today={today}
+                    />
+                  ) : (
+                    <TimeGrid
+                      mode={calView}
                       date={selected}
+                      today={today}
+                      now={now}
                       sessions={calendarSessions}
                       pomodoros={t.pomodoros}
                       todos={t.todos}
-                      todoOps={t.todoOps}
-                      byDay={byDay}
                       projectsById={projectsById}
-                      now={now}
-                      onAdd={() => openAddTime(undefined, selected)}
-                      onEdit={editEntry}
-                      onDelete={(s) => setConfirm({ kind: "session", item: s })}
-                      onStop={stopEntry}
+                      onNavigate={selectDay}
+                      onOpenDay={(d) => {
+                        selectDay(d);
+                        setCalView("day");
+                      }}
+                      onEditSession={editEntry}
+                      onAddSpan={(span) => openAddTime(undefined, span.start, span)}
+                      onMoveSession={(s, span) => t.updateSession(s.id, span)}
+                      viewSwitch={<CalendarViews value={calView} onChange={setCalView} className="max-sm:basis-full" />}
                     />
-                  </div>
-                )}
+                  )}
+                  {calView !== "week" && (
+                    <div className={calView === "day" ? "min-h-0 lg:overflow-y-auto" : undefined}>
+                      <DayPanel
+                        date={selected}
+                        sessions={calendarSessions}
+                        pomodoros={t.pomodoros}
+                        todos={t.todos}
+                        todoOps={t.todoOps}
+                        byDay={byDay}
+                        projectsById={projectsById}
+                        now={now}
+                        onAdd={() => openAddTime(undefined, selected)}
+                        onEdit={editEntry}
+                        onDelete={(s) => setConfirm({ kind: "session", item: s })}
+                        onStop={stopEntry}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ) : (
-            <>
-              <StatsStrip
-                byDay={byDay}
-                pomodoros={t.pomodoros}
-                today={today}
-                weekStart={weekStart}
-                streakDays={streak(byDay, today)}
-                openProjects={openProjects}
-                neglected={neglected}
-                onOpenProject={peek}
-                projectsById={projectsById}
-                runningProjectId={t.running?.project_id}
-              />
-              <Heatmap
-                byDay={byDay}
-                projects={projects}
-                projectsById={projectsById}
-                today={today}
-                selected={selected}
-                onSelect={(d) => {
-                  selectDay(d);
-                  setTab("calendar");
-                }}
-              />
-            </>
-          )}
-        </main>
+            ) : (
+              <>
+                <StatsStrip
+                  byDay={byDay}
+                  pomodoros={t.pomodoros}
+                  today={today}
+                  weekStart={weekStart}
+                  streakDays={streak(byDay, today)}
+                  openProjects={openProjects}
+                  neglected={neglected}
+                  onOpenProject={peek}
+                  projectsById={projectsById}
+                  runningProjectId={t.running?.project_id}
+                />
+                <Heatmap
+                  byDay={byDay}
+                  projects={projects}
+                  projectsById={projectsById}
+                  today={today}
+                  selected={selected}
+                  onSelect={(d) => {
+                    selectDay(d);
+                    setTab("calendar");
+                  }}
+                />
+              </>
+            )}
+          </main>
+        </div>
 
         {!demo && <BottomTabBar tabs={tabs} value={tab} onChange={setTab} label="Sections" />}
       </div>
@@ -719,6 +737,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           onPickProject={pickFromMini}
           onTasks={showTasks}
           onStopFocus={stopFocus}
+          onStopTimer={() => t.stopTimer()}
           onClose={mini.close}
         />
       )}
@@ -755,7 +774,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
         />
       )}
 
-      <ProjectPeek open={peekOpen} onOpenChange={setPeekOpen} project={peekProject} escPaused={pomodoroOpen}>
+      <ProjectPeek open={peekOpen} onOpenChange={setPeekOpen} onWidth={onPeekWidth} project={peekProject} escPaused={pomodoroOpen}>
         {peekProject && projectDetail(peekProject)}
       </ProjectPeek>
 

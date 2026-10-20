@@ -28,14 +28,15 @@ function saveWidth(w) {
 
 /**
  * A side peek: the project last clicked, in a panel off the right edge, under the header. The board
- * stays in reach beside it, so another project can be clicked straight into it. Its tab stays on
+ * stays in reach beside it, so another project can be clicked straight into it. Where the window is wide
+ * enough the page gives way to it (`onWidth` says how much it covers); otherwise it goes over the page. Its tab stays on
  * screen when it is away, to bring the same project back. The tab is also its handle: click it to
  * open or put away the peek, drag it to set how wide the peek is (that width is remembered in this
  * browser), or drag it most of the way to the right edge to put it away. With the tab focused, the
  * left and right arrow keys widen and narrow it. Esc puts it away too, except while a window is open
  * on top, while `escPaused`, and inside a text box (a sub-to-do uses it to cancel).
  */
-export default function ProjectPeek({ open, onOpenChange, project, escPaused = false, children }) {
+export default function ProjectPeek({ open, onOpenChange, onWidth, project, escPaused = false, children }) {
   const panel = useRef(null);
   const top = useHeaderBottom();
   const id = useId();
@@ -97,6 +98,12 @@ export default function ProjectPeek({ open, onOpenChange, project, escPaused = f
   const dragging = dragW !== null;
   const shownWidth = dragging ? fitWidth(dragW) : width;
   const transform = dragging ? `translateX(${Math.max(0, MIN_WIDTH - dragW)}px)` : open ? "translateX(0)" : "translateX(100%)";
+
+  // How much of the window the panel covers, for the page to make room (`onWidth(px, dragging)`)
+  const covered = dragging ? Math.max(0, Math.round(dragW)) : open ? width : 0;
+  useEffect(() => {
+    onWidth?.(covered, dragging);
+  }, [covered, dragging, onWidth]);
 
   useEffect(() => {
     if (!open || escPaused) return;

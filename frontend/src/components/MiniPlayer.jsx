@@ -141,7 +141,7 @@ function MiniClock(props) {
  *   bottom, the buttons sliding up over it on hover; tall enough, the buttons stay out under it and
  *   the to-dos fill the rest.
  */
-function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSeconds, todos = [], todoOps, timedTodoId = null, onStopFocus, onSearch }) {
+function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSeconds, todos = [], todoOps, timedTodoId = null, onStopFocus, onStopTimer, onSearch }) {
   const view = phaseView(pomodoro);
   const idle = view.tone === "idle";
   const flowing = pomodoro.phase === "focus" || pomodoro.phase === "break";
@@ -161,7 +161,7 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
   };
   const label = projectClock ? "Timer running" : view.label;
   const projectTime = project && !projectClock ? fmtClock(runningProject ? clock : heldSeconds) : null;
-  const controls = controlsFor(pomodoro, pomodoro.startFocus, onStopFocus, Boolean(runningProject));
+  const controls = controlsFor(pomodoro, pomodoro.startFocus, onStopFocus, Boolean(runningProject), onStopTimer);
   const controlsW = controls.length * 40 + (onSearch ? 40 : 0);
   const wash = `linear-gradient(140deg, ${tint(big.color, 20)}, ${tint(big.color, 4)} 65%)`;
   // What is left to do on what's being worked on, the to-dos marked as being worked on first. A task is its
@@ -286,7 +286,7 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
           </div>
           <ProgressBar progress={view.progress} color={view.color} />
           {buttons}
-          {withTodos && <TodoList project={project} open={open} todoOps={todoOps} timedTodoId={timedTodoId} />}
+          {withTodos && <TodoList project={project} open={open} todoOps={todoOps} timedTodoId={timedTodoId} onStopTimer={onStopTimer} />}
         </div>
       </div>
     );
@@ -324,7 +324,7 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
       {tall && (
         <div className="flex min-h-0 flex-1 flex-col gap-2 p-2.5">
           <div className="flex justify-center">{buttons}</div>
-          <TodoList project={project} open={open} todoOps={todoOps} timedTodoId={timedTodoId} />
+          <TodoList project={project} open={open} todoOps={todoOps} timedTodoId={timedTodoId} onStopTimer={onStopTimer} />
         </div>
       )}
     </div>
@@ -426,7 +426,7 @@ function HoverLayer({ shown, className, children }) {
   );
 }
 
-function TodoList({ project, open, todoOps, timedTodoId }) {
+function TodoList({ project, open, todoOps, timedTodoId, onStopTimer }) {
   return (
     <section className="flex min-h-0 flex-1 flex-col border-t border-line pt-2" aria-label="To-dos">
       <h2 className="flex shrink-0 items-baseline gap-1.5 font-serif text-xs italic text-muted">
@@ -451,10 +451,16 @@ function TodoList({ project, open, todoOps, timedTodoId }) {
                 {x.text}
               </span>
               {x.id === timedTodoId ? (
-                <span className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-accent" title="The timer is on this">
+                <button
+                  onClick={onStopTimer}
+                  disabled={!onStopTimer}
+                  className="flex h-7 shrink-0 items-center gap-1 px-1 text-[11px] font-semibold text-accent transition-colors hover:bg-surface-2 disabled:pointer-events-none"
+                  title="The timer is on this. Click to stop it (the pomodoro keeps going)"
+                  aria-label={`Stop the timer on "${x.text}"`}
+                >
                   <span className="blink-dot size-1.5 rounded-full bg-accent" aria-hidden="true" />
                   Timing
-                </span>
+                </button>
               ) : (
                 <WorkingToggle todo={x} todoOps={todoOps} />
               )}

@@ -401,8 +401,18 @@ function SidePanel({ side, title, onClose, padded = false, children }) {
 }
 
 /** What the buttons are in each phase, in the same order as the header chip's. Stopping a focus
- *  (`stopFocus`) also ends the running project timer; stopping a break (`p.dismiss`) leaves it be. */
-export function controlsFor(p, startFocus, stopFocus, hasRunning) {
+ *  (`stopFocus`) also ends the running project timer; stopping a break (`p.dismiss`) leaves it be.
+ *  With `stopTimer`, a running project timer also gets a button of its own that stops only it. */
+export function controlsFor(p, startFocus, stopFocus, hasRunning, stopTimer) {
+  const controls = phaseControls(p, startFocus, stopFocus, hasRunning);
+  if (!hasRunning || !stopTimer) return controls;
+  return [
+    ...controls,
+    { id: "stop-timer", label: "Stop timer", icon: Timer, onClick: stopTimer, outline: true, hint: "Stop the project timer, keep the pomodoro going" },
+  ];
+}
+
+function phaseControls(p, startFocus, stopFocus, hasRunning) {
   const stopsFocus = p.phase === "focus" || p.phase === "focusPaused";
   const stop = {
     id: "stop",
@@ -434,7 +444,7 @@ export function controlsFor(p, startFocus, stopFocus, hasRunning) {
   }
 }
 
-export function ActionButton({ label, hint, icon: Icon, onClick, primary, tone = "focus", compact = false }) {
+export function ActionButton({ label, hint, icon: Icon, onClick, primary, tone = "focus", compact = false, outline = false }) {
   const color = TONES[tone];
   return (
     <button
@@ -446,7 +456,7 @@ export function ActionButton({ label, hint, icon: Icon, onClick, primary, tone =
       } ${primary ? "hover:opacity-90" : "border-line-strong hover:bg-surface-2"}`}
       style={primary ? { background: color, borderColor: color, color: "var(--bg)" } : undefined}
     >
-      <Icon size={compact ? 13 : 15} fill={Icon === Coffee ? "none" : "currentColor"} aria-hidden="true" />
+      <Icon size={compact ? 13 : 15} fill={Icon === Coffee || outline ? "none" : "currentColor"} aria-hidden="true" />
       {compact ? <span className="sr-only">{label}</span> : label}
     </button>
   );
