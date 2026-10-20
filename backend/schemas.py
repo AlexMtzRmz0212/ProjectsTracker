@@ -87,6 +87,7 @@ class ProjectOut(BaseModel):
     created_at: UTCDateTime
     skipped_at: Optional[UTCDateTime] = None  # last sent to the back of the Feed's queue
     archived_at: Optional[UTCDateTime] = None  # when it was put away; None while it is on the board
+    cancelled_at: Optional[UTCDateTime] = None  # when it was called off (it is archived too); None otherwise
     total_seconds: int = 0  # closed sessions only; the client adds a running timer live
 
 
@@ -106,6 +107,7 @@ class TodoUpdate(BaseModel):
     done: Optional[bool] = None
     sort_order: Optional[int] = None
     working: Optional[bool] = None  # being worked on (sets working_since), or not
+    cancelled: Optional[bool] = None  # called off (closed, but not done), or taken back
     parent_id: Optional[str] = None  # under another to-do of the same project; sent as null, back to the top level
 
 
@@ -121,6 +123,7 @@ class TodoOut(BaseModel):
     created_at: UTCDateTime
     completed_at: Optional[UTCDateTime] = None
     working_since: Optional[UTCDateTime] = None
+    cancelled_at: Optional[UTCDateTime] = None  # called off: `done` is set too, `completed_at` is not
     total_seconds: int = 0  # closed-session time logged on a task (one with no project)
 
 

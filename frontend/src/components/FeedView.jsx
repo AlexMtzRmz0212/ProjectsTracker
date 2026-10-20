@@ -18,7 +18,7 @@ const SHOWN_TODOS = 5; // more than this and the rest are behind "+N more", whic
  * a sub-to-do's parent) and `todoOps` is the tracker's add / update.
  */
 export default function FeedView({
-  queue, todosByProject, todosById, todoOps, statusesById, runningId, elapsed, onOpen, onStart, onStop, onSkip,
+  queue, todosByProject, todosById, todoOps, statusesById, runningId, elapsed, onOpen, onStart, onStartTask, onStop, onSkip,
 }) {
   if (queue.length === 0) {
     return (
@@ -55,6 +55,7 @@ export default function FeedView({
             elapsed={elapsed}
             onOpen={() => onOpen(project.id)}
             onStart={() => onStart(project.id)}
+            onStartTask={onStartTask}
             onStop={() => onStop()}
             onSkip={() => onSkip(project.id)}
           />
@@ -65,9 +66,11 @@ export default function FeedView({
 }
 
 function FeedCard({
-  position, project, lastWorked, status, todos, todosById, todoOps, isRunning, isNext, canSkip, elapsed, onOpen, onStart, onStop, onSkip,
+  position, project, lastWorked, status, todos, todosById, todoOps, isRunning, isNext, canSkip, elapsed, onOpen, onStart, onStartTask, onStop, onSkip,
 }) {
   const { color, name } = project;
+  // The tasks, as one card: each is timed on its own (not the card), and a new line adds a task
+  const isTasks = project.kind === "tasks";
   const Icon = iconFor(project.icon);
   const [expanded, setExpanded] = useState(false);
   const shown = expanded ? todos : todos.slice(0, SHOWN_TODOS);
@@ -96,7 +99,7 @@ function FeedCard({
             <button
               onClick={onOpen}
               title={name}
-              aria-label={`Open ${name}: notes and to-dos`}
+              aria-label={isTasks ? "Open the Tasks tab" : `Open ${name}: notes and to-dos`}
               className="min-w-0 text-left font-serif text-[16px] font-medium leading-snug underline-offset-4 hover:underline focus-visible:underline"
             >
               <span className="line-clamp-2 break-words">{name}</span>
@@ -133,8 +136,8 @@ function FeedCard({
               todo={todo}
               todosById={todosById}
               ops={todoOps}
-              canStart={!isRunning}
-              onStart={onStart}
+              canStart={isTasks || !isRunning}
+              onStart={isTasks ? () => onStartTask(todo) : onStart}
             />
           ))}
           {(more > 0 || expanded) && todos.length > SHOWN_TODOS && (
@@ -153,7 +156,7 @@ function FeedCard({
         <p className="px-3 py-2 font-serif text-xs italic text-faint sm:pl-[2.125rem]">No open to-dos</p>
       )}
 
-      <AddTodo projectId={project.id} name={name} ops={todoOps} />
+      <AddTodo projectId={isTasks ? null : project.id} name={name} noun={isTasks ? "task" : "to-do"} ops={todoOps} />
 
       <div className="flex items-center justify-end gap-2 px-3 pb-3 pt-2.5">
         {canSkip && (
@@ -167,6 +170,7 @@ function FeedCard({
             <SkipForward size={13} /> Skip
           </Button>
         )}
+        {(!isTasks || isRunning) && (
         <button
           onClick={isRunning ? onStop : onStart}
           aria-label={isRunning ? `Stop ${name}` : `Start ${name}`}
@@ -186,6 +190,7 @@ function FeedCard({
             </>
           )}
         </button>
+        )}
       </div>
     </li>
   );
@@ -243,7 +248,7 @@ function TodoLine({ todo, todosById, ops, canStart, onStart }) {
 }
 
 /** The line under a card's to-dos for a new one. */
-function AddTodo({ projectId, name, ops }) {
+function AddTodo({ projectId, name, noun = "to-do", ops }) {
   const [draft, setDraft] = useState("");
 
   const add = async (e) => {
@@ -261,8 +266,8 @@ function AddTodo({ projectId, name, ops }) {
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         maxLength={200}
-        placeholder="Add a to-do and press Enter"
-        aria-label={`New to-do for ${name}`}
+        placeholder={`Add a ${noun} and press Enter`}
+        aria-label={projectId === null ? "New task" : `New to-do for ${name}`}
         className="h-9 min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-faint"
       />
     </form>

@@ -39,6 +39,8 @@ import { Button } from "./components/Modal";
 import { TASK_ICON, TASK_INK, inkFor } from "./lib/palette";
 import { isTaskKey, taskIdOf, taskKey } from "./api";
 
+const FEED_TASKS = "feed:tasks"; // the id of the Tasks card in the Feed
+
 /**
  * The whole tracker. `api` is where its data lives: the real server for the
  * owner, or the in-memory demo on the landing page. `onSignOut` (the owner's way
@@ -146,17 +148,68 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     [openProjects, t.sessions, t.todos, todayKey]
   );
   const runningId = t.running?.project_id;
+  // The tasks sit in the Feed as one card of their own, while there are any to do. Unlike a project it is not
+  // ranked by when it was last worked on: it stays on top until it is skipped, and then goes behind the projects
+  // that have not been worked on since (so it is back on top once they all have). Skipping it is kept in this
+  // browser: a project's skip is a field on the project, and the tasks have none.
+  const skipKey = `pt-feed-tasks-skipped-${demo ? "demo" : "app"}`;
+  const [tasksSkippedAt, setTasksSkippedAt] = useState(() => {
+    try {
+      return localStorage.getItem(skipKey);
+    } catch {
+      return null;
+    }
+  });
+  const skipTasks = () => {
+    const stamp = new Date().toISOString();
+    setTasksSkippedAt(stamp);
+    try {
+      localStorage.setItem(skipKey, stamp);
+    } catch {
+      // storage blocked: it just won't survive a reload
+    }
+  };
+  const feedTasks = useMemo(() => {
+    if (!tasks.some((x) => !x.done)) return null;
+    // No time and no created date to rank by: only its skip counts, and with none it comes before everything
+    return {
+      id: FEED_TASKS, kind: "tasks", name: "Tasks", color: TASK_INK, icon: TASK_ICON, status_id: null, skipped_at: tasksSkippedAt,
+      created_at: "1970-01-01T00:00:00Z", total_seconds: 0,
+    };
+  }, [tasks, tasksSkippedAt]);
+  // When a task was last worked on (a timer, one added, one ticked), for the card to say
+  const tasksLastWorked = useMemo(() => {
+    let last = null;
+    const note = (at) => {
+      if (!last || at > last) last = at;
+    };
+    // A running timer counts as the end of the day, like the other cards: `now` would re-rank every second
+    for (const s of t.sessions) if (isTaskKey(s.project_id)) note(s.end ?? new Date(`${todayKey}T23:59:59`));
+    for (const x of tasks) {
+      if (x.created_at) note(new Date(x.created_at));
+      if (x.done && x.completed_at) note(new Date(x.completed_at));
+    }
+    return last;
+  }, [t.sessions, tasks, todayKey]);
   // The Feed's queue; like `neglected`, it only needs to be re-ranked when sessions or the day change
   const queue = useMemo(
-    () => feedQueue(openProjects, t.sessions, new Date(`${todayKey}T23:59:59`), runningId, t.todos),
-    [openProjects, t.sessions, t.todos, todayKey, runningId]
+    () =>
+      feedQueue(
+        feedTasks ? [...openProjects, feedTasks] : openProjects,
+        t.sessions,
+        new Date(`${todayKey}T23:59:59`),
+        isTaskKey(runningId) ? FEED_TASKS : runningId,
+        t.todos
+      ).map((entry) => (entry.project.id === FEED_TASKS ? { ...entry, lastWorked: tasksLastWorked } : entry)),
+    [openProjects, feedTasks, t.sessions, t.todos, todayKey, runningId, tasksLastWorked]
   );
   const openTodosByProject = useMemo(() => {
     const byProject = new Map();
     for (const todo of t.todos) {
       if (todo.done) continue;
-      if (!byProject.has(todo.project_id)) byProject.set(todo.project_id, []);
-      byProject.get(todo.project_id).push(todo);
+      const key = todo.project_id ?? FEED_TASKS;
+      if (!byProject.has(key)) byProject.set(key, []);
+      byProject.get(key).push(todo);
     }
     return byProject;
   }, [t.todos]);
@@ -366,6 +419,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
         now={now}
         archived={Boolean(project.archived_at)}
         onRestore={() => t.restoreProject(project.id)}
+        onCancel={() => t.cancelProject(project.id)}
         onEdit={() => setProjectModal({ project })}
         onToggleTimer={() => (isRunning ? t.stopTimer() : startProject(project.id))}
         onSaveNotes={(notes) => saveProject(project.id, { notes })}
@@ -508,6 +562,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
               onLeaveOpen={(key) => setSessionModal({ projectId: key, startOpen: true })}
               onLogTime={(key) => setSessionModal({ projectId: key, date: today })}
               onOpenItem={(item) => setSessionModal({ openItem: item })}
+              onOpenTask={peek}
             />
           ) : tab === "feed" ? (
             projects.length === 0 ? (
@@ -519,12 +574,13 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                 todosById={todosById}
                 todoOps={t.todoOps}
                 statusesById={statusesById}
-                runningId={runningId}
+                runningId={isTaskKey(runningId) ? FEED_TASKS : runningId}
                 elapsed={clock}
-                onOpen={peek}
+                onOpen={(id) => (id === FEED_TASKS ? showTasks() : peek(id))}
                 onStart={startProject}
+                onStartTask={(todo) => startProject(taskKey(todo.parent_id ?? todo.id), todo.id)}
                 onStop={t.stopTimer}
-                onSkip={t.skipProject}
+                onSkip={(id) => (id === FEED_TASKS ? skipTasks() : t.skipProject(id))}
               />
             )
           ) : tab === "calendar" ? (
@@ -576,6 +632,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                       sessions={calendarSessions}
                       pomodoros={t.pomodoros}
                       todos={t.todos}
+                      todoOps={t.todoOps}
                       byDay={byDay}
                       projectsById={projectsById}
                       now={now}

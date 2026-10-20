@@ -15,10 +15,18 @@ const completion = (todo, data) =>
   "done" in data && data.done !== todo.done ? { completed_at: data.done ? new Date().toISOString() : null } : {};
 
 /** A change to a to-do as it shows at once: `working` becomes when it started being worked on (kept if it
- *  already was), and ticking it off ends that, as on the server. */
+ *  already was), and ticking it off ends that, as on the server. `cancelled` closes it without completing
+ *  it (done, but no `completed_at`), or takes that back; reopening a cancelled one makes it not cancelled. */
 function applyTodo(todo, data) {
-  const { working, ...rest } = data;
-  const next = { ...todo, ...rest, ...completion(todo, data) };
+  const { working, cancelled, ...rest } = data;
+  const next = { ...todo, ...rest, ...completion(todo, rest) };
+  if (cancelled !== undefined) {
+    next.done = cancelled;
+    next.cancelled_at = cancelled ? todo.cancelled_at ?? new Date().toISOString() : null;
+    next.completed_at = null;
+  } else if (!next.done) {
+    next.cancelled_at = null;
+  }
   if (working !== undefined) next.working_since = working ? todo.working_since ?? new Date().toISOString() : null;
   if (next.done) next.working_since = null;
   return next;
@@ -298,7 +306,32 @@ export function useTracker(api = realApi) {
     [api, attempt]
   );
   const archiveProject = useCallback((id) => setArchived(id, true), [setArchived]);
-  const restoreProject = useCallback((id) => setArchived(id, false), [setArchived]);
+  const restoreProject = useCallback(
+    (id) =>
+      attempt(async () => {
+        setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, archived_at: null, cancelled_at: null } : p)));
+        const saved = await api.restoreProject(id);
+        setProjects((prev) =>
+          prev.map((p) => (p.id === id ? { ...p, archived_at: saved.archived_at, cancelled_at: saved.cancelled_at } : p))
+        );
+      }),
+    [api, attempt]
+  );
+  /** Call a project off: it is archived too, with a `cancelled_at` that the archive drawer shows. */
+  const cancelProject = useCallback(
+    (id) =>
+      attempt(async () => {
+        const stamp = new Date().toISOString();
+        setProjects((prev) =>
+          prev.map((p) => (p.id === id ? { ...p, archived_at: p.archived_at ?? stamp, cancelled_at: p.cancelled_at ?? stamp } : p))
+        );
+        const saved = await api.cancelProject(id);
+        setProjects((prev) =>
+          prev.map((p) => (p.id === id ? { ...p, archived_at: saved.archived_at, cancelled_at: saved.cancelled_at } : p))
+        );
+      }),
+    [api, attempt]
+  );
 
   const deleteProject = useCallback(
     (id) =>
@@ -361,18 +394,29 @@ export function useTracker(api = realApi) {
     // Ticking and deleting show at once; a failure resyncs from the server (see attempt)
     update: (id, data) =>
       attempt(async () => {
+        const before = todos.find((x) => x.id === id);
         setTodos((prev) => prev.map((x) => (x.id === id ? applyTodo(x, data) : x)));
         const saved = await api.updateTodo(id, data);
+        // A task ticked off or cancelled leaves the Tasks list, so offer to take it back
+        if (before && !before.project_id && !before.done && (data.done || data.cancelled)) {
+          const cancelled = Boolean(data.cancelled);
+          setNotice({
+            id: Date.now(),
+            tone: "info",
+            text: `"${before.text}" ${cancelled ? "cancelled" : "done"}`,
+            action: { label: "Undo", run: () => todoOps.update(id, cancelled ? { cancelled: false } : { done: false }) },
+          });
+        }
         // The server stamps the real moments; adopt them unless a later click has already moved on
         setTodos((prev) =>
           prev.map((x) =>
             x.id === id && x.done === saved.done && Boolean(x.working_since) === Boolean(saved.working_since)
-              ? { ...x, completed_at: saved.completed_at, working_since: saved.working_since }
+              ? { ...x, completed_at: saved.completed_at, cancelled_at: saved.cancelled_at, working_since: saved.working_since }
               : x
           )
         );
-        // A task ticked off with its timer running: the server stopped the timer
-        if (data.done && sessionsRef.current.some((x) => !x.end && x.project_id === taskKey(id))) load();
+        // A task ticked off or cancelled with its timer running: the server stopped the timer
+        if ((data.done || data.cancelled) && sessionsRef.current.some((x) => !x.end && x.project_id === taskKey(id))) load();
       }),
     /** Put these to-dos (one list: a project's open ones, a to-do's sub-to-dos...) in the order of
      *  `ids`. They trade the sort_order values they already hold, so other lists keep their places.
@@ -478,6 +522,7 @@ export function useTracker(api = realApi) {
     skipProject,
     archiveProject,
     restoreProject,
+    cancelProject,
     deleteProject,
   };
 }

@@ -137,7 +137,7 @@ export default function ProjectSearch({ projects, todos = [], statusesById, onPi
                 ) : p.kind === "task" ? (
                   <span className="shrink-0 font-serif text-xs italic text-muted">Task</span>
                 ) : p.archived_at ? (
-                  <span className="shrink-0 font-serif text-xs italic text-muted">Archived</span>
+                  <span className="shrink-0 font-serif text-xs italic text-muted">{p.cancelled_at ? "Cancelled" : "Archived"}</span>
                 ) : (
                   status && (
                     <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted">

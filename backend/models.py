@@ -36,7 +36,9 @@ class Status(Base):
 class Project(Base):
     """`skipped_at` is when it was last sent to the back of the Feed's queue (NULL if never);
     the server sets it, in the skip route. `archived_at` is when it was put away (NULL while it
-    is on the board); the archive and restore routes set it, and its status is left as it was."""
+    is on the board); the archive and restore routes set it, and its status is left as it was.
+    `cancelled_at` is when it was called off: a cancelled project is archived too (so it leaves the
+    board and the Feed), and restoring it clears both."""
 
     __tablename__ = "projects"
 
@@ -51,6 +53,7 @@ class Project(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     skipped_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     sessions: Mapped[list["Session"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
@@ -66,7 +69,9 @@ class Todo(Base):
     sets it, which is how a session can list what got done during it. `parent_id` makes it a
     sub-to-do of another to-do on the same project (NULL for a top-level one); only one level deep,
     and the delete route removes a to-do's sub-to-dos with it. `working_since` is when it was
-    marked as being worked on (NULL when it isn't); any number can be, and ticking one off clears it."""
+    marked as being worked on (NULL when it isn't); any number can be, and ticking one off clears it.
+    `cancelled_at` is when it was called off: it is closed (`done` is set, so it is out of every open
+    list) but never completed (`completed_at` stays NULL, so it isn't counted as work done)."""
 
     __tablename__ = "todos"
 
@@ -83,6 +88,7 @@ class Todo(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     working_since: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
 class Session(Base):

@@ -280,6 +280,7 @@ export function createDemoApi() {
         created_at: new Date().toISOString(),
         skipped_at: null,
         archived_at: null,
+        cancelled_at: null,
       };
       projects = [...projects, created];
       return projectOut(created);
@@ -307,7 +308,15 @@ export function createDemoApi() {
       return projectOut(next);
     },
     restoreProject: async (id) => {
-      const next = { ...project(id), archived_at: null };
+      const next = { ...project(id), archived_at: null, cancelled_at: null };
+      projects = projects.map((p) => (p.id === id ? next : p));
+      return projectOut(next);
+    },
+    cancelProject: async (id) => {
+      const current = project(id);
+      stopTimerIf((p) => p.id === id);
+      const stamp = new Date().toISOString();
+      const next = { ...current, archived_at: current.archived_at ?? stamp, cancelled_at: current.cancelled_at ?? stamp };
       projects = projects.map((p) => (p.id === id ? next : p));
       return projectOut(next);
     },
@@ -373,7 +382,7 @@ export function createDemoApi() {
       }
       const created = {
         id: `demo-d${seq++}`, project_id: data.project_id ?? null, parent_id: parent?.id ?? null, text, done: false, completed_at: null,
-        working_since: null, total_seconds: 0,
+        working_since: null, cancelled_at: null, total_seconds: 0,
         sort_order: Math.max(0, ...todos.map((x) => x.sort_order)) + 1, created_at: new Date().toISOString(),
       };
       todos = [...todos, created];
@@ -381,7 +390,7 @@ export function createDemoApi() {
     },
     updateTodo: async (id, data) => {
       const current = todo(id);
-      const { working, parent_id: parentId, ...rest } = data;
+      const { working, cancelled, parent_id: parentId, ...rest } = data;
       const next = { ...current, ...rest };
       if (parentId !== undefined && parentId !== current.parent_id) {
         // Moved under another to-do (one level deep, same project), or back to the top level
@@ -400,7 +409,15 @@ export function createDemoApi() {
         next.sort_order = Math.max(0, ...todos.map((x) => x.sort_order)) + 1;
       }
       if (working !== undefined) next.working_since = working ? current.working_since ?? new Date().toISOString() : null;
-      if ("done" in data && data.done !== current.done) next.completed_at = data.done ? new Date().toISOString() : null;
+      if (cancelled !== undefined) {
+        // Called off: closed like a done one, but never completed
+        next.done = cancelled;
+        next.cancelled_at = cancelled ? current.cancelled_at ?? new Date().toISOString() : null;
+        next.completed_at = null;
+      } else {
+        if ("done" in data && data.done !== current.done) next.completed_at = data.done ? new Date().toISOString() : null;
+        if (!next.done) next.cancelled_at = null;
+      }
       if (next.done) {
         next.working_since = null;
         const current_ = running();

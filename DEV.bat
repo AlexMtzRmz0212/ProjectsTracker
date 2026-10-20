@@ -29,16 +29,40 @@ echo [2/3] Validating environment...
 if not exist .venv goto :FAIL_MSG
 if not exist "%FRONTEND_DIR%\node_modules" goto :FAIL_MSG
 
-:: 3. Backend and frontend side by side in Windows Terminal
+:: 3. Backend and frontend side by side in Windows Terminal.
+:: If wt isn't on PATH (e.g. inside another app's terminal), fall back to two plain cmd windows.
 echo [3/3] Launching terminals...
+where wt >nul 2>&1
+if %ERRORLEVEL% neq 0 goto :LAUNCH_FALLBACK
 wt -w 0 nt --title "API" -d "." cmd /k "color 5F && .venv\Scripts\activate && uvicorn backend.main:app --reload --port %BACKEND_PORT%" ; ^
 split-pane -V --title "Web" -d ".\%FRONTEND_DIR%" cmd /k "color 3F && npm run dev"
-if %ERRORLEVEL% neq 0 goto :FAIL_MSG
+if %ERRORLEVEL% neq 0 goto :LAUNCH_FAIL
+goto :BROWSER
+
+:LAUNCH_FALLBACK
+echo Windows Terminal (wt) not found - opening two separate windows instead.
+:: Don't test %ERRORLEVEL% here: it still holds the failed "where wt" result, and start doesn't reset it.
+start "API" /d "%CD%" cmd /k "color 5F && .venv\Scripts\activate && uvicorn backend.main:app --reload --port %BACKEND_PORT%" || goto :LAUNCH_FAIL
+start "Web" /d "%CD%\%FRONTEND_DIR%" cmd /k "color 3F && npm run dev" || goto :LAUNCH_FAIL
+
+:BROWSER
 
 :: 4. Browser
 timeout /t 4 /nobreak > NUL
 start "" "http://localhost:%FRONTEND_PORT%"
 echo Success!
+exit /b
+
+:LAUNCH_FAIL
+echo.
+echo ------------------------------------------------------------
+echo [ERROR] Setup looks fine, but the dev terminals failed to launch.
+echo Start them manually:
+echo   API: .venv\Scripts\activate ^&^& uvicorn backend.main:app --reload --port %BACKEND_PORT%
+echo   Web: cd %FRONTEND_DIR% ^&^& npm run dev
+echo ------------------------------------------------------------
+echo.
+pause
 exit /b
 
 :FAIL_MSG

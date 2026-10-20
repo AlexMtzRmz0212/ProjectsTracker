@@ -80,10 +80,13 @@ export default function ArchiveDrawer({ projects, statusesById, dragging, over, 
                 onClick={() => onOpen(p.id)}
                 title={p.name}
                 aria-label={`Open ${p.name}: notes, to-dos and sessions`}
-                className="min-w-0 flex-1 truncate text-left font-serif text-[14px] underline-offset-4 hover:underline focus-visible:underline"
+                className={`min-w-0 flex-1 truncate text-left font-serif text-[14px] underline-offset-4 hover:underline focus-visible:underline ${
+                  p.cancelled_at ? "text-muted line-through" : ""
+                }`}
               >
                 {p.name}
               </button>
+              {p.cancelled_at && <span className="shrink-0 font-serif text-xs italic text-muted">Cancelled</span>}
               {status && (
                 <span className="hidden shrink-0 items-center gap-1.5 text-xs text-muted sm:inline-flex">
                   <span className="size-2" style={{ background: inkFor(status.color) }} aria-hidden="true" />

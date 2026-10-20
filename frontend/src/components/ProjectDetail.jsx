@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
-import { ArchiveRestore, Check, ChevronDown, CircleDot, GripVertical, ListChecks, NotebookText, History, Pencil, Play, Plus, Square, Trash2 } from "lucide-react";
+import { ArchiveRestore, Ban, Check, ChevronDown, CircleDot, Copy, GripVertical, ListChecks, NotebookText, History, Pencil, Play, Plus, Square, Trash2, Undo2 } from "lucide-react";
+import { copyText, todoAsText } from "../lib/clipboard";
 import { Button } from "./Modal";
 import TabBar from "./TabBar";
 import ParentTag from "./ParentTag";
@@ -15,7 +16,7 @@ const RECENT = 8;
  *  An archived project has no timer, and offers Restore in its place. */
 export default function ProjectDetail({
   project, status, todos, sessions, pomodoroCount = 0, isRunning, elapsed, totalSeconds, now, archived,
-  onEdit, onToggleTimer, onRestore, onSaveNotes, onSaveSessionNote, todoOps, timedTodoId = null, onTimeTodo,
+  onEdit, onToggleTimer, onRestore, onCancel, onSaveNotes, onSaveSessionNote, todoOps, timedTodoId = null, onTimeTodo,
 }) {
   const Icon = iconFor(project.icon);
   const finished = status.is_done;
@@ -46,6 +47,7 @@ export default function ProjectDetail({
           </span>
         )}
         <div className="ml-auto flex items-center gap-1.5">
+          {project.cancelled_at && <span className="font-serif text-[13px] italic text-muted">Cancelled</span>}
           {archived && (
             <Button variant="outline" className="h-8" onClick={onRestore}>
               <ArchiveRestore size={14} /> Restore
@@ -74,6 +76,11 @@ export default function ProjectDetail({
           <Button variant="outline" className="h-8" onClick={onEdit}>
             <Pencil size={14} /> Edit
           </Button>
+          {!archived && onCancel && (
+            <Button variant="outline" className="h-8" onClick={onCancel} title="Call it off: it goes to the archive, marked cancelled">
+              <Ban size={14} /> Cancel
+            </Button>
+          )}
         </div>
       </div>
 
@@ -92,7 +99,7 @@ export default function ProjectDetail({
           Everything above stays put; only the open panel's own list scrolls. */}
       <div className="flex min-h-[19rem] flex-1 flex-col">
         <div className={tab === "todos" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
-          <TodoList todos={todos} projectId={project.id} ops={todoOps} rowExtra={todoTimer} />
+          <TodoList todos={todos} projectId={project.id} ops={todoOps} rowExtra={todoTimer} copyable />
         </div>
         <div className={tab === "notes" ? "min-h-0 flex-1 overflow-y-auto" : "hidden"}>
           <Notes key={project.id} value={project.notes} onSave={onSaveNotes} />
@@ -135,8 +142,10 @@ function TodoTimer({ todo, timed, elapsed, color, onClick }) {
 }
 
 /** A to-do list: a project's (`projectId`), or the tasks of their own (`projectId` null). `rowExtra(todo)`
- *  adds controls of the caller's to each top-level row (the Tasks tab's timer, for one). */
-export function TodoList({ todos, projectId, ops, rowExtra, placeholder = "Add a to-do and press Enter", label = "New to-do" }) {
+ *  adds controls of the caller's to each top-level row (the Tasks tab's timer, for one). `hideDone` leaves
+ *  the finished (and cancelled) ones out altogether: the Tasks tab keeps no list of what is over. `copyable`
+ *  adds a button that copies the open to-dos (with their open sub-to-dos) as text. */
+export function TodoList({ todos, projectId, ops, rowExtra, hideDone = false, copyable = false, placeholder = "Add a to-do and press Enter", label = "New to-do" }) {
   const [draft, setDraft] = useState("");
   const [showDone, setShowDone] = useState(false);
   const [collapsed, setCollapsed] = useState(() => new Set()); // parents whose sub-to-dos are folded away
@@ -199,6 +208,14 @@ export function TodoList({ todos, projectId, ops, rowExtra, placeholder = "Add a
     if (!(await ops.add(projectId, text))) setDraft(text);
   };
 
+  const [copied, setCopied] = useState(false);
+  const copyList = async () => {
+    const text = open.map((t) => todoAsText(t, (subsOf.get(t.id) ?? []).filter((s) => !s.done))).join("\n");
+    if (!text || !(await copyText(text))) return;
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
   return (
     <section className="flex min-h-0 flex-1 flex-col">
       <form onSubmit={add} className="flex shrink-0 items-center gap-2 border-b border-line-strong focus-within:border-text">
@@ -211,6 +228,17 @@ export function TodoList({ todos, projectId, ops, rowExtra, placeholder = "Add a
           aria-label={label}
           className="h-10 min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-faint"
         />
+        {copyable && open.length > 0 && (
+          <button
+            type="button"
+            onClick={copyList}
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 px-2 text-xs font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-text"
+            title="Copy the open to-dos as text"
+          >
+            {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+            {copied ? "Copied" : "Copy list"}
+          </button>
+        )}
       </form>
 
       <div data-scroll className="min-h-0 flex-1 overflow-y-auto">
@@ -220,7 +248,7 @@ export function TodoList({ todos, projectId, ops, rowExtra, placeholder = "Add a
         ))}
       </ul>
 
-      {done.length > 0 && (
+      {!hideDone && done.length > 0 && (
         <>
           <button
             onClick={() => setShowDone((s) => !s)}
@@ -228,7 +256,7 @@ export function TodoList({ todos, projectId, ops, rowExtra, placeholder = "Add a
             aria-expanded={showDone}
           >
             <ChevronDown size={15} className={`transition-transform ${showDone ? "" : "-rotate-90"}`} />
-            Done <span className="figures text-xs">({done.length})</span>
+            {done.some((t) => t.cancelled_at) ? "Done and cancelled" : "Done"} <span className="figures text-xs">({done.length})</span>
           </button>
           {showDone && (
             <ul>
@@ -254,7 +282,8 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
   const [adding, setAdding] = useState(false);
   const [subDraft, setSubDraft] = useState("");
   const created = todo.created_at ? new Date(todo.created_at) : null;
-  const subsDone = subs.filter((s) => s.done).length;
+  const subsDone = subs.filter((s) => s.done && !s.cancelled_at).length;
+  const cancelled = Boolean(todo.cancelled_at);
   const showSubs = subs.length > 0 && !folded;
   const subOrder = useReorder(subs.map((x) => x.id), ops.reorder, { onOutdent: (id) => ops.nest(id, null) });
 
@@ -329,6 +358,7 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
             todo.done ? "text-muted line-through" : ""
           }`}
         />
+        {cancelled && <span className="shrink-0 font-serif text-xs italic text-muted">Cancelled</span>}
         {!todo.done && (
           <button
             onClick={() => ops.update(todo.id, { working: !working })}
@@ -374,6 +404,16 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
         >
           <GripVertical size={14} />
         </button>
+        {(!todo.done || cancelled) && (
+          <button
+            onClick={() => ops.update(todo.id, { cancelled: !cancelled })}
+            aria-label={cancelled ? `Take back the cancelling of "${todo.text}"` : `Cancel "${todo.text}"`}
+            title={cancelled ? "Take back the cancelling" : "Cancel: call it off, keeping it in the list of what is over"}
+            className={`grid size-8 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text ${reveal}`}
+          >
+            {cancelled ? <Undo2 size={14} /> : <Ban size={14} />}
+          </button>
+        )}
         <button
           onClick={() => ops.remove(todo.id)}
           aria-label={`Delete "${todo.text}"`}

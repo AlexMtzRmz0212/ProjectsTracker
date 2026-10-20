@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNow } from "./useNow";
-import { MIN_TIMER_SECONDS, dayKey, sessionSeconds } from "../lib/time";
+import { MIN_TIMER_SECONDS, sessionSeconds } from "../lib/time";
 
 export const DEFAULTS = {
   focus: 25, shortBreak: 5, longBreak: 15, longEvery: 4, breaks: true, autoBreak: false, autoStart: false, sound: true,
@@ -9,7 +9,10 @@ export const LIMITS = { focus: [1, 180], shortBreak: [1, 60], longBreak: [1, 120
 
 const SETTINGS_KEY = "pt-pomodoro";
 const CYCLE_KEY = "pt-pomodoro-cycle";
-const IDLE = { day: "", done: 0, phase: "idle", kind: "short", until: 0, left: 0, startedAt: 0, pausedAt: 0, held: null, carry: 0, carryId: null };
+// A set of pomodoros carries on only while they follow each other: more than this after the last one
+// finished, the count starts again from 1 (yesterday's 2/4 is not tomorrow's)
+const SET_GAP = 60 * 60_000;
+const IDLE = { lastDoneAt: 0, done: 0, phase: "idle", kind: "short", until: 0, left: 0, startedAt: 0, pausedAt: 0, held: null, carry: 0, carryId: null };
 const PHASES = ["idle", "focus", "focusPaused", "breakWait", "break", "breakPaused", "ready"];
 
 const clamp = (n, [lo, hi]) => Math.min(hi, Math.max(lo, Math.round(n)));
@@ -31,13 +34,24 @@ function write(key, value) {
 }
 
 /** The saved cycle. One from before the pomodoro had its own clock (a focus that was a
- *  project session) can't be picked up again, so it starts over idle, keeping the day's count. */
+ *  project session) can't be picked up again, so it starts over idle, keeping the set's count.
+ *  One saved without `lastDoneAt` can't be told to be recent, so its count is dropped too. */
 function readCycle(key) {
   const saved = { ...IDLE, ...read(key) };
-  if (!PHASES.includes(saved.phase)) return { ...IDLE, day: saved.day, done: saved.done };
-  const { day, done, phase, kind, until, left, startedAt, pausedAt, held, carry, carryId } = saved;
-  return { day, done, phase, kind, until, left, startedAt, pausedAt, held, carry, carryId };
+  if (!PHASES.includes(saved.phase)) return { ...IDLE, lastDoneAt: saved.lastDoneAt, done: saved.done };
+  const { lastDoneAt, done, phase, kind, until, left, startedAt, pausedAt, held, carry, carryId } = saved;
+  return { lastDoneAt, done, phase, kind, until, left, startedAt, pausedAt, held, carry, carryId };
 }
+
+/** The count once the focus in `cycle` has run out: one more than before if it started within `SET_GAP` of the
+ *  last one finishing (the break in between included), otherwise the first of a new set. */
+const countFinished = (cycle) =>
+  (cycle.lastDoneAt && cycle.startedAt - cycle.lastDoneAt <= SET_GAP ? cycle.done : 0) + 1;
+
+/** Whether the set of pomodoros has lapsed: it is not being worked on (no focus or break going), and the
+ *  last pomodoro finished more than `SET_GAP` ago. */
+const lapsed = (cycle, nowMs) =>
+  (cycle.phase === "idle" || cycle.phase === "ready" || cycle.phase === "breakWait") && nowMs - cycle.lastDoneAt > SET_GAP;
 
 function readSettings() {
   const saved = read(SETTINGS_KEY);
@@ -216,25 +230,24 @@ export function usePomodoro({ running, startTimer, stopTimer, onFocusDone, scope
       // No breaks: the next focus follows on the heels of this one, and a project timer runs straight through.
       // One that ran out while nobody was here isn't carried on: it goes back to idle.
       setCycle((c) => {
-        const day = dayKey(new Date());
-        const done = (c.day === day ? c.done : 0) + 1;
+        const done = countFinished(c);
         return fresh
-          ? { ...c, day, done, phase: "focus", left: 0, held: null, startedAt: c.until, until: c.until + settings.focus * 60_000 }
-          : { ...c, day, done, phase: "idle", left: 0, until: 0, held: null };
+          ? { ...c, lastDoneAt: c.until, done, phase: "focus", left: 0, held: null, startedAt: c.until, until: c.until + settings.focus * 60_000 }
+          : { ...c, lastDoneAt: c.until, done, phase: "idle", left: 0, until: 0, held: null };
       });
       return;
     }
     // A focus that ran out while nobody was here leaves a project timer alone: it may have been started since
     if (fresh) holdRunning.current();
     setCycle((c) => {
-      const day = dayKey(new Date());
-      const done = (c.day === day ? c.done : 0) + 1;
+      const done = countFinished(c);
       const long = done % settings.longEvery === 0;
       const mins = long ? settings.longBreak : settings.shortBreak;
       return {
-        ...c, day, done, kind: long ? "long" : "short", left: 0,
-        phase: settings.autoBreak ? "break" : "breakWait",
-        until: settings.autoBreak ? Date.now() + mins * 60_000 : 0,
+        ...c, lastDoneAt: c.until, done, kind: long ? "long" : "short", left: 0,
+        // A focus that ran out while nobody was here doesn't start its break now, hours later
+        phase: settings.autoBreak && fresh ? "break" : "breakWait",
+        until: settings.autoBreak && fresh ? Date.now() + mins * 60_000 : 0,
       };
     });
   }, [phase, focusRemaining, cycle.until, cycle.startedAt, setCycle, settings]);
@@ -301,7 +314,14 @@ export function usePomodoro({ running, startTimer, stopTimer, onFocusDone, scope
     setCycle((c) => ({ ...c, phase: "idle", left: 0, until: 0, held: null, carry: c.held ? 0 : c.carry }));
   }, [setCycle]);
 
-  const done = cycle.day === dayKey(now) ? cycle.done : 0;
+  const done = lapsed(cycle, now.getTime()) ? 0 : cycle.done;
+
+  // A set that has lapsed starts over: the count, and a break or a "next focus" left over from long ago
+  useEffect(() => {
+    if (!lapsed(cycle, now.getTime())) return;
+    if (!cycle.done && cycle.phase === "idle" && cycle.kind === "short" && !cycle.held) return;
+    setCycle((c) => (lapsed(c, Date.now()) ? { ...c, done: 0, phase: "idle", kind: "short", left: 0, until: 0, held: null } : c));
+  }, [cycle, now, setCycle]);
 
   return {
     settings,

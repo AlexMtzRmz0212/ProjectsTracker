@@ -150,6 +150,9 @@ export default function Landing({ interest, onOwner }) {
               ))}
             </ul>
             <p className="mt-6 text-[13px] text-faint lg:hidden">Built with React, Vite, Tailwind, FastAPI and PostgreSQL.</p>
+            <p className="mt-10 font-serif text-[13px] italic text-faint lg:col-span-2 lg:mt-12">
+              With this app you can count your days, but more importantly, you can make your days count.
+            </p>
           </section>
         )}
       </main>

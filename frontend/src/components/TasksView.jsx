@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { format } from "date-fns";
-import { CalendarPlus, CircleDot, Hourglass, Play, Square } from "lucide-react";
+import { Ban, CalendarPlus, Check, CircleDot, Copy, Hourglass, PanelRight, Play, Square } from "lucide-react";
 import { TodoList } from "./ProjectDetail";
+import { copyText, todoAsText } from "../lib/clipboard";
 import { ON_INK, TASK_INK, iconFor, TASK_ICON } from "../lib/palette";
 import { fmtClock, fmtHM, fmtTime, sessionSeconds } from "../lib/time";
 import { taskKey } from "../api";
@@ -12,7 +14,7 @@ import { taskKey } from "../api";
  * `secondsFor(task)` is the time on one, the running timer and open items included.
  */
 export default function TasksView({
-  tasks, todoOps, runningId, clock, openItems, now, secondsFor, onStart, onStop, onLeaveOpen, onLogTime, onOpenItem,
+  tasks, todoOps, runningId, clock, openItems, now, secondsFor, onStart, onStop, onLeaveOpen, onLogTime, onOpenItem, onOpenTask,
 }) {
   const openFor = new Map(openItems.map((x) => [x.project_id, x]));
 
@@ -40,6 +42,9 @@ export default function TasksView({
           </button>
         )}
         {secs >= 60 && !running && <span className="figures px-1 text-xs text-muted" title="Time logged">{fmtHM(secs)}</span>}
+        <IconButton label="Open its details: sessions, cancel" onClick={() => onOpenTask(key)}>
+          <PanelRight size={14} />
+        </IconButton>
         <IconButton label="Log time on it" onClick={() => onLogTime(key)} className="max-sm:hidden">
           <CalendarPlus size={14} />
         </IconButton>
@@ -70,8 +75,17 @@ export default function TasksView({
     );
   };
 
-  const open = tasks.filter((x) => !x.done && !x.parent_id).length;
+  const openTasks = tasks.filter((x) => !x.done && !x.parent_id);
+  const open = openTasks.length;
   const working = tasks.filter((x) => !x.done && x.working_since).length;
+
+  const [copied, setCopied] = useState(false);
+  const copyList = async () => {
+    const text = openTasks.map((x) => todoAsText(x, tasks.filter((s) => s.parent_id === x.id && !s.done))).join("\n");
+    if (!text || !(await copyText(text))) return;
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
 
   return (
     <section className="mx-auto flex h-full max-w-3xl flex-col">
@@ -80,15 +94,27 @@ export default function TasksView({
         <span className="font-serif text-xs italic text-muted">
           {open} to do{working > 0 && `, ${working} being worked on`}
         </span>
+        {open > 0 && (
+          <button
+            onClick={copyList}
+            className="ml-auto inline-flex h-7 items-center gap-1.5 self-center px-2 text-xs font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-text"
+            title="Copy the tasks still to do as text"
+          >
+            {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+            {copied ? "Copied" : "Copy list"}
+          </button>
+        )}
       </div>
       <p className="mt-0.5 mb-3 text-[13px] text-muted">
-        Things to do, and to time, that aren't part of a project. Time on a task shows on the calendar like a project's.
+        Things to do, and to time, that aren't part of a project. A task happens once: when it's ticked off it's logged
+        on that day in the calendar and leaves this list. Time on a task shows on the calendar like a project's.
       </p>
       <TodoList
         todos={tasks}
         projectId={null}
         ops={todoOps}
         rowExtra={rowExtra}
+        hideDone
         placeholder="Add a task and press Enter"
         label="New task"
       />
@@ -126,6 +152,13 @@ export function TaskDetail({ task, sessions, totalSeconds, isRunning, elapsed, n
         </span>
         {!task.done && (
           <div className="ml-auto flex items-center gap-1.5">
+            <button
+              onClick={() => todoOps.update(task.id, { cancelled: true })}
+              className="flex h-8 items-center gap-1.5 border border-line-strong px-2.5 text-xs font-semibold transition-colors hover:border-text hover:bg-surface-2"
+              title="Call it off: it leaves the list, its time stays logged"
+            >
+              <Ban size={13} /> Cancel
+            </button>
             <button
               onClick={onLeaveOpen}
               className="flex h-8 items-center gap-1.5 border border-line-strong px-2.5 text-xs font-semibold transition-colors hover:border-text hover:bg-surface-2"

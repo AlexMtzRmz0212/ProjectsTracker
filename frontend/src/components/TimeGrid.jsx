@@ -3,6 +3,7 @@ import { addDays, format } from "date-fns";
 import { Check, ChevronLeft, ChevronRight, Hourglass } from "lucide-react";
 import { iconFor, inkText, tint } from "../lib/palette";
 import { dayKey, fmtHM, fmtTime, sessionSeconds } from "../lib/time";
+import { todoSubject } from "../api";
 
 const HOUR = 48; // px per hour
 const DAY_PX = 24 * HOUR;
@@ -238,7 +239,7 @@ export default function TimeGrid({
       : pending?.id === s.id ? { ...s, start: pending.start, end: pending.end }
       : s
     );
-  const knownTodos = todos.filter((x) => projectsById.has(x.project_id));
+  const knownTodos = todos.filter((x) => projectsById.has(todoSubject(x)));
   const todoText = useMemo(() => new Map(todos.map((x) => [x.id, x.text])), [todos]);
   const draft = drag?.kind === "create" && drag.start ? drag : null;
 
@@ -538,7 +539,7 @@ function DayColumn({ index, column, mode, chip, now, isToday, projectsById, todo
       {/* To-dos ticked off */}
       <div className="pointer-events-none absolute inset-y-0 right-0 z-[5]" style={{ width: wide ? lane : chip }}>
         {ticked.map(({ todo, at, top }) => {
-          const project = projectsById.get(todo.project_id);
+          const project = projectsById.get(todoSubject(todo));
           return wide ? (
             <div
               key={todo.id}

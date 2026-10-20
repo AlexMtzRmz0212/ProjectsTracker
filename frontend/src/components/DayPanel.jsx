@@ -1,13 +1,15 @@
+import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { CalendarPlus, Check, Hourglass, Moon, Pencil, Plus, Square, Trash2 } from "lucide-react";
 import { iconFor, inkText } from "../lib/palette";
 import { completedPomodoros, dayKey, fmtHM, fmtTime, pomodoroProjects, pomodorosOnDay, sessionSeconds } from "../lib/time";
 import { SplitBar } from "./StatsStrip";
 import ParentTag from "./ParentTag";
+import { todoSubject } from "../api";
 
 /** The selected day as a time card: In, Out, Project, Hours, then the pomodoros finished and the to-dos ticked off that day.
  *  An open item (`openItem` on a session still going) is listed with the rest, to edit or close (`onStop(session)`). */
-export default function DayPanel({ date, sessions, pomodoros, todos, byDay, projectsById, now, onAdd, onEdit, onDelete, onStop }) {
+export default function DayPanel({ date, sessions, pomodoros, todos, todoOps, byDay, projectsById, now, onAdd, onEdit, onDelete, onStop }) {
   const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
   const entry = byDay.get(dayKey(date));
@@ -23,7 +25,7 @@ export default function DayPanel({ date, sessions, pomodoros, todos, byDay, proj
 
   // Whether or not a timer was running when they were ticked
   const ticked = todos
-    .filter((x) => x.done && x.completed_at && projectsById.has(x.project_id))
+    .filter((x) => x.done && x.completed_at && projectsById.has(todoSubject(x)))
     .map((x) => ({ ...x, at: new Date(x.completed_at) }))
     .filter((x) => x.at >= dayStart && x.at < dayEnd)
     .sort((a, b) => a.at - b.at);
@@ -198,19 +200,19 @@ export default function DayPanel({ date, sessions, pomodoros, todos, byDay, proj
           <h3 className="border-b border-rule py-1 text-left font-serif text-xs font-normal italic text-muted">Ticked off</h3>
           <ul>
             {ticked.map((x) => {
-              const project = projectsById.get(x.project_id);
+              const project = projectsById.get(todoSubject(x));
               const Icon = iconFor(project.icon);
               return (
                 <li key={x.id} className="flex min-h-9 items-center gap-3 border-b border-rule py-1 text-[13px]">
                   <span className="figures shrink-0 whitespace-nowrap text-muted">{fmtTime(x.at)}</span>
                   <Check size={13} className="shrink-0 text-muted" aria-hidden="true" />
                   <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <span className="min-w-0 break-words">{x.text}</span>
+                    <TickedName todo={x} ops={todoOps} />
                     <ParentTag todo={x} todosById={todosById} />
                   </span>
                   <span className="flex shrink-0 items-center gap-1.5 text-muted" title={project.name}>
                     <Icon size={14} style={{ color: inkText(project.color) }} aria-hidden="true" />
-                    <span className="max-w-[9rem] truncate max-sm:sr-only">{project.name}</span>
+                    <span className="max-w-[9rem] truncate max-sm:sr-only">{project.kind === "task" ? "Task" : project.name}</span>
                   </span>
                 </li>
               );
@@ -219,6 +221,36 @@ export default function DayPanel({ date, sessions, pomodoros, todos, byDay, proj
         </div>
       )}
     </section>
+  );
+}
+
+/** The name of a to-do ticked off that day, which can be corrected in place (saved on blur or Enter; an emptied
+ *  line goes back to what it was, Esc too). */
+function TickedName({ todo, ops }) {
+  const [draft, setDraft] = useState(todo.text);
+  useEffect(() => setDraft(todo.text), [todo.text]);
+  const commit = () => {
+    const text = draft.trim();
+    if (!text || text === todo.text) return setDraft(todo.text);
+    ops.update(todo.id, { text });
+  };
+  return (
+    <input
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        else if (e.key === "Escape") {
+          setDraft(todo.text);
+          e.currentTarget.blur();
+        }
+      }}
+      maxLength={200}
+      aria-label="Name of the to-do"
+      title="Click to rename"
+      className="h-7 min-w-[8rem] flex-1 truncate bg-transparent text-[13px] outline-none focus:bg-surface-2"
+    />
   );
 }
 

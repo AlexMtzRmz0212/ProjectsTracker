@@ -47,6 +47,9 @@ export const taskKey = (todoId) => TASK + todoId;
 export const isTaskKey = (id) => typeof id === "string" && id.startsWith(TASK);
 export const taskIdOf = (key) => key.slice(TASK.length);
 
+/** The subject a to-do belongs to: its project, or, for a task (or a sub-task), the task. */
+export const todoSubject = (todo) => todo.project_id ?? taskKey(todo.parent_id ?? todo.id);
+
 /** The subject of something the server sent: its project, or its task. */
 const subjectOf = (row) => row.project_id ?? (row.todo_id ? taskKey(row.todo_id) : null);
 
@@ -75,6 +78,7 @@ export const api = {
   skipProject: (id) => fetchApi(`/projects/${id}/skip`, { method: "POST" }),
   archiveProject: (id) => fetchApi(`/projects/${id}/archive`, { method: "POST" }),
   restoreProject: (id) => fetchApi(`/projects/${id}/restore`, { method: "POST" }),
+  cancelProject: (id) => fetchApi(`/projects/${id}/cancel`, { method: "POST" }),
 
   listStatuses: () => fetchApi("/statuses"),
   createStatus: (data) => fetchApi("/statuses", json("POST", data)),

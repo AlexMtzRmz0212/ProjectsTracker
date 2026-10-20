@@ -66,6 +66,9 @@ def _add_project_columns(engine: Engine) -> None:
         if "archived_at" not in columns:
             column_type = models.Project.__table__.c.archived_at.type.compile(dialect=engine.dialect)
             conn.execute(text(f"ALTER TABLE projects ADD COLUMN archived_at {column_type}"))
+        if "cancelled_at" not in columns:
+            column_type = models.Project.__table__.c.cancelled_at.type.compile(dialect=engine.dialect)
+            conn.execute(text(f"ALTER TABLE projects ADD COLUMN cancelled_at {column_type}"))
 
 
 def _add_todo_columns(engine: Engine) -> None:
@@ -82,6 +85,9 @@ def _add_todo_columns(engine: Engine) -> None:
         if "working_since" not in columns:
             column_type = models.Todo.__table__.c.working_since.type.compile(dialect=engine.dialect)
             conn.execute(text(f"ALTER TABLE todos ADD COLUMN working_since {column_type}"))
+        if "cancelled_at" not in columns:
+            column_type = models.Todo.__table__.c.cancelled_at.type.compile(dialect=engine.dialect)
+            conn.execute(text(f"ALTER TABLE todos ADD COLUMN cancelled_at {column_type}"))
 
 
 def _add_session_columns(engine: Engine) -> None:

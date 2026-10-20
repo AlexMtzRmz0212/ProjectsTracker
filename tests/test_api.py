@@ -135,6 +135,27 @@ def test_archiving_a_project_stops_its_timer(client):
     assert client.get("/api/timer").json() is None
 
 
+def test_cancelling_a_project_archives_it_and_restoring_brings_it_back(client):
+    p = make_project(client)
+    client.post("/api/timer/start", json={"project_id": p["id"]})
+    assert p["cancelled_at"] is None
+
+    cancelled = client.post(f"/api/projects/{p['id']}/cancel")
+    assert cancelled.status_code == 200
+    body = cancelled.json()
+    assert body["cancelled_at"] is not None and body["archived_at"] is not None
+    assert client.get("/api/timer").json() is None  # its timer is stopped
+    # Cancelling again keeps the first moment
+    assert client.post(f"/api/projects/{p['id']}/cancel").json()["cancelled_at"] == body["cancelled_at"]
+
+    restored = client.post(f"/api/projects/{p['id']}/restore").json()
+    assert restored["cancelled_at"] is None and restored["archived_at"] is None
+
+    # A project that was only archived is not cancelled
+    assert client.post(f"/api/projects/{p['id']}/archive").json()["cancelled_at"] is None
+    assert client.post("/api/projects/nope/cancel").status_code == 404
+
+
 def test_archive_unknown_project(client):
     assert client.post("/api/projects/missing/archive").status_code == 404
     assert client.post("/api/projects/missing/restore").status_code == 404
@@ -757,6 +778,37 @@ def test_working_on_follows_the_flag_and_clears_when_done(client):
     assert client.patch(f"/api/todos/{a['id']}", json={"working": True}).json()["working_since"] == marked["working_since"]
     assert client.patch(f"/api/todos/{a['id']}", json={"working": False}).json()["working_since"] is None
     assert client.patch(f"/api/todos/{b['id']}", json={"done": True}).json()["working_since"] is None
+
+
+def test_a_todo_can_be_cancelled_and_taken_back(client):
+    project = make_project(client)
+    todo = client.post("/api/todos", json={"project_id": project["id"], "text": "Hero"}).json()
+    client.patch(f"/api/todos/{todo['id']}", json={"working": True})
+
+    cancelled = client.patch(f"/api/todos/{todo['id']}", json={"cancelled": True}).json()
+    # Closed like a done one, but never completed: it isn't work that happened
+    assert cancelled["done"] is True and cancelled["cancelled_at"] is not None
+    assert cancelled["completed_at"] is None and cancelled["working_since"] is None
+    # Cancelling again keeps the first moment
+    assert client.patch(f"/api/todos/{todo['id']}", json={"cancelled": True}).json()["cancelled_at"] == cancelled["cancelled_at"]
+
+    back = client.patch(f"/api/todos/{todo['id']}", json={"cancelled": False}).json()
+    assert back["done"] is False and back["cancelled_at"] is None and back["completed_at"] is None
+
+    # Unticking a cancelled to-do reopens it too
+    client.patch(f"/api/todos/{todo['id']}", json={"cancelled": True})
+    reopened = client.patch(f"/api/todos/{todo['id']}", json={"done": False}).json()
+    assert reopened["done"] is False and reopened["cancelled_at"] is None
+
+
+def test_cancelling_a_task_stops_its_timer(client):
+    task = make_task(client)
+    run = client.post("/api/timer/start", json={"todo_id": task["id"]}).json()
+    client.patch(f"/api/sessions/{run['id']}", json={"start": iso(now() - timedelta(minutes=10))})
+    cancelled = client.patch(f"/api/todos/{task['id']}", json={"cancelled": True}).json()
+    assert cancelled["cancelled_at"] is not None and cancelled["completed_at"] is None
+    assert client.get("/api/timer").json() is None
+    assert len(client.get("/api/sessions").json()) == 1  # the time spent stays logged
 
 
 def test_a_todo_can_be_moved_under_another_and_back_out(client):

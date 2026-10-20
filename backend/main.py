@@ -244,6 +244,21 @@ def restore_project(project_id: str, db: DbSession = Depends(get_db)):
     """Bring an archived project back to the board, in the status it left."""
     project = _get_project(db, project_id)
     project.archived_at = None
+    project.cancelled_at = None
+    db.commit()
+    db.refresh(project)
+    return _project_out(project, _totals(db).get(project.id, 0))
+
+
+@api.post("/projects/{project_id}/cancel", response_model=schemas.ProjectOut)
+def cancel_project(project_id: str, db: DbSession = Depends(get_db)):
+    """Call a project off. It is archived too, so it leaves the board, the Feed and the open
+    stats with its history kept, and restoring it brings it back. Its timer is stopped."""
+    project = _get_project(db, project_id)
+    _stop_timers(db, Project.id == project.id)
+    now = utcnow()
+    project.archived_at = project.archived_at or now
+    project.cancelled_at = project.cancelled_at or now
     db.commit()
     db.refresh(project)
     return _project_out(project, _totals(db).get(project.id, 0))
@@ -383,6 +398,7 @@ def update_todo(todo_id: str, body: schemas.TodoUpdate, db: DbSession = Depends(
     was_done = todo.done
     changes = body.model_dump(exclude_unset=True)
     working = changes.pop("working", None)
+    cancelled = changes.pop("cancelled", None)
     moves = "parent_id" in changes
     new_parent = changes.pop("parent_id", None)
     if moves and new_parent != todo.parent_id:
@@ -392,8 +408,15 @@ def update_todo(todo_id: str, body: schemas.TodoUpdate, db: DbSession = Depends(
             setattr(todo, field, value)
     if working is not None:  # marking it again keeps when it was first marked
         todo.working_since = (todo.working_since or utcnow()) if working else None
-    if todo.done != was_done:  # ticking again keeps the first time; unticking forgets it
-        todo.completed_at = utcnow() if todo.done else None
+    if cancelled is not None:  # called off: closed like a done one, but never completed
+        todo.done = cancelled
+        todo.cancelled_at = (todo.cancelled_at or utcnow()) if cancelled else None
+        todo.completed_at = None
+    else:
+        if todo.done != was_done:  # ticking again keeps the first time; unticking forgets it
+            todo.completed_at = utcnow() if todo.done else None
+        if not todo.done:  # a cancelled to-do that is reopened is no longer cancelled
+            todo.cancelled_at = None
     if todo.done:
         todo.working_since = None
         # A task ticked off is finished: its timer stops, as a finished project's does
