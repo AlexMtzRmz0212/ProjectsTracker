@@ -1,12 +1,26 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { addDays, format } from "date-fns";
-import { Check, ChevronLeft, ChevronRight, Hourglass } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Hourglass, Minus, Plus } from "lucide-react";
 import { iconFor, inkText, tint } from "../lib/palette";
 import { dayKey, fmtHM, fmtTime, sessionSeconds } from "../lib/time";
 import { todoSubject } from "../api";
 
-const HOUR = 48; // px per hour
-const DAY_PX = 24 * HOUR;
+const DEFAULT_HOUR = 48; // px per hour, before any zooming
+const MIN_HOUR = 20; // zoomed right out: a whole day fits a screen
+const MAX_HOUR = 160; // zoomed right in: a quarter of an hour is 40px
+const HOUR_KEY = "pt-cal-hour";
+const clampHour = (h) => Math.min(MAX_HOUR, Math.max(MIN_HOUR, Math.round(h)));
+
+/** The zoom this browser last used. */
+function readHour() {
+  try {
+    const saved = Number(localStorage.getItem(HOUR_KEY));
+    if (saved) return clampHour(saved);
+  } catch {
+    // storage blocked: it just starts unzoomed
+  }
+  return DEFAULT_HOUR;
+}
 const SLOT = 15; // minutes everything on the grid snaps to
 const CHIP = { day: 22, week: 14 }; // height of a ticked to-do's chip
 
@@ -18,11 +32,11 @@ const hourLabel = (h) => {
 };
 
 const minutesInto = (date, dayStart) => (date - dayStart) / 60000;
-const px = (minutes) => (minutes * HOUR) / 60;
 
 /** Sessions clipped to one day, each given a lane so ones that overlap sit side by side:
- *  [{ session, top, height, lane, lanes }]. */
-function layoutSessions(sessions, dayStart, dayEnd, now) {
+ *  [{ session, top, height, lane, lanes }]. `hour` is how many pixels an hour is. */
+function layoutSessions(sessions, dayStart, dayEnd, now, hour) {
+  const px = (minutes) => (minutes * hour) / 60;
   const items = sessions
     .filter((s) => s.start < dayEnd && (s.end ?? now) > dayStart)
     .map((s) => {
@@ -55,7 +69,8 @@ function layoutSessions(sessions, dayStart, dayEnd, now) {
 }
 
 /** To-dos ticked off on one day, each placed at its time and nudged down so none covers another. */
-function layoutTicked(todos, dayStart, dayEnd, chip) {
+function layoutTicked(todos, dayStart, dayEnd, chip, hour) {
+  const px = (minutes) => (minutes * hour) / 60;
   let bottom = -Infinity;
   return todos
     .filter((x) => x.done && x.completed_at)
@@ -63,7 +78,7 @@ function layoutTicked(todos, dayStart, dayEnd, chip) {
     .filter((x) => x.at >= dayStart && x.at < dayEnd)
     .sort((a, b) => a.at - b.at)
     .map((x) => {
-      const top = Math.min(Math.max(px(minutesInto(x.at, dayStart)) - chip / 2, bottom + 1), DAY_PX - chip);
+      const top = Math.min(Math.max(px(minutesInto(x.at, dayStart)) - chip / 2, bottom + 1), 24 * hour - chip);
       bottom = top + chip;
       return { ...x, top };
     });
@@ -85,6 +100,9 @@ const LONG_PRESS = 380; // ms a finger rests on a block (or an empty spot) befor
  * touch screen a block is picked up by resting a finger on it. Clicking a block edits it; clicking an
  * empty spot logs time from there, and dragging down an empty stretch logs exactly that stretch
  * (`onAddSpan({ start, end? })`). A day's heading opens that day. The running session stays put.
+ *
+ * The hours zoom: Ctrl + scroll (or a pinch) under the pointer, the + and - buttons or keys, "Fit" to
+ * stretch the hours that have something in them over the screen. The zoom is kept in this browser.
  */
 export default function TimeGrid({
   mode, date, today, now, sessions, pomodoros, todos, projectsById, onNavigate, onOpenDay, onEditSession, onAddSpan, onMoveSession, viewSwitch,
@@ -100,6 +118,40 @@ export default function TimeGrid({
   const todayKey = dayKey(today);
   const chip = CHIP[mode];
 
+  // ── Zoom: how many pixels an hour is ─────────────────────────────────────
+  const [hour, setHour] = useState(readHour);
+  const hourRef = useRef(hour);
+  hourRef.current = hour;
+  const px = (minutes) => (minutes * hour) / 60;
+  const anchor = useRef(null); // the moment (minutes into the day) that stays put on screen as the hours stretch, and where
+
+  /** Zoom to `value` px an hour, keeping what is `y` px down the scroller (the middle, if none) where it is. */
+  const applyHour = useCallback((value, at) => {
+    const el = scroller.current;
+    const next = clampHour(value);
+    if (!el || next === hourRef.current) return;
+    if (!anchor.current) {
+      const y = at?.y ?? el.clientHeight / 2;
+      anchor.current = { minutes: at?.minutes ?? ((el.scrollTop + y) / hourRef.current) * 60, y };
+    }
+    hourRef.current = next;
+    setHour(next);
+    try {
+      localStorage.setItem(HOUR_KEY, String(next));
+    } catch {
+      // storage blocked: it just won't survive a reload
+    }
+  }, []);
+  const zoomBy = (factor, clientY) => {
+    const box = scroller.current?.getBoundingClientRect();
+    applyHour(hourRef.current * factor, clientY != null && box ? { y: clientY - box.top } : undefined);
+  };
+  useLayoutEffect(() => {
+    const a = anchor.current;
+    anchor.current = null;
+    if (a && scroller.current) scroller.current.scrollTop = Math.max(0, (a.minutes * hour) / 60 - a.y);
+  }, [hour]);
+
   // ── Dragging ──────────────────────────────────────────────────────────────
   const scroller = useRef(null);
   const gridRef = useRef(null);
@@ -114,7 +166,7 @@ export default function TimeGrid({
     let index = cols.findIndex((c) => x < c.getBoundingClientRect().right);
     if (index === -1) index = cols.length - 1;
     const top = cols[0].getBoundingClientRect().top;
-    return { index, minutes: Math.min(Math.max(((y - top) / HOUR) * 60, 0), 24 * 60) };
+    return { index, minutes: Math.min(Math.max(((y - top) / hourRef.current) * 60, 0), 24 * 60) };
   };
 
   /** Where the grabbed thing would land with the pointer at (x, y). Nothing ends after now. */
@@ -231,6 +283,44 @@ export default function TimeGrid({
     };
   }, []);
 
+  // Ctrl + scroll (a trackpad's pinch comes the same way) and a two-finger pinch zoom the hours
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const onWheel = (e) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      const box = el.getBoundingClientRect();
+      applyHour(hourRef.current * Math.exp(-e.deltaY * 0.0025), { y: e.clientY - box.top });
+    };
+    let pinch = null;
+    const spread = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const onTouchStart = (e) => {
+      if (e.touches.length !== 2) return;
+      latest.current.endGesture();
+      pinch = { spread: spread(e.touches), hour: hourRef.current };
+    };
+    const onTouchMove = (e) => {
+      if (!pinch || e.touches.length !== 2) return;
+      e.preventDefault();
+      const box = el.getBoundingClientRect();
+      applyHour(pinch.hour * (spread(e.touches) / pinch.spread), { y: (e.touches[0].clientY + e.touches[1].clientY) / 2 - box.top });
+    };
+    const onTouchEnd = (e) => {
+      if (e.touches.length < 2) pinch = null;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [applyHour]);
+
   // The sessions as they are shown: the one being dragged where it would land, one just let go where it was put
   const known = sessions
     .filter((s) => projectsById.has(s.project_id))
@@ -246,14 +336,14 @@ export default function TimeGrid({
   const columns = days.map((d) => {
     const dayStart = d;
     const dayEnd = addDays(d, 1);
-    const blocks = layoutSessions(known, dayStart, dayEnd, now);
+    const blocks = layoutSessions(known, dayStart, dayEnd, now, hour);
     return {
       day: d,
       key: dayKey(d),
       dayStart,
       blocks,
       total: blocks.reduce((sum, b) => sum + (b.to - b.from) * 60, 0),
-      ticked: layoutTicked(knownTodos, dayStart, dayEnd, chip),
+      ticked: layoutTicked(knownTodos, dayStart, dayEnd, chip, hour),
       pomos: pomodoros
         .filter((p) => p.start < dayEnd && p.end > dayStart)
         .map((p) => {
@@ -280,10 +370,39 @@ export default function TimeGrid({
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
-    const target = Number.isFinite(earliest) ? Math.min(earliest, 8 * HOUR + HOUR) - HOUR : 8 * HOUR;
+    const target = Number.isFinite(earliest) ? Math.min(earliest, 9 * hour) - hour : 8 * hour;
     el.scrollTop = Math.max(0, target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rangeKey]);
+
+  /** Stretch the hours that have something in them (with half an hour either side) over the screen; with nothing
+   *  shown, the working day. */
+  const fit = () => {
+    const el = scroller.current;
+    if (!el) return;
+    const marks = columns.flatMap((c) => [
+      ...c.blocks.flatMap((b) => [b.from, b.to]),
+      ...c.ticked.map((t) => minutesInto(t.at, c.dayStart)),
+    ]);
+    let lo = marks.length ? Math.min(...marks) - 30 : 8 * 60;
+    let hi = marks.length ? Math.max(...marks) + 30 : 18 * 60;
+    lo = Math.max(0, Math.floor(lo / 60) * 60);
+    hi = Math.min(24 * 60, Math.max(Math.ceil(hi / 60) * 60, lo + 240));
+    anchor.current = { minutes: lo, y: 0 };
+    const next = clampHour(el.clientHeight / ((hi - lo) / 60));
+    if (next === hourRef.current) {
+      el.scrollTop = Math.max(0, (lo * next) / 60);
+      anchor.current = null;
+      return;
+    }
+    applyHour(next, anchor.current);
+  };
+  const onKeyDown = (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || (e.target instanceof Element && e.target.closest("input, textarea, select"))) return;
+    if (e.key === "+" || e.key === "=") zoomBy(1.25);
+    else if (e.key === "-") zoomBy(1 / 1.25);
+    else if (e.key === "0") applyHour(DEFAULT_HOUR);
+  };
 
   const title =
     mode === "day"
@@ -296,13 +415,36 @@ export default function TimeGrid({
   const dragCursor = drag?.kind === "move" ? "grabbing" : drag?.kind === "create" ? "cell" : "ns-resize";
 
   return (
-    <section className="flex h-full min-w-0 flex-col">
+    <section className="flex h-full min-w-0 flex-col" onKeyDown={onKeyDown}>
       <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
         {viewSwitch}
         <h2 className="min-w-0 truncate font-serif text-[17px] font-semibold">
           {title} <span className="figures font-normal text-muted">{format(last, "yyyy")}</span>
         </h2>
         <div className="ml-auto flex shrink-0 items-center">
+          <div className="mr-2 flex items-center border-r border-line pr-2" role="group" aria-label="Zoom the hours">
+            <NavButton label="Zoom out" onClick={() => zoomBy(1 / 1.25)}>
+              <Minus size={15} />
+            </NavButton>
+            <button
+              onClick={() => applyHour(DEFAULT_HOUR)}
+              className="figures h-8 min-w-11 px-1 text-[12px] text-muted transition-colors hover:bg-surface-2 hover:text-text"
+              title="Back to the usual zoom (0)"
+              aria-label={`Zoom ${Math.round((hour / DEFAULT_HOUR) * 100)} percent. Reset`}
+            >
+              {Math.round((hour / DEFAULT_HOUR) * 100)}%
+            </button>
+            <NavButton label="Zoom in" onClick={() => zoomBy(1.25)}>
+              <Plus size={15} />
+            </NavButton>
+            <button
+              onClick={fit}
+              className="h-8 px-2 text-[13px] font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-text"
+              title="Stretch the hours that have something in them over the screen"
+            >
+              Fit
+            </button>
+          </div>
           <NavButton label={mode === "day" ? "Previous day" : "Previous week"} onClick={() => onNavigate(addDays(date, -step))}>
             <ChevronLeft size={17} />
           </NavButton>
@@ -319,7 +461,7 @@ export default function TimeGrid({
       </div>
       <p className="shrink-0 font-serif text-xs italic text-muted">
         {fmtHM(rangeTotal)} {mode === "day" ? "logged" : "this week"}
-        <span className="max-sm:hidden"> · drag a block to move it, its edges to change its times</span>
+        <span className="max-sm:hidden"> · drag a block to move it, its edges to change its times, Ctrl + scroll to zoom</span>
       </p>
 
       <div className="mt-2 flex min-h-0 flex-1 flex-col border border-line">
@@ -358,14 +500,17 @@ export default function TimeGrid({
           <div
             ref={gridRef}
             className="relative grid select-none"
-            style={{ gridTemplateColumns: `3rem repeat(${days.length}, minmax(0, 1fr))`, height: DAY_PX }}
+            style={{ gridTemplateColumns: `3rem repeat(${days.length}, minmax(0, 1fr))`, height: 24 * hour }}
           >
             <div className="relative" aria-hidden="true">
-              {Array.from({ length: 23 }, (_, i) => (
-                <span key={i} className="figures absolute right-1.5 -translate-y-1/2 text-[10px] text-faint" style={{ top: (i + 1) * HOUR }}>
-                  {hourLabel(i + 1)}
-                </span>
-              ))}
+              {Array.from({ length: 23 }, (_, i) =>
+                // Zoomed out, every other hour is labelled
+                hour < 28 && (i + 1) % 2 ? null : (
+                  <span key={i} className="figures absolute right-1.5 -translate-y-1/2 text-[10px] text-faint" style={{ top: (i + 1) * hour }}>
+                    {hourLabel(i + 1)}
+                  </span>
+                )
+              )}
             </div>
 
             {columns.map((c, index) => (
@@ -375,6 +520,7 @@ export default function TimeGrid({
                 column={c}
                 mode={mode}
                 chip={chip}
+                hour={hour}
                 now={now}
                 isToday={c.key === todayKey}
                 projectsById={projectsById}
@@ -396,7 +542,7 @@ export default function TimeGrid({
   );
 }
 
-function DayColumn({ index, column, mode, chip, now, isToday, projectsById, todoText, dragId, suppressClick, onGrab, onEditSession, onAddSpan }) {
+function DayColumn({ index, column, mode, chip, hour, now, isToday, projectsById, todoText, dragId, suppressClick, onGrab, onEditSession, onAddSpan }) {
   const { dayStart, blocks, ticked, pomos, draft } = column;
   const wide = mode === "day";
   // A single day gives the to-dos ticked off a lane of their own down the right; in a week the columns are
@@ -407,7 +553,7 @@ function DayColumn({ index, column, mode, chip, now, isToday, projectsById, todo
   const addAt = (e) => {
     if (e.target !== e.currentTarget || suppressClick.current) return;
     const y = e.clientY - e.currentTarget.getBoundingClientRect().top;
-    const minutes = Math.floor((y / HOUR) * (60 / SLOT)) * SLOT;
+    const minutes = Math.floor((y / hour) * (60 / SLOT)) * SLOT;
     const at = atMinutes(dayStart, minutes);
     if (at < now) onAddSpan({ start: at });
   };
@@ -417,7 +563,7 @@ function DayColumn({ index, column, mode, chip, now, isToday, projectsById, todo
       data-day-col
       className="relative border-l border-line"
       style={{
-        backgroundImage: `repeating-linear-gradient(to bottom, transparent 0 ${HOUR - 1}px, var(--rule) ${HOUR - 1}px ${HOUR}px)`,
+        backgroundImage: `repeating-linear-gradient(to bottom, transparent 0 ${hour - 1}px, var(--rule) ${hour - 1}px ${hour}px)`,
       }}
     >
       {/* Clicking an empty spot logs time from there; dragging down it logs that stretch */}
@@ -567,7 +713,7 @@ function DayColumn({ index, column, mode, chip, now, isToday, projectsById, todo
       </div>
 
       {isToday && (
-        <div className="pointer-events-none absolute inset-x-0 z-10 flex items-center" style={{ top: px(minutesInto(now, dayStart)) }} aria-hidden="true">
+        <div className="pointer-events-none absolute inset-x-0 z-10 flex items-center" style={{ top: (minutesInto(now, dayStart) * hour) / 60 }} aria-hidden="true">
           <span className="-ml-1 size-2 rounded-full bg-accent" />
           <span className="h-[2px] flex-1 bg-accent" />
         </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { formatDistanceToNowStrict } from "date-fns";
-import { Play, Plus, SkipForward, Square } from "lucide-react";
+import { ArrowDownToLine, Play, Plus, SkipForward, Square } from "lucide-react";
 import { ON_INK, iconFor, inkFor, inkText, tint } from "../lib/palette";
 import { fmtClock } from "../lib/time";
 import { Button } from "./Modal";
@@ -80,7 +80,7 @@ function FeedCard({
   return (
     // The sides are set one by one: a changing `borderColor` next to `borderLeftColor` makes React warn
     <li
-      className="border border-l-[3px] bg-surface"
+      className={`paper-card relative border border-l-[3px] bg-surface ${position === 1 ? "taped" : ""}`}
       style={{
         borderTopColor: edge,
         borderRightColor: edge,
@@ -130,12 +130,13 @@ function FeedCard({
 
       {todos.length > 0 ? (
         <ul className="mx-3 mt-2.5 border-t border-rule sm:ml-[2.125rem]">
-          {shown.map((todo) => (
+          {shown.map((todo, i) => (
             <TodoLine
               key={todo.id}
               todo={todo}
               todosById={todosById}
               ops={todoOps}
+              canSkip={i === 0 && todos.length > 1}
               canStart={isTasks || !isRunning}
               onStart={isTasks ? () => onStartTask(todo) : onStart}
             />
@@ -198,7 +199,7 @@ function FeedCard({
 
 /** One open to-do: tick it, rename it (saved on blur or Enter; an emptied line goes back to what it was)
  *  or start the project's timer from it. */
-function TodoLine({ todo, todosById, ops, canStart, onStart }) {
+function TodoLine({ todo, todosById, ops, canStart, canSkip, onStart }) {
   const [draft, setDraft] = useState(todo.text);
   useEffect(() => setDraft(todo.text), [todo.text]);
 
@@ -233,6 +234,16 @@ function TodoLine({ todo, todosById, ops, canStart, onStart }) {
         aria-label="To-do"
         className="h-9 min-w-0 flex-1 bg-transparent text-[14px] outline-none focus:bg-surface-2"
       />
+      {canSkip && (
+        <button
+          onClick={() => ops.moveToBottom(todo.id)}
+          aria-label={`Skip "${todo.text}" to the bottom of the list`}
+          title="Skip to the bottom of the list"
+          className="grid size-8 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
+        >
+          <ArrowDownToLine size={13} />
+        </button>
+      )}
       {canStart && (
         <button
           onClick={onStart}

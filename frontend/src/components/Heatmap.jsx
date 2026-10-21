@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
 import FilterTab from "./FilterTab";
 import { iconFor, inkText } from "../lib/palette";
-import { HEATMAP_WEEKS, dayKey, daySeconds, fmtHM, heatmapStart } from "../lib/time";
+import { HEATMAP_WEEKS, dayKey, daySeconds, fmtHM, heatmapStart, weekMonday } from "../lib/time";
 
 // Intensity buckets (seconds). Level 0 = nothing logged.
 const LEVELS = [30 * 60, 90 * 60, 3 * 3600];
@@ -20,14 +20,24 @@ function shade(level, color) {
 }
 
 const CELL = 12; // the smallest a square gets before a week is dropped
+const MAX_CELL = 22; // and the largest, when there are few weeks to show
+const MIN_WEEKS = 12; // a young app still gets a quarter of a year to fill in
 const GAP = 3;
 const LABEL_COLUMN = 26;
 
-export default function Heatmap({ byDay, projects, projectsById, today, selected, onSelect }) {
+/** `since` is the first day anything was logged (null if nothing yet): the heatmap starts at its week, not a year back. */
+export default function Heatmap({ byDay, projects, projectsById, today, selected, since, onSelect }) {
   const [filter, setFilter] = useState("all");
   const [tip, setTip] = useState(null);
   const scroller = useRef(null);
   const [fit, setFit] = useState(HEATMAP_WEEKS);
+  // Weeks from the one it began in to this one, within a quarter of a year and a year
+  const span = useMemo(() => {
+    if (!since) return MIN_WEEKS;
+    const weeks = Math.round((weekMonday(today) - weekMonday(since)) / (7 * 86400000)) + 1;
+    return Math.max(MIN_WEEKS, Math.min(HEATMAP_WEEKS, weeks));
+  }, [since, today]);
+  const shownWeeks = Math.min(fit, span);
 
   // Show as many weeks as fit across, newest on the right, so it never scrolls sideways
   useEffect(() => {
@@ -53,8 +63,8 @@ export default function Heatmap({ byDay, projects, projectsById, today, selected
     const start = heatmapStart(today);
     return Array.from({ length: HEATMAP_WEEKS }, (_, w) =>
       Array.from({ length: 7 }, (_, d) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + w * 7 + d))
-    ).slice(-fit);
-  }, [today, fit]);
+    ).slice(-shownWeeks);
+  }, [today, shownWeeks]);
 
   const stats = useMemo(() => {
     let total = 0;
@@ -89,10 +99,16 @@ export default function Heatmap({ byDay, projects, projectsById, today, selected
   };
 
   return (
-    <section className="pt-4 pb-1">
+    <section className="min-w-0 pt-4 pb-1">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 className="font-serif text-[17px] font-semibold">
-          {fit === HEATMAP_WEEKS ? "The past year" : `The last ${fit} weeks`}
+        <h2 className="font-hand text-[26px] font-semibold leading-none">
+          {shownWeeks < span
+            ? `The last ${shownWeeks} weeks`
+            : span === HEATMAP_WEEKS
+              ? "The past year"
+              : since && weekMonday(since) > heatmapStart(today)
+                ? `Since ${format(since, "d MMMM")}`
+                : `The last ${span} weeks`}
         </h2>
         <p className="font-serif text-[13px] italic text-muted">
           {fmtHM(stats.total)} logged. {stats.active} active {stats.active === 1 ? "day" : "days"}.
@@ -122,7 +138,7 @@ export default function Heatmap({ byDay, projects, projectsById, today, selected
         <div
           className="grid gap-[3px]"
           style={{
-            gridTemplateColumns: `${LABEL_COLUMN}px repeat(${weeks.length}, minmax(0, 1fr))`,
+            gridTemplateColumns: `${LABEL_COLUMN}px repeat(${weeks.length}, minmax(0, ${MAX_CELL}px))`,
             gridTemplateRows: "14px repeat(7, auto)",
             gridAutoFlow: "column",
           }}
@@ -158,7 +174,7 @@ export default function Heatmap({ byDay, projects, projectsById, today, selected
                     onFocus={(e) => showTip(e, d, secs)}
                     onBlur={() => setTip(null)}
                     aria-label={`${format(d, "EEEE, MMMM d")}: ${fmtHM(secs)}`}
-                    className={`aspect-square w-full hover:outline-1 hover:outline-text ${
+                    className={`aspect-square w-full rounded-[35%] hover:outline-1 hover:outline-text ${
                       isSelected ? "outline-2 outline-offset-1 outline-text" : key === todayKey ? "outline-1 outline-accent" : ""
                     }`}
                     style={{ background: shade(levelOf(secs), color) }}
@@ -173,7 +189,7 @@ export default function Heatmap({ byDay, projects, projectsById, today, selected
       <div className="mt-2 flex items-center justify-end gap-1 text-[11px] text-faint">
         <span className="mr-0.5">Less</span>
         {MIX.map((_, level) => (
-          <span key={level} className="size-2.5" style={{ background: shade(level, color) }} />
+          <span key={level} className="size-2.5 rounded-[35%]" style={{ background: shade(level, color) }} />
         ))}
         <span className="ml-0.5">More</span>
       </div>

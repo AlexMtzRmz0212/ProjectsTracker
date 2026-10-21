@@ -93,7 +93,7 @@ export default function Landing({ interest, onOwner }) {
         >
           <div className="flex shrink-0 items-end gap-4 max-sm:px-3">
             <div className="min-w-0 flex-1 border-l-[3px] border-double border-margin pl-3 sm:pl-5">
-              <h1 className="text-balance font-serif text-xl font-semibold leading-tight tracking-tight sm:text-3xl">
+              <h1 className="font-hand text-balance text-3xl font-semibold leading-none sm:text-[2.75rem]">
                 Know where your hours go.
               </h1>
               <p className="mt-1 hidden max-w-2xl text-[13px] text-muted sm:block [@media(max-height:820px)]:hidden">

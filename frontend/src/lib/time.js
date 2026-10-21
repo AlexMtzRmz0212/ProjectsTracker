@@ -183,6 +183,30 @@ export function heatmapStart(today) {
   return d;
 }
 
+/** The earliest moment anything was logged: a session, a finished to-do, a pomodoro, or a project created.
+ *  Null while there is nothing yet. */
+export function firstActivityDate({ sessions = [], pomodoros = [], todos = [], projects = [] }) {
+  let first = null;
+  const note = (at) => {
+    if (at && !Number.isNaN(+at) && (!first || at < first)) first = at;
+  };
+  for (const s of sessions) note(s.start);
+  for (const p of pomodoros) note(p.start);
+  for (const t of todos) {
+    note(t.created_at && new Date(t.created_at));
+    note(t.completed_at && new Date(t.completed_at));
+  }
+  for (const p of projects) note(p.created_at && new Date(p.created_at));
+  return first;
+}
+
+/** The Monday of the week that holds `date`. */
+export function weekMonday(date) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d;
+}
+
 // ── Formatting ───────────────────────────────────────────────────────────────
 
 /** 01:23:45 */

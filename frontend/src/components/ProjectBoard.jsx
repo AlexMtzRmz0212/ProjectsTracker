@@ -17,12 +17,24 @@ import ArchiveDrawer from "./ArchiveDrawer";
  * `projects` are the ones on the board; `archived` are the ones in the archive drawer.
  */
 export default function ProjectBoard({
-  projects, archived, statuses, cardProps, onMove, onCreate, onDelete, onArchive, onRestore, onOpenArchived,
+  projects, archived, statuses, cardProps, onMove, onCreate, onDelete, onArchive, onRestore, onOpenArchived, revealId = null,
 }) {
   const [phoneStatus, setPhoneStatus] = useState(null);
   const shownOnPhone = statuses.some((s) => s.id === phoneStatus) ? phoneStatus : statuses[0]?.id;
-  const [hidden, toggleHidden, setAllHidden] = useHiddenStatuses(statuses);
+  const [savedHidden, , setAllSaved, saveHidden] = useHiddenStatuses(statuses);
   const keptName = (statuses.find((s) => s.is_pinned) ?? statuses[0])?.name; // the column Hide all leaves
+
+  // A project being revealed (found by the search): its column is shown, even if it was switched off, the
+  // columns that were empty are put away (only while they stay empty), and the phone's one-column view goes
+  // to it. None of this is saved: the first click on a column chip makes what is shown the choice.
+  const [focus, setFocus] = useState(null); // { id: the revealed project's status, empty: statuses with no project }
+  useEffect(() => {
+    const found = revealId && projects.find((p) => p.id === revealId);
+    if (!found) return;
+    setPhoneStatus(found.status_id);
+    setFocus({ id: found.status_id, empty: new Set(statuses.filter((s) => !projects.some((p) => p.status_id === s.id)).map((s) => s.id)) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealId]);
 
   // The trash can. `trashed` is the card last dropped in it; it outlives the question
   // so the slip keeps its words while it slides away.
@@ -72,6 +84,26 @@ export default function ProjectBoard({
     const rest = cards.filter((p) => p.id !== held.id);
     if (slot.statusId === id) rest.splice(slot.index, 0, held);
     return rest;
+  };
+
+  // Which columns are put away: the saved choice, and while a search reveal is on, the empty ones too (all
+  // columns are out while a card is held, so it can be dropped on any)
+  let hidden = savedHidden;
+  if (focus && !held) {
+    hidden = new Set(savedHidden);
+    hidden.delete(focus.id);
+    for (const id of focus.empty) if (id !== focus.id && !projects.some((p) => p.status_id === id)) hidden.add(id);
+  }
+  const toggleHidden = (id) => {
+    const next = new Set(hidden);
+    if (next.has(id)) next.delete(id);
+    else if (statuses.length - next.size > 1) next.add(id);
+    saveHidden(next);
+    setFocus(null);
+  };
+  const setAllHidden = (hide) => {
+    setAllSaved(hide);
+    setFocus(null);
   };
 
   // The cards slide to their new places rather than jumping. A card's place is measured within its
@@ -316,7 +348,7 @@ function useHiddenStatuses(statuses) {
     const kept = statuses.find((s) => s.is_pinned) ?? statuses[0];
     save(new Set(hide ? statuses.filter((s) => s !== kept).map((s) => s.id) : []));
   };
-  return [hidden, toggle, setAll];
+  return [hidden, toggle, setAll, save];
 }
 
 const HOLD_MS = 350; // a finger has to rest this long on a card to pick it up
@@ -518,7 +550,7 @@ function BoardCard({
     <li
       data-card={project.id}
       onPointerDown={onPointerDown}
-      className={`cursor-grab select-none border border-l-[3px] bg-surface transition-opacity [-webkit-touch-callout:none] active:cursor-grabbing ${
+      className={`paper-card cursor-grab select-none border border-l-[3px] bg-surface transition-opacity [-webkit-touch-callout:none] active:cursor-grabbing ${
         dragging ? "opacity-40" : ""
       } ${finished ? "border-line" : isRunning ? "" : "border-line"}`}
       // The sides are set one by one: a changing `borderColor` next to `borderLeftColor` makes React warn

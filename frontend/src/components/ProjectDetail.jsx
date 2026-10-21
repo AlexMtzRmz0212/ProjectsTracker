@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
-import { ArchiveRestore, Ban, Check, ChevronDown, CircleDot, Copy, GripVertical, ListChecks, NotebookText, History, Pencil, Play, Plus, Square, Trash2, Undo2 } from "lucide-react";
+import { ArchiveRestore, ArrowDownToLine, Ban, Check, ChevronDown, CircleDot, Copy, GripVertical, ListChecks, NotebookText, History, Pencil, Play, Plus, Square, Trash2, Undo2 } from "lucide-react";
 import { copyText, todoAsText } from "../lib/clipboard";
 import { Button } from "./Modal";
 import TabBar from "./TabBar";
@@ -191,6 +191,7 @@ export function TodoList({ todos, projectId, ops, rowExtra, hideDone = false, co
     folded: collapsed.has(t.id),
     onToggle: () => toggle(t.id),
     rowExtra,
+    canSkip: order === openOrder && i === 0 && open.length > 1,
   });
   // Days that more than one to-do was added on: those show the time too, to tell them apart
   const dayCounts = new Map();
@@ -275,7 +276,7 @@ export function TodoList({ todos, projectId, ops, rowExtra, hideDone = false, co
 /** The calendar day a to-do was added, in local time; null if the server sent no date. */
 const dayKey = (todo) => (todo.created_at ? format(new Date(todo.created_at), "yyyy-MM-dd") : null);
 
-function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], folded = false, onToggle, isSub = false, rowExtra }) {
+function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], folded = false, onToggle, isSub = false, rowExtra, canSkip = false }) {
   const extra = rowExtra?.(todo);
   const [draft, setDraft] = useState(todo.text);
   useEffect(() => setDraft(todo.text), [todo.text]);
@@ -407,6 +408,16 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
           >
             <GripVertical size={14} />
           </button>
+          {canSkip && !todo.done && (
+            <button
+              onClick={() => ops.moveToBottom(todo.id)}
+              aria-label={`Skip "${todo.text}" to the bottom of the list`}
+              title="Skip to the bottom of the list"
+              className="grid size-7 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
+            >
+              <ArrowDownToLine size={14} />
+            </button>
+          )}
           {(!todo.done || cancelled) && (
             <button
               onClick={() => ops.update(todo.id, { cancelled: !cancelled })}

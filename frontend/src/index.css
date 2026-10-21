@@ -5,9 +5,11 @@
    (<html data-theme="...">). Tailwind utilities (bg-surface, text-muted, …)
    read them through @theme inline.
 
-   Light is buff ledger paper written in iron-gall ink; dark is the green cloth
-   of a ledger cover. --rule is the feint ruling between entries and --margin
-   the red double rule down the left of every ledger page. */
+   A notebook. Light is cream paper ruled in pencil blue and written in ink;
+   dark is the same notebook at night, on the green cloth of its cover.
+   --rule is the ruling between entries, --ruling the lines of the page itself,
+   --margin the red double rule of the margin, --spine the binding down the
+   left edge, with its rings (--rings) and --tick a hand-drawn check mark. */
 
 :root,
 :root[data-theme="dark"] {
@@ -17,7 +19,12 @@
   --surface-3: #2d3e35;
   --line: rgb(236 228 204 / 0.14);
   --line-strong: rgb(236 228 204 / 0.26);
-  --rule: rgb(143 179 160 / 0.3);
+  --rule: rgb(143 179 200 / 0.3);
+  --ruling: rgb(150 190 215 / 0.11);
+  --spine: #0c120f;
+  --spine-w: 2.75rem;
+  --rings: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='40' viewBox='0 0 44 40'%3E%3Cellipse cx='33' cy='20' rx='5' ry='4.5' fill='%23000' opacity='.55'/%3E%3Crect x='5' y='16.5' width='31' height='7' rx='3.5' fill='%236c7480' stroke='%232a2f36'/%3E%3C/svg%3E");
+  --tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2.5 8.8c1.6 1.4 2.6 2.8 3.5 4.4C7.6 8.6 10.6 4.8 14.4 2' fill='none' stroke='%23ece4cc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --margin: #e0584b;
   --text: #ece4cc;
   --muted: #a7a58f;
@@ -33,13 +40,17 @@
 }
 
 :root[data-theme="light"] {
-  --bg: #f2ead4;
-  --surface: #f8f2df;
-  --surface-2: #e7dcc0;
-  --surface-3: #dbcfae;
+  --bg: #f5eed8;
+  --surface: #fbf6e6;
+  --surface-2: #ebe1c6;
+  --surface-3: #ddd1b0;
   --line: rgb(60 48 30 / 0.16);
   --line-strong: rgb(60 48 30 / 0.3);
-  --rule: #a9c2b0;
+  --rule: #b3c8dc;
+  --ruling: rgb(110 150 195 / 0.3);
+  --spine: #d6c9a6;
+  --rings: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='40' viewBox='0 0 44 40'%3E%3Cellipse cx='33' cy='20' rx='5' ry='4.5' fill='%232a2a2a' opacity='.5'/%3E%3Crect x='5' y='16.5' width='31' height='7' rx='3.5' fill='%23a7adb6' stroke='%235f656f'/%3E%3C/svg%3E");
+  --tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2.5 8.8c1.6 1.4 2.6 2.8 3.5 4.4C7.6 8.6 10.6 4.8 14.4 2' fill='none' stroke='%231e2433' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --margin: #bf3a30;
   --text: #1e2433;
   --muted: #5f5c55;
@@ -71,6 +82,8 @@
      entries: names, headings and every figure. */
   --font-sans: "Libre Franklin Variable", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Besley Variable", Georgia, serif;
+  /* Caveat for what is written by hand on the page: the notebook's tabs, headings and title */
+  --font-hand: "Caveat Variable", "Segoe Print", cursive;
   --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
@@ -90,6 +103,9 @@ body {
   margin: 0;
   min-height: 100dvh;
   background-color: var(--bg);
+  /* The page is ruled, and stays put while what is written on it scrolls */
+  background-image: repeating-linear-gradient(to bottom, transparent 0 27px, var(--ruling) 27px 28px);
+  background-attachment: fixed;
   color: var(--text);
   font-family: var(--font-sans);
   font-size: 14px;
@@ -101,11 +117,54 @@ body {
   background: color-mix(in srgb, var(--accent-2) 30%, transparent);
 }
 
+/* The binding: on a screen wide enough to spare it, the notebook's spine runs down the left edge, with its
+   rings and the red margin rule where the page begins */
+@media (min-width: 900px) {
+  body {
+    padding-left: var(--spine-w);
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: var(--spine-w);
+    box-sizing: border-box;
+    background-color: var(--spine);
+    background-image: var(--rings);
+    background-size: var(--spine-w) 40px;
+    background-repeat: repeat-y;
+    border-right: 3px double var(--margin);
+    pointer-events: none;
+  }
+}
+
 /* In the base layer so a component can swap the ring for its own focus style */
 @layer base {
   :focus-visible {
     outline: 2px solid var(--accent-2);
     outline-offset: 2px;
+  }
+}
+
+/* Check boxes are ticked by hand */
+@layer base {
+  input[type="checkbox"] {
+    appearance: none;
+    flex-shrink: 0;
+    border: 1.5px solid var(--text);
+    border-radius: 2px;
+    background-color: var(--surface);
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: 135%;
+    cursor: pointer;
+  }
+  input[type="checkbox"]:checked {
+    background-image: var(--tick);
+  }
+  input[type="checkbox"]:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 }
 
@@ -194,6 +253,24 @@ body {
     }
   }
 
+  /* A card that is laid on the page like an index card: a short, hard shadow underneath */
+  .paper-card {
+    box-shadow: 2px 3px 0 var(--line);
+  }
+
+  /* ...and the one on top is held down with a strip of tape */
+  .taped::before {
+    content: "";
+    position: absolute;
+    top: -0.55rem;
+    right: 1.75rem;
+    width: 3.75rem;
+    height: 1.15rem;
+    background: color-mix(in srgb, #e3c05c 72%, transparent);
+    transform: rotate(3deg);
+    pointer-events: none;
+  }
+
   /* Ledger totals are closed with a double rule under the figure */
   .double-rule {
     border-bottom: 3px double var(--text);
@@ -218,6 +295,17 @@ body {
 
 .fade-in {
   animation: fade-in 0.15s ease-out both;
+}
+
+/* A board card just found by the search: a ring that pulses a few times, then goes */
+@keyframes reveal-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  30% { box-shadow: 0 0 0 4px var(--accent); }
+  65% { box-shadow: 0 0 0 2px var(--accent); }
+}
+
+[data-card][data-reveal] {
+  animation: reveal-pulse 0.9s ease-in-out 2;
 }
 
 /* The mini clock's hourglass: grains running down through the neck while the period runs */

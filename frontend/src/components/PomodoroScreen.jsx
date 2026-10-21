@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Coffee, Maximize, Minimize, PanelLeft, PanelRight, Pause, PictureInPicture2, Play, Search, SkipForward, Square, Timer, X } from "lucide-react";
+import { Coffee, Maximize, Minimize, PanelRight, Pause, PictureInPicture2, Play, Search, SkipForward, Square, Timer, X } from "lucide-react";
 import { Button } from "./Modal";
 import { TimerNote } from "./Header";
 import ProjectSearch from "./ProjectSearch";
@@ -9,14 +9,14 @@ import { fmtClock, fmtCountdown } from "../lib/time";
 
 export const TONES = { focus: "var(--accent)", rest: "var(--accent-2)", idle: "var(--muted)" };
 
-const PANEL_KEYS = { left: "pt-pomo-left", right: "pt-pomo-right" };
-const WIDE = "(min-width: 1280px)"; // wide enough for both panels beside the timer; narrower, they slide over it
+const PANEL_KEY = "pt-pomo-right";
+const WIDE = "(min-width: 1280px)"; // wide enough for the panel beside the timer; narrower, it slides over it
 
-/** Whether a side panel is out. Remembered in this browser; the first time, out only on a wide screen. */
-function usePanel(side) {
+/** Whether the side panel is out. Remembered in this browser; the first time, out only on a wide screen. */
+function usePanel() {
   const [open, setOpen] = useState(() => {
     try {
-      const saved = localStorage.getItem(PANEL_KEYS[side]);
+      const saved = localStorage.getItem(PANEL_KEY);
       if (saved === "1" || saved === "0") return saved === "1";
     } catch {
       // storage blocked: it just starts from the default
@@ -26,7 +26,7 @@ function usePanel(side) {
   const set = (next) => {
     setOpen(next);
     try {
-      localStorage.setItem(PANEL_KEYS[side], next ? "1" : "0");
+      localStorage.setItem(PANEL_KEY, next ? "1" : "0");
     } catch {
       // storage blocked: it just won't survive a reload
     }
@@ -61,14 +61,13 @@ export function phaseView(pomodoro) {
 }
 
 /** The pomodoro with the whole screen to itself: the same countdown and buttons as the header chip, a
- *  small, optional card for the project being worked on, and two side panels that can each be put away:
- *  the open projects to pick from on the left, and on the right the project being worked on
- *  (`renderDetail(project)`: its to-dos, notes and sessions).
+ *  small, optional card for the project being worked on, and a side panel that can be put away: on the
+ *  right, the project being worked on (`renderDetail(project)`: its to-dos, notes and sessions).
  *
  *  A project picked here is only chosen: it starts together with the next focus (`startFocusOn`).
  *  Once a project timer is running, or a focus is already going, there is no next focus to wait for,
  *  so picking one starts its timer now (switching away from the one that was running).
- *  The choice lives in this screen and goes when it closes. Ctrl+F (⌘F) finds a project or task to pick by
+ *  The choice lives in this screen and goes when it closes. The search finds a project or task to pick by
  *  name, or one of their to-dos (`todos`, from todoEntries: picked, the time goes on that to-do), with
  *  `searchHint` the shortcut as shown (without one the screen leaves the keys to the browser); or the Tasks
  *  tab (`onTasks`, which leaves the screen for it). */
@@ -91,21 +90,14 @@ export default function PomodoroScreen({
   const chosen = hasRunning ? null : projects.find((p) => p.id === chosenId) ?? null;
   const chosenTodo = chosen ? todos.find((x) => x.todoId === chosenTodoId && x.subjectId === chosen.id) ?? null : null;
   const live = hasRunning || focusing;
-  const [leftOpen, setLeftOpen] = usePanel("left");
-  const [rightOpen, setRightOpen] = usePanel("right");
+  const [rightOpen, setRightOpen] = usePanel();
   // The project the right panel shows: the one being worked on, else the one picked for the next focus,
   // else the one paused for the break
   const active = runningProject ?? chosen ?? heldProject ?? null;
 
-  const pick = (id) => {
-    if (id === runningProject?.id) return;
-    setChosenTodoId(null);
-    if (live) onStartTimer(id);
-    else setChosenId((c) => (c === id ? null : id));
-  };
   const startFocus = () => (chosen ? pomodoro.startFocusOn(chosen.id, chosenTodo?.todoId ?? null) : pomodoro.startFocus());
 
-  // A project or task found by name: picked as from the list (never un-picked), and shown in the right panel.
+  // A project or task found by name: picked (never un-picked), and shown in the right panel.
   // A to-do found by name picks what it belongs to, with the time going on the to-do.
   const [searchOpen, setSearchOpen] = useState(false);
   const pickFound = (id, todoId = null) => {
@@ -187,17 +179,7 @@ export default function PomodoroScreen({
     >
       <div className="shrink-0 border-b-[3px] border-double border-line-strong">
         <div className="flex h-14 items-center gap-2 px-4 sm:h-16 sm:gap-3 sm:px-6">
-          <Button
-            variant="outline"
-            onClick={() => setLeftOpen(!leftOpen)}
-            className={`w-9 px-0 ${leftOpen ? "bg-surface-2" : ""}`}
-            aria-pressed={leftOpen}
-            aria-label={leftOpen ? "Hide the project list" : "Show the project list"}
-            title={leftOpen ? "Hide the project list" : "Show the project list"}
-          >
-            <PanelLeft size={16} />
-          </Button>
-          <Timer size={20} aria-hidden="true" className="ml-1 max-sm:hidden" />
+          <Timer size={20} aria-hidden="true" className="max-sm:hidden" />
           <h1 className="font-serif text-lg font-semibold tracking-tight max-sm:sr-only">Pomodoro</h1>
           <div className="ml-auto flex items-center gap-2 sm:gap-3">
             {(projects.length > 0 || onTasks) && (
@@ -251,23 +233,14 @@ export default function PomodoroScreen({
       </div>
 
       <div className="relative flex min-h-0 flex-1">
-        {/* Below the wide layout a panel slides over the timer; this closes it again */}
-        {(leftOpen || rightOpen) && (
+        {/* Below the wide layout the panel slides over the timer; this closes it again */}
+        {rightOpen && (
           <button
             className="absolute inset-0 z-10 bg-[var(--scrim)] xl:hidden"
-            aria-label="Close the side panels"
+            aria-label="Close the side panel"
             tabIndex={-1}
-            onClick={() => {
-              setLeftOpen(false);
-              setRightOpen(false);
-            }}
+            onClick={() => setRightOpen(false)}
           />
-        )}
-
-        {leftOpen && (
-          <SidePanel side="left" title="Projects & tasks" onClose={() => setLeftOpen(false)}>
-            <ProjectList projects={projects} runningProject={runningProject} chosen={chosen} live={live} onPick={pick} />
-          </SidePanel>
         )}
 
         {/* Spacing follows the screen's height; the digits follow the room left beside the panels */}
@@ -344,7 +317,7 @@ export default function PomodoroScreen({
         </main>
 
         {rightOpen && (
-          <SidePanel side="right" title={active?.name ?? "Project"} onClose={() => setRightOpen(false)} padded>
+          <SidePanel title={active?.name ?? "Project"} onClose={() => setRightOpen(false)} padded>
             {active ? (
               renderDetail?.(active)
             ) : (
@@ -371,16 +344,13 @@ export default function PomodoroScreen({
   );
 }
 
-/** A side panel of the full screen: beside the timer on a wide screen, over it on a narrow one. It isn't
+/** The side panel of the full screen: beside the timer on a wide screen, over it on a narrow one. It isn't
  *  drawn at all while it is put away, so what it holds (a half-typed note) is saved as it goes. */
-function SidePanel({ side, title, onClose, padded = false, children }) {
-  const left = side === "left";
+function SidePanel({ title, onClose, padded = false, children }) {
   return (
     <aside
       aria-label={title}
-      className={`z-20 flex min-h-0 shrink-0 flex-col border-line-strong bg-surface max-xl:absolute max-xl:inset-y-0 max-xl:w-[min(22rem,90vw)] ${
-        left ? "border-r max-xl:left-0 xl:w-64" : "border-l max-xl:right-0 xl:w-[26rem]"
-      }`}
+      className={`z-20 flex min-h-0 shrink-0 flex-col border-line-strong bg-surface max-xl:absolute max-xl:inset-y-0 max-xl:w-[min(22rem,90vw)] border-l max-xl:right-0 xl:w-[26rem]`}
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-line-strong py-2 pl-4 pr-2">
         <h2 className="min-w-0 flex-1 truncate font-serif text-[15px] font-semibold" title={title}>
@@ -389,10 +359,10 @@ function SidePanel({ side, title, onClose, padded = false, children }) {
         <button
           onClick={onClose}
           className="grid size-8 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
-          aria-label={left ? "Hide the project list" : "Hide the project panel"}
+          aria-label="Hide the project panel"
           title="Hide"
         >
-          {left ? <PanelLeft size={16} /> : <PanelRight size={16} />}
+          <PanelRight size={16} />
         </button>
       </div>
       <div className={`flex min-h-0 flex-1 flex-col overflow-y-auto ${padded ? "px-4 py-4" : "py-2"}`}>{children}</div>
@@ -484,52 +454,6 @@ function ProjectCard({ runningProject, runningSession, clock, heldProject, heldS
         </div>
       )}
     </section>
-  );
-}
-
-/** The open projects to pick from, one to a row, and under them the tasks still to do. */
-function ProjectList({ projects, runningProject, chosen, live, onPick }) {
-  if (projects.length === 0) {
-    return <p className="px-4 py-3 font-serif text-[13px] italic text-muted">No open projects or tasks yet.</p>;
-  }
-  const groups = [
-    { label: "Projects", items: projects.filter((p) => p.kind !== "task") },
-    { label: "Tasks", items: projects.filter((p) => p.kind === "task") },
-  ].filter((g) => g.items.length > 0);
-  return (
-    <>
-      <p className="px-4 pb-2 text-xs text-faint">{live ? "Pick one to start its timer now" : "Picked now, started with the next focus"}</p>
-      {groups.map((g) => (
-        <PickGroup key={g.label} label={g.label} items={g.items} runningProject={runningProject} chosen={chosen} onPick={onPick} />
-      ))}
-    </>
-  );
-}
-
-function PickGroup({ label, items, runningProject, chosen, onPick }) {
-  return (
-    <div className="flex flex-col pb-2" role="group" aria-label={label}>
-      <h3 className="px-4 pb-1 pt-2 font-serif text-xs font-semibold italic text-muted">{label}</h3>
-      {items.map((p) => {
-        const Icon = iconFor(p.icon);
-        const active = p.id === runningProject?.id || p.id === chosen?.id;
-        return (
-          <button
-            key={p.id}
-            onClick={() => onPick(p.id)}
-            aria-pressed={active}
-            className={`flex min-h-10 w-full items-center gap-2.5 border-l-[3px] px-4 py-1.5 text-left text-[14px] font-medium transition-colors ${
-              active ? "" : "border-transparent text-muted hover:bg-surface-2 hover:text-text"
-            }`}
-            style={active ? { borderColor: p.color, background: tint(p.color, 14) } : undefined}
-          >
-            <Icon size={15} style={{ color: inkText(p.color) }} className="shrink-0" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate">{p.name}</span>
-            {p.id === runningProject?.id && <span className="blink-dot size-2 shrink-0 rounded-full bg-accent" aria-hidden="true" />}
-          </button>
-        );
-      })}
-    </div>
   );
 }
 

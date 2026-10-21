@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api as realApi, taskKey } from "../api";
 import { heatmapStart, tooShort } from "../lib/time";
 
+const STALE_MS = 5 * 60 * 1000; // away from the tab this long, what it shows is refreshed when you return
+
 /** `prev` and `incoming` merged by id, earliest first. Works for sessions and pomodoros alike. */
 function mergeSessions(prev, incoming) {
   const byId = new Map(prev.map((s) => [s.id, s]));
@@ -49,13 +51,18 @@ export function useTracker(api = realApi) {
   const [pomodoros, setPomodoros] = useState([]);
   const [openItems, setOpenItems] = useState([]); // started, to be closed later; they run alongside the timer
   const [status, setStatus] = useState("loading"); // loading | ready | error
+  const statusRef = useRef(status);
+  statusRef.current = status;
+  const [connecting, setConnecting] = useState(false); // a load is in flight
+  const [failures, setFailures] = useState(0); // loads that failed in a row
   const [notice, setNotice] = useState(null);
   const loadedFrom = useRef(null);
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
 
   const load = useCallback(async () => {
-    setStatus((s) => (s === "ready" ? s : "loading"));
+    setStatus((s) => (s === "ready" || s === "error" ? s : "loading"));
+    setConnecting(true);
     try {
       const from = heatmapStart(new Date());
       const [p, st, td, s, pm, oi] = await Promise.all([
@@ -74,14 +81,50 @@ export function useTracker(api = realApi) {
       setPomodoros(pm);
       setOpenItems(oi);
       setStatus("ready");
+      setFailures(0);
     } catch {
-      setStatus("error");
+      // Data already on screen stays: a resync that fails shouldn't replace the app with an error page
+      setStatus((s) => (s === "ready" ? s : "error"));
+      setFailures((n) => n + 1);
+    } finally {
+      setConnecting(false);
     }
   }, [api]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // While the server can't be reached, keep trying, a little less often each time, up to every 20 seconds
+  useEffect(() => {
+    if (status !== "error" || connecting || api !== realApi) return;
+    const timer = setTimeout(load, Math.min(4000 * failures, 20000));
+    return () => clearTimeout(timer);
+  }, [status, connecting, failures, load, api]);
+
+  // Coming back online, or back to the tab, tries at once; after a long time away it also refreshes
+  // what is shown (a laptop that slept, a phone that was put down)
+  useEffect(() => {
+    if (api !== realApi) return;
+    let hiddenAt = null;
+    const onOnline = () => {
+      if (statusRef.current === "error") load();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAt = Date.now();
+        return;
+      }
+      if (statusRef.current === "error" || (hiddenAt && Date.now() - hiddenAt > STALE_MS)) load();
+      hiddenAt = null;
+    };
+    window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [load, api]);
 
   /** Fresh totals after time was logged: the projects', and the tasks' (only their totals are taken,
    *  so a to-do ticked meanwhile isn't undone). */
@@ -432,6 +475,16 @@ export function useTracker(api = realApi) {
         );
         await Promise.all([...changed].map(([id, order]) => api.updateTodo(id, { sort_order: order })));
       }),
+    /** Send a to-do to the back of the queue: it takes a sort_order past every other, so it ends up last in
+     *  whatever list it is in. Shows at once; a failure resyncs. */
+    moveToBottom: (id) =>
+      attempt(async () => {
+        if (!todos.some((x) => x.id === id)) return;
+        const last = Math.max(0, ...todos.map((x) => x.sort_order)) + 1;
+        setTodos((prev) => prev.map((x) => (x.id === id ? { ...x, sort_order: last } : x)).sort((a, b) => a.sort_order - b.sort_order));
+        const saved = await api.updateTodo(id, { sort_order: last });
+        setTodos((prev) => prev.map((x) => (x.id === id ? { ...x, sort_order: saved.sort_order } : x)));
+      }),
     /** Move a to-do under another (`parentId`), or back to the top level (null). It goes to the end of its new
      *  list. A task put under another task hands its time over to it, so that is resynced from the server. */
     nest: (id, parentId) =>
@@ -510,6 +563,8 @@ export function useTracker(api = realApi) {
     notice,
     dismissNotice,
     reload: load,
+    connecting,
+    failures,
     ensureRange,
     startTimer,
     stopTimer,

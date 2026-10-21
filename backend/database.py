@@ -27,7 +27,12 @@ if DATABASE_URL.startswith("postgres://"):
 # thread pool; PostgreSQL doesn't take that argument.
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+# A hosted database closes idle connections (and Neon suspends itself); a pooled connection that was closed
+# behind our back would fail the next request, so each one is checked as it is taken out of the pool and
+# retired before the server is likely to have dropped it.
+pool_options = {} if DATABASE_URL.startswith("sqlite") else {"pool_pre_ping": True, "pool_recycle": 300}
+
+engine = create_engine(DATABASE_URL, connect_args=connect_args, **pool_options)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

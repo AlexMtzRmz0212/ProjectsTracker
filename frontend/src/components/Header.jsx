@@ -13,7 +13,7 @@ export default function Header({
       <div className="mx-auto flex h-14 max-w-7xl items-center gap-2 px-3 sm:h-16 sm:gap-3 sm:px-6">
         <div className="flex shrink-0 items-center gap-2 max-[380px]:hidden">
           <Timer size={20} className="text-text" aria-hidden="true" />
-          <span className="hidden font-serif text-lg font-semibold tracking-tight lg:block">ProjectsTracker</span>
+          <span className="font-hand hidden text-[26px] font-semibold leading-none lg:block">ProjectsTracker</span>
         </div>
 
         <div className="flex min-w-0 flex-1 justify-center">

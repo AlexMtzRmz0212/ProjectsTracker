@@ -8,13 +8,14 @@ import { useNow } from "./hooks/useNow";
 import { usePomodoro } from "./hooks/usePomodoro";
 import { useMiniPlayer } from "./hooks/useMiniPlayer";
 import {
-  aggregateByDay, dayKey, daySeconds, feedQueue, fmtClock, fmtCountdown, fmtHM, fmtTime, completedPomodoros, mostNeglected, pomodorosOnDay, projectPomodoroCount, sessionSeconds, streak, withLive,
+  aggregateByDay, dayKey, daySeconds, feedQueue, fmtClock, fmtCountdown, fmtHM, fmtTime, completedPomodoros, firstActivityDate, pomodorosOnDay, projectPomodoroCount, sessionSeconds, streak, withLive,
 } from "./lib/time";
 import Header from "./components/Header";
 import PomodoroDrawer from "./components/PomodoroDrawer";
 import PomodoroScreen from "./components/PomodoroScreen";
 import MiniPlayer from "./components/MiniPlayer";
 import StatsStrip from "./components/StatsStrip";
+import { ProjectTime, WeekdayRhythm } from "./components/StatsPanels";
 import ProjectBoard from "./components/ProjectBoard";
 import FeedView from "./components/FeedView";
 import TabBar from "./components/TabBar";
@@ -154,10 +155,10 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   // Their open to-dos, found by name in the searches there; the main search finds those of every project on the board
   const pickTodos = useMemo(() => todoEntries(t.todos, pickSubjects), [t.todos, pickSubjects]);
   const boardTodos = useMemo(() => todoEntries(t.todos, [...liveProjects, ...openTaskSubjects]), [t.todos, liveProjects, openTaskSubjects]);
-  // Only re-evaluated once per day (and when sessions change): "days idle" doesn't move by the second
-  const neglected = useMemo(
-    () => mostNeglected(openProjects, t.sessions, new Date(`${todayKey}T23:59:59`), t.todos),
-    [openProjects, t.sessions, t.todos, todayKey]
+  // The first day anything was logged: where the stats heatmap begins
+  const firstActivity = useMemo(
+    () => firstActivityDate({ sessions: t.sessions, pomodoros: t.pomodoros, todos: t.todos, projects }),
+    [t.sessions, t.pomodoros, t.todos, projects]
   );
   const runningId = t.running?.project_id;
   // The tasks sit in the Feed as one card of their own, while there are any to do. Unlike a project it is not
@@ -444,6 +445,44 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   };
 
   const peekProject = peekId ? projectsById.get(peekId) ?? null : null;
+
+  // A project found by name: its peek opens and the board is shown with its card scrolled into view and
+  // briefly marked. An archived project or a task has no card on the board, so only the peek opens.
+  const [revealId, setRevealId] = useState(null);
+  const revealProject = (id) => {
+    peek(id);
+    const found = projectsById.get(id);
+    if (!found || found.archived_at) return;
+    setTab("projects");
+    setRevealId(id);
+  };
+  useEffect(() => {
+    if (!revealId || tab !== "projects") return;
+    const id = revealId;
+    setRevealId(null);
+    // Its column may have just been switched back on, so wait for the card to be on screen
+    let tries = 0;
+    const find = () => {
+      const card = document.querySelector(`[data-card="${CSS.escape(String(id))}"]`);
+      if (!card || card.offsetParent === null) {
+        if (++tries < 20) setTimeout(find, 50);
+        return;
+      }
+      card.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+      card.setAttribute("data-reveal", "");
+      setTimeout(() => card.removeAttribute("data-reveal"), 1800);
+      // Where the peek lies over the board instead of pushing it aside, bring the card out from under it
+      setTimeout(() => {
+        const peekBox = document.querySelector('aside[aria-label$="side peek"]')?.getBoundingClientRect();
+        const box = card.getBoundingClientRect();
+        if (!peekBox || peekBox.width === 0 || box.right <= peekBox.left) return;
+        let el = card.parentElement;
+        while (el && !(el.scrollWidth > el.clientWidth && /(auto|scroll)/.test(getComputedStyle(el).overflowX))) el = el.parentElement;
+        el?.scrollBy({ left: box.right - peekBox.left + 16, behavior: "smooth" });
+      }, 450);
+    };
+    setTimeout(find, 0);
+  }, [revealId, tab]);
   // Time can be logged on open projects that are on the board and on tasks still to do; a session
   // already logged on anything else can still be edited
   const editedSubject = sessionModal?.session?.project_id ?? sessionModal?.openItem?.project_id ?? sessionModal?.projectId;
@@ -455,14 +494,14 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   // How the find shortcut reads on this machine; the demo doesn't take the shortcut (see above)
   const searchHint = demo ? undefined : /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘F" : "Ctrl F";
 
-  if (t.status === "error") return <ServerDown onRetry={t.reload} />;
+  if (t.status === "error") return <ServerDown onRetry={t.reload} connecting={t.connecting} failures={t.failures} auto={!demo} />;
 
   const tabs = [
-    { id: "feed", label: "Feed", icon: ListTodo },
-    { id: "projects", label: "Projects", icon: Columns3 },
-    { id: "tasks", label: "Tasks", icon: ListChecks },
-    { id: "calendar", label: "Calendar", icon: CalendarDays },
-    { id: "stats", label: "Stats", icon: ChartColumn },
+    { id: "feed", label: "Feed", icon: ListTodo, color: "#bf3a30" },
+    { id: "projects", label: "Projects", icon: Columns3, color: "#2f5d8a" },
+    { id: "tasks", label: "Tasks", icon: ListChecks, color: "#4f7a52" },
+    { id: "calendar", label: "Calendar", icon: CalendarDays, color: "#b07d2a" },
+    { id: "stats", label: "Stats", icon: ChartColumn, color: "#7a5a96" },
   ];
 
   return (
@@ -551,6 +590,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                 <EmptyBoard onCreate={() => setProjectModal({})} />
               ) : (
                 <ProjectBoard
+                  revealId={revealId}
                   projects={liveProjects}
                   archived={archivedProjects}
                   statuses={t.statuses}
@@ -670,23 +710,26 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                   today={today}
                   weekStart={weekStart}
                   streakDays={streak(byDay, today)}
-                  openProjects={openProjects}
-                  neglected={neglected}
-                  onOpenProject={peek}
                   projectsById={projectsById}
-                  runningProjectId={t.running?.project_id}
                 />
-                <Heatmap
-                  byDay={byDay}
-                  projects={projects}
-                  projectsById={projectsById}
-                  today={today}
-                  selected={selected}
-                  onSelect={(d) => {
-                    selectDay(d);
-                    setTab("calendar");
-                  }}
-                />
+                <div className="grid gap-x-10 gap-y-2 lg:grid-cols-[minmax(0,1fr)_19rem]">
+                  <Heatmap
+                    byDay={byDay}
+                    projects={projects}
+                    projectsById={projectsById}
+                    today={today}
+                    selected={selected}
+                    since={firstActivity}
+                    onSelect={(d) => {
+                      selectDay(d);
+                      setTab("calendar");
+                    }}
+                  />
+                  <aside className="flex min-w-0 flex-col gap-7 pt-5 pb-2 lg:border-l lg:border-rule lg:pl-8">
+                    <ProjectTime byDay={byDay} projectsById={projectsById} today={today} onOpenProject={peek} />
+                    <WeekdayRhythm byDay={byDay} today={today} />
+                  </aside>
+                </div>
               </>
             )}
           </main>
@@ -769,7 +812,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           onClose={() => setSearchOpen(false)}
           onPick={(id) => {
             setSearchOpen(false);
-            peek(id);
+            revealProject(id);
           }}
         />
       )}
@@ -908,18 +951,28 @@ function EmptyBoard({ onCreate }) {
   );
 }
 
-function ServerDown({ onRetry }) {
+/** The server can't be reached. The app keeps trying on its own (and again when the network or the tab comes
+ *  back), so the button is only there to skip the wait. */
+function ServerDown({ onRetry, connecting, failures, auto }) {
   return (
     <div className="grid min-h-[100dvh] place-items-center p-4">
-      <div className="w-full max-w-md border border-line-strong bg-surface p-7">
+      <div className="w-full max-w-md border border-line-strong bg-surface p-7" role="status" aria-live="polite">
         <ServerOff size={26} className="text-danger" />
-        <h1 className="mt-4 font-serif text-2xl font-semibold">Can't reach the API</h1>
-        <p className="mt-2 text-[13px] text-muted">Start the backend, then retry:</p>
-        <code className="mt-3 block border border-line bg-surface-2 px-3 py-2.5 font-mono text-xs">
-          uvicorn backend.main:app --reload --port 8001
-        </code>
-        <Button variant="primary" onClick={onRetry} className="mt-6">
-          <RotateCw size={15} /> Retry
+        <h1 className="mt-4 font-serif text-2xl font-semibold">Can't reach the server</h1>
+        <p className="mt-2 text-[13px] text-muted">
+          {auto
+            ? connecting
+              ? `Reconnecting… (try ${failures + 1})`
+              : "Trying again in a moment. It starts on its own when the connection is back."
+            : "Start the backend, then retry:"}
+        </p>
+        {!auto && (
+          <code className="mt-3 block border border-line bg-surface-2 px-3 py-2.5 font-mono text-xs">
+            uvicorn backend.main:app --reload --port 8001
+          </code>
+        )}
+        <Button variant="primary" onClick={onRetry} disabled={connecting} className="mt-6">
+          <RotateCw size={15} className={connecting ? "animate-spin" : ""} /> {connecting ? "Trying…" : "Retry now"}
         </Button>
       </div>
     </div>

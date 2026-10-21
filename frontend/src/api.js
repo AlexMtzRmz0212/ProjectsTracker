@@ -4,12 +4,45 @@
 const BASE = "/api";
 export const UNAUTHORIZED_EVENT = "pt-unauthorized";
 
-/** fetch wrapper: checks the status before parsing, and tolerates 204s. */
+const ATTEMPTS = 4; // reads are tried this many times before they fail
+const TIMEOUT_MS = 20000; // per try: a sleeping database can take a while to wake
+const RETRY_STATUSES = new Set([500, 502, 503, 504]);
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** One try: a network failure or a timeout throws a `TypeError`/`AbortError` (no `status`). */
+async function send(path, options) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    return await fetch(BASE + path, {
+      ...options,
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json", ...options.headers },
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** fetch wrapper: checks the status before parsing, and tolerates 204s. A read (GET) that fails to reach the
+ *  server, or that meets a server hiccup (a cold start, a dropped database connection), is tried again a few
+ *  times, waiting a little longer each time. Writes are sent once: a repeat could do them twice. */
 export async function fetchApi(path, options = {}) {
-  const response = await fetch(BASE + path, {
-    ...options,
-    headers: { "Content-Type": "application/json", ...options.headers },
-  });
+  const retries = (options.method ?? "GET") === "GET" ? ATTEMPTS : 1;
+  let response;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      response = await send(path, options);
+    } catch (error) {
+      if (attempt >= retries) throw error;
+      await wait(500 * 2 ** (attempt - 1) + Math.random() * 250);
+      continue;
+    }
+    // "Owner login is not configured" is a 503 that waiting won't fix
+    const transient = RETRY_STATUSES.has(response.status) && !path.startsWith("/auth/") && !(await isConfigError(response));
+    if (!transient || attempt >= retries) break;
+    await wait(500 * 2 ** (attempt - 1) + Math.random() * 250);
+  }
 
   if (!response.ok) {
     // An expired owner session: let the app drop back to the public page. Login
@@ -32,6 +65,16 @@ export async function fetchApi(path, options = {}) {
 
   if (response.status === 204) return null;
   return response.json();
+}
+
+/** Whether a 503 is the server saying it is set up wrong, rather than briefly unavailable. */
+async function isConfigError(response) {
+  if (response.status !== 503) return false;
+  try {
+    return (await response.clone().text()).includes("not configured");
+  } catch {
+    return false;
+  }
 }
 
 const json = (method, body) => ({ method, body: JSON.stringify(body) });
