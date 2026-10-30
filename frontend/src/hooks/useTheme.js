@@ -5,9 +5,13 @@ import { useCallback, useSyncExternalStore } from "react";
 const listeners = new Set();
 let current = document.documentElement.dataset.theme || "dark";
 
+// Same colors as index.html's first-paint script: the browser bar, or an installed app's title bar
+const BAR_COLORS = { light: "#f2ead4", dark: "#131a16" };
+
 function setTheme(next) {
   current = next;
   document.documentElement.dataset.theme = next;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", BAR_COLORS[next]);
   try {
     localStorage.setItem("pt-theme", next);
   } catch {

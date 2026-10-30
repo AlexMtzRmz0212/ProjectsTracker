@@ -9,8 +9,11 @@
       content="A visual time tracker: one-click timers per project, a calendar that fills as you work, and a year-long activity heatmap. Try the live demo."
     />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="theme-color" content="#f2ead4" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#131a16" media="(prefers-color-scheme: dark)" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="apple-mobile-web-app-title" content="Tracker" />
+    <!-- Follows the app's own theme (useTheme.js), so an installed window's title bar matches it -->
+    <meta name="theme-color" content="#131a16" />
     <script>
       // Apply the saved/system theme before first paint to avoid a flash.
       try {
@@ -18,10 +21,11 @@
         if (t !== "light" && t !== "dark") {
           t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
         }
-        document.documentElement.dataset.theme = t;
       } catch (e) {
-        document.documentElement.dataset.theme = "dark";
+        t = "dark";
       }
+      document.documentElement.dataset.theme = t;
+      document.querySelector('meta[name="theme-color"]').content = t === "light" ? "#f2ead4" : "#131a16";
     </script>
   </head>
   <body>

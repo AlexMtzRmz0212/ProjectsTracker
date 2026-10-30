@@ -79,6 +79,12 @@ with the time you worked, and a year-long activity heatmap.
   to-dos counts as working on it, timer or not.
 - Light/dark theme, responsive down to phone width. On a phone the header keeps to the timers and a **More** menu
   (search, new project, statuses, interest, theme, sign out), and the four sections sit in a tab bar along the bottom.
+- **Installable** (a PWA): Chrome and Edge offer *Install* in the address bar, Android *Add to Home screen*, and an
+  iPhone Share → *Add to Home Screen*. It opens in its own window with its own icon, and opening it again focuses
+  that window instead of a second one. The title bar follows the app's theme, and the icon wears a dot while a
+  project timer, a focus or a break is counting (where the system supports app badges). A service worker (`frontend/public/sw.js`,
+  production builds only) caches the page and the built files so it opens fast; `/api` is never cached, so data and
+  timers always come from the server. The icons in `frontend/public/icons/` are drawn from the favicon's design.
 
 ## Quick start
 

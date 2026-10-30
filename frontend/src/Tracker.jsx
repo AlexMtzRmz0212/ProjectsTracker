@@ -281,6 +281,20 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
       : "ProjectsTracker";
   }, [demo, phase, runningProject, clock, focusRemaining, breakRemaining]);
 
+  // A dot on the installed app's icon (taskbar, dock, home screen) while a timer counts: a project timer,
+  // or a pomodoro focus or break. Browsers without the Badging API, or a page that isn't installed, skip it.
+  const ticking = Boolean(t.running) || phase === "focus" || phase === "break";
+  useEffect(() => {
+    if (demo || !("setAppBadge" in navigator)) return;
+    const quiet = () => {}; // the badge is a nicety: a refusal changes nothing
+    if (!ticking) {
+      navigator.clearAppBadge().catch(quiet);
+      return;
+    }
+    navigator.setAppBadge().catch(quiet);
+    return () => navigator.clearAppBadge().catch(quiet); // also on sign out, when the tracker goes away
+  }, [demo, ticking]);
+
   // Ctrl+F (⌘F on a Mac) opens the project search instead of the browser's find. The demo sits on a
   // public page, where taking that shortcut over would be rude, so it only has the button. With another
   // window open on top of the board it is left to the browser too.
