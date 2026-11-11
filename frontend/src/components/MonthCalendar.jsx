@@ -1,13 +1,13 @@
 import { useMemo } from "react";
 import { addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, startOfMonth, startOfWeek } from "date-fns";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Tag } from "lucide-react";
 import { tint } from "../lib/palette";
 import { dayKey, fmtHM, fmtShort } from "../lib/time";
 
 const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
 const MIN_SCALE = 2 * 3600; // a day "fills" at the month's busiest day, but never below 2h
 
-export default function MonthCalendar({ cursor, onCursor, selected, onSelect, byDay, projectsById, today }) {
+export default function MonthCalendar({ cursor, onCursor, selected, onSelect, byDay, tagsByDay, projectsById, today }) {
   const days = useMemo(
     () =>
       eachDayOfInterval({
@@ -69,12 +69,15 @@ export default function MonthCalendar({ cursor, onCursor, selected, onSelect, by
           const isToday = key === todayKey;
           const isSelected = key === selectedKey;
           const segments = [...(entry?.byProject.entries() ?? [])].filter(([id]) => projectsById.has(id));
+          // The tags pomodoros were given that day, each once: shown on hover, and marked by a small tag
+          const tags = [...new Map((tagsByDay?.get(key) ?? []).map((t) => [t.toLowerCase(), t])).values()];
 
           return (
             <button
               key={key}
               onClick={() => onSelect(d)}
-              aria-label={`${format(d, "EEEE, MMMM d")}: ${fmtHM(total)}`}
+              aria-label={`${format(d, "EEEE, MMMM d")}: ${fmtHM(total)}${tags.length ? `. Pomodoro tags: ${tags.join(", ")}` : ""}`}
+              title={tags.length ? `Pomodoro tags: ${tags.join(", ")}` : undefined}
               aria-pressed={isSelected}
               className={`relative h-12 border-r border-b border-rule text-left transition-colors hover:bg-surface-2 sm:h-[52px] ${
                 outside ? "opacity-45" : ""
@@ -98,6 +101,7 @@ export default function MonthCalendar({ cursor, onCursor, selected, onSelect, by
               >
                 {d.getDate()}
               </span>
+              {tags.length > 0 && <Tag size={10} className="absolute bottom-1 left-1.5 text-accent" aria-hidden="true" />}
               {total >= 60 && (
                 <span className="figures absolute right-1 bottom-0.5 hidden text-[11px] font-semibold sm:block">
                   {fmtShort(total)}

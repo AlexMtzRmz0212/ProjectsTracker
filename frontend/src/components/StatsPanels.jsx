@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { dayKey, fmtHM, fmtShort } from "../lib/time";
+import { countTags, dayKey, fmtHM, fmtShort } from "../lib/time";
 
 const DAYS = 30; // the window of "where the time went"
 const RHYTHM_WEEKS = 12; // the window of the weekday rhythm
@@ -104,6 +104,40 @@ export function WeekdayRhythm({ byDay, today }) {
           </div>
         ))}
       </div>
+    </section>
+  );
+}
+
+/** What the pomodoros of the last 30 days were tagged as, most used first. Not drawn until one has a tag. */
+export function PomodoroTags({ pomodoros, today }) {
+  const rows = useMemo(() => {
+    const from = daysBack(today, DAYS - 1);
+    return countTags(pomodoros.filter((p) => p.start >= from));
+  }, [pomodoros, today]);
+  if (rows.length === 0) return null;
+  const shown = rows.slice(0, SHOWN_PROJECTS);
+  const max = Math.max(...shown.map(([, n]) => n), 1);
+
+  return (
+    <section>
+      <h2 className="font-hand text-[26px] font-semibold leading-none">Pomodoro tags</h2>
+      <p className="font-serif text-[13px] italic text-muted">What the focuses were for, the last {DAYS} days.</p>
+      <ul className="mt-3 flex flex-col gap-2">
+        {shown.map(([label, count]) => (
+          <li key={label} title={`${label}: ${count} ${count === 1 ? "pomodoro" : "pomodoros"}`}>
+            <span className="flex items-baseline justify-between gap-3 text-[13px]">
+              <span className="min-w-0 truncate">{label}</span>
+              <span className="figures shrink-0 text-xs text-muted">{count}</span>
+            </span>
+            <span className="mt-1 block h-1.5 bg-surface-2">
+              <span className="block h-full bg-accent" style={{ width: `${(count / max) * 100}%` }} />
+            </span>
+          </li>
+        ))}
+        {rows.length > shown.length && (
+          <li className="font-serif text-xs italic text-muted">{rows.length - shown.length} more</li>
+        )}
+      </ul>
     </section>
   );
 }

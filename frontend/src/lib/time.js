@@ -100,6 +100,27 @@ export function projectPomodoroCount(projectId, sessions, pomodoros, now) {
   return completedPomodoros(pomodoros).filter((p) => own.some((s) => s.start < p.end && (s.end ?? now) > p.start)).length;
 }
 
+/** [[tag, count]] for the chores (free-text labels, with no project or task) given to `pomodoros`, most used first.
+ *  The same words in another case count as one (shown as first written). Others add nothing: a project or task a
+ *  pomodoro was for already shows as that project or task. */
+export function countTags(pomodoros) {
+  const found = new Map();
+  for (const p of pomodoros) {
+    const label = p.label?.trim();
+    if (!label || p.project_id) continue;
+    const entry = found.get(label.toLowerCase()) ?? { label, count: 0 };
+    entry.count++;
+    found.set(label.toLowerCase(), entry);
+  }
+  return [...found.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)).map((e) => [e.label, e.count]);
+}
+
+/** The tags (see countTags) of the pomodoros a project was worked on during. */
+export function projectTagCounts(projectId, sessions, pomodoros, now) {
+  const own = sessions.filter((s) => s.project_id === projectId);
+  return countTags(pomodoros.filter((p) => p.label && own.some((s) => s.start < p.end && (s.end ?? now) > p.start)));
+}
+
 /** Map<projectId, Date>: when each project was last worked on, the latest of the end of its latest
  *  session (`now` for one whose timer is running), the moment one of its to-dos was added and the
  *  moment one was ticked off (attention paid without a timer). Projects with none of these in

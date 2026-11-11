@@ -109,8 +109,10 @@ export function parseSession(s) {
 /** An open item: like a session that hasn't ended. */
 export const parseOpenItem = (item) => ({ ...item, project_id: subjectOf(item), start: new Date(item.start) });
 
+/** A pomodoro: dates parsed, and, like a session, what it was for as a subject id in `project_id` (a project,
+ *  or a task's key; null when it only has a label, or nothing). `todo_id` stays as the server sends it. */
 export function parsePomodoro(p) {
-  return { ...p, start: new Date(p.start), end: new Date(p.end) };
+  return { ...p, project_id: subjectOf(p), label: p.label ?? "", start: new Date(p.start), end: new Date(p.end) };
 }
 
 export const api = {
@@ -132,6 +134,8 @@ export const api = {
   createTodo: (data) => fetchApi("/todos", json("POST", data)),
   updateTodo: (id, data) => fetchApi(`/todos/${id}`, json("PATCH", data)),
   deleteTodo: (id) => fetchApi(`/todos/${id}`, { method: "DELETE" }),
+  /** Turn a task into a project (its sub-tasks and time come along); answers with the new project. */
+  taskToProject: (id) => fetchApi(`/todos/${id}/to-project`, { method: "POST" }),
 
   listSessions: async ({ start, end } = {}) => {
     const params = new URLSearchParams();

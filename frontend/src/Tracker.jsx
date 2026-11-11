@@ -6,19 +6,22 @@ import { useTheme } from "./hooks/useTheme";
 import { useInbox } from "./hooks/useInbox";
 import { useNow } from "./hooks/useNow";
 import { usePomodoro } from "./hooks/usePomodoro";
+import { useFeedOrder } from "./hooks/useFeedOrder";
+import { orderQueue } from "./lib/feedOrder";
 import { useMiniPlayer } from "./hooks/useMiniPlayer";
 import {
-  aggregateByDay, dayKey, daySeconds, feedQueue, fmtClock, fmtCountdown, fmtHM, fmtTime, completedPomodoros, firstActivityDate, pomodorosOnDay, projectPomodoroCount, sessionSeconds, streak, withLive,
+  aggregateByDay, dayKey, daySeconds, feedQueue, fmtClock, fmtCountdown, fmtHM, fmtTime, completedPomodoros, firstActivityDate, pomodorosOnDay, projectPomodoroCount, projectTagCounts, sessionSeconds, streak, withLive,
 } from "./lib/time";
 import Header from "./components/Header";
 import PomodoroDrawer from "./components/PomodoroDrawer";
 import PomodoroScreen from "./components/PomodoroScreen";
 import MiniPlayer from "./components/MiniPlayer";
 import StatsStrip from "./components/StatsStrip";
-import { ProjectTime, WeekdayRhythm } from "./components/StatsPanels";
+import { PomodoroTags, ProjectTime, WeekdayRhythm } from "./components/StatsPanels";
 import ProjectBoard from "./components/ProjectBoard";
 import FeedView from "./components/FeedView";
 import TabBar from "./components/TabBar";
+import VerticalTabs from "./components/VerticalTabs";
 import BottomTabBar from "./components/BottomTabBar";
 import MonthCalendar from "./components/MonthCalendar";
 import DayPanel from "./components/DayPanel";
@@ -41,7 +44,7 @@ import { TASK_ICON, TASK_INK, inkFor } from "./lib/palette";
 import { isTaskKey, taskIdOf, taskKey } from "./api";
 
 const FEED_TASKS = "feed:tasks"; // the id of the Tasks card in the Feed
-const PEEK_ROOM = 760; // the least width the page keeps beside the side peek; short of it the peek goes over the page
+const PEEK_PUSH_MIN = 900; // narrower windows never push: the peek goes over the page (it is a phone or a small window)
 
 /**
  * The whole tracker. `api` is where its data lives: the real server for the
@@ -114,7 +117,16 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
-  const pushPx = !demo && viewportW >= 1024 && viewportW - peekPush.px >= PEEK_ROOM ? peekPush.px : 0;
+  // Whatever width the peek takes, the page gives way to it and shows what fits (less and less, down to the tabs
+  // and then just their start), instead of jumping back to a full-width page under the peek
+  const pushPx = !demo && viewportW >= PEEK_PUSH_MIN ? peekPush.px : 0;
+  // The page's blocks (.pg, see index.css) stay centred until the peek reaches them, then give way to it. When what
+  // is left is too narrow for the tabs with their names they show only their icons, and when it is too narrow
+  // for any content only the tabs are shown, one under another, to bring the peek back down to its usual width
+  const pageW = viewportW - pushPx;
+  const compactTabs = pushPx > 0 && pageW < 570;
+  const tabsOnly = pushPx > 0 && pageW < 300;
+  const [peekResetKey, setPeekResetKey] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
   const [projectModal, setProjectModal] = useState(null); // { project? }
   // { session?, openItem?, projectId?, date?, span?, startOpen? }: a session to log or edit, or an open item
@@ -216,6 +228,21 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
       ).map((entry) => (entry.project.id === FEED_TASKS ? { ...entry, lastWorked: tasksLastWorked } : entry)),
     [openProjects, feedTasks, t.sessions, t.todos, todayKey, runningId, tasksLastWorked]
   );
+  // How the Feed is ordered (kept in this browser): rotation is the queue above; the other modes and the pins re-sort it
+  const feedOrder = useFeedOrder(demo ? "demo" : "app");
+  const shownQueue = useMemo(
+    () => orderQueue(queue, { mode: feedOrder.mode, manual: feedOrder.manual, pinned: feedOrder.pinned }, isTaskKey(runningId) ? FEED_TASKS : runningId),
+    [queue, feedOrder.mode, feedOrder.manual, feedOrder.pinned, runningId]
+  );
+  /** Skip a Feed card to the back: in the rotation by stamping it, in "My order" by moving it to the end of that
+   *  order. Either way it loses its pin, or it would stay on top. */
+  const skipCard = (id) => {
+    feedOrder.unpin(id);
+    if (feedOrder.mode === "manual") {
+      feedOrder.setManual([...shownQueue.map((x) => x.project.id).filter((x) => x !== id), id]);
+    }
+    return id === FEED_TASKS ? skipTasks() : t.skipProject(id);
+  };
   const openTodosByProject = useMemo(() => {
     const byProject = new Map();
     for (const todo of t.todos) {
@@ -229,6 +256,17 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
 
   const todosById = useMemo(() => new Map(t.todos.map((x) => [x.id, x])), [t.todos]);
 
+  // The tags given to pomodoros, by the day they started: the month calendar marks those days
+  const tagsByDay = useMemo(() => {
+    const byDay = new Map();
+    for (const p of t.pomodoros) {
+      const label = p.label?.trim();
+      if (!label) continue;
+      const key = dayKey(p.start);
+      byDay.set(key, [...(byDay.get(key) ?? []), label]);
+    }
+    return byDay;
+  }, [t.pomodoros]);
   const baseByDay = useMemo(() => aggregateByDay(t.sessions), [t.sessions]);
   // The running timer and every open item count as they go
   const byDay = useMemo(
@@ -440,6 +478,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
         todos={t.todos.filter((x) => x.project_id === project.id)}
         sessions={t.sessions.filter((x) => x.project_id === project.id).sort((a, b) => b.start - a.start)}
         pomodoroCount={projectPomodoroCount(project.id, t.sessions, t.pomodoros, now)}
+        pomodoroTags={projectTagCounts(project.id, t.sessions, t.pomodoros, now)}
         isRunning={isRunning}
         elapsed={clock}
         totalSeconds={project.total_seconds + (isRunning ? elapsed : 0) + openSeconds(project.id)}
@@ -523,13 +562,12 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
       <div className="flex h-full min-h-0 flex-col">
         <Header
           runningProject={runningProject}
-          runningSession={t.running}
           elapsed={clock}
           heldProject={heldProject}
           heldSeconds={pomodoro.heldSeconds}
-          onSaveNote={(note) => t.updateSession(t.running.id, { note })}
           pomodoro={pomodoro}
           pomodorosToday={pomodorosToday}
+          focusChoices={pickSubjects}
           onStop={t.stopTimer}
           onStopFocus={stopFocus}
           onExpand={() => setScreenOpen(true)}
@@ -554,18 +592,41 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
 
         {/* Everything under the header gives way to the side peek, where the window has room for both */}
         <div
-          className="flex min-h-0 flex-1 flex-col transition-[padding] duration-200 ease-out"
-          style={{ paddingRight: pushPx, transition: peekPush.dragging ? "none" : undefined }}
+          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-clip transition-[padding] duration-200 ease-out"
+          data-dragging={peekPush.dragging ? "" : undefined}
+          style={{
+            paddingRight: pushPx,
+            transition: peekPush.dragging ? "none" : undefined,
+            "--peek": `${pushPx}px`,
+          }}
         >
+          {tabsOnly ? (
+            <VerticalTabs
+              tabs={tabs}
+              value={tab}
+              label="Sections"
+              onChange={(id) => {
+                setTab(id);
+                setPeekResetKey((k) => k + 1); // the peek goes back to its usual width, and stays open
+              }}
+            />
+          ) : (
+          <>
           <TabBar
             tabs={tabs}
             value={tab}
             onChange={setTab}
+            compact={compactTabs}
             label="Sections"
-            className={`mx-auto w-full max-w-7xl shrink-0 px-2 sm:px-5 ${demo ? "" : "max-sm:hidden"}`}
+            className={`pg [--cw:80rem] shrink-0 px-2 sm:px-5 ${demo ? "" : "max-sm:hidden"}`}
             right={
               <>
-                <span className="figures hidden whitespace-nowrap text-xs text-muted md:inline">
+                {/* Only where the tab bar has room for it beside the tabs (and the Statuses button, on the board) */}
+                <span
+                  className={`figures hidden whitespace-nowrap text-xs text-muted ${
+                    tab === "projects" ? "@[55rem]:inline" : "@[49rem]:inline"
+                  }`}
+                >
                   Today <span className="font-semibold text-text">{fmtHM(todaySecs)}</span>
                   <span className="mx-2 text-faint">·</span>
                   Week <span className="font-semibold text-text">{fmtHM(weekSecs)}</span>
@@ -573,9 +634,9 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                 {tab === "projects" && t.status === "ready" && (
                   <button
                     onClick={() => setStatusesOpen(true)}
-                    className="inline-flex h-8 items-center gap-1.5 px-2 text-[13px] text-muted transition-colors hover:bg-surface-2 hover:text-text"
+                    className="hidden h-8 items-center gap-1.5 px-2 text-[13px] text-muted transition-colors hover:bg-surface-2 hover:text-text @[43rem]:inline-flex"
                   >
-                    <SlidersHorizontal size={14} /> <span className="max-sm:sr-only">Statuses</span>
+                    <SlidersHorizontal size={14} /> Statuses
                   </button>
                 )}
               </>
@@ -588,15 +649,17 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
             now={now}
             onOpen={(item) => setSessionModal({ openItem: item })}
             onClose={(item) => t.openOps.close(item.id)}
-            className="mx-auto w-full max-w-7xl shrink-0 border-b border-line px-4 sm:px-6"
+            className="pg [--cw:80rem] shrink-0 border-b border-line px-4 sm:px-6"
           />
 
           <main
             role="tabpanel"
             id={`panel-${tab}`}
             aria-labelledby={`tab-${tab}`}
-            className="relative mx-auto min-h-0 w-full max-w-7xl flex-1 overflow-y-auto px-4 py-3 sm:px-6"
+            className="@container relative min-h-0 w-full flex-1 overflow-y-auto px-4 py-3 sm:px-6"
           >
+            {/* The page column: the Feed and Tasks are a narrow one, the rest use the width there is */}
+            <div className={`pg h-full ${tab === "feed" || tab === "tasks" ? "[--cw:48rem]" : "[--cw:77rem]"}`}>
             {t.status === "loading" ? (
               <Skeleton />
             ) : tab === "projects" ? (
@@ -640,7 +703,9 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                 <EmptyBoard onCreate={() => setProjectModal({})} />
               ) : (
                 <FeedView
-                  queue={queue}
+                  queue={shownQueue}
+                  feedOrder={feedOrder}
+                  onOrder={feedOrder.setManual}
                   todosByProject={openTodosByProject}
                   todosById={todosById}
                   todoOps={t.todoOps}
@@ -651,7 +716,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                   onStart={startProject}
                   onStartTask={(todo) => startProject(taskKey(todo.parent_id ?? todo.id), todo.id)}
                   onStop={t.stopTimer}
-                  onSkip={(id) => (id === FEED_TASKS ? skipTasks() : t.skipProject(id))}
+                  onSkip={skipCard}
                 />
               )
             ) : tab === "calendar" ? (
@@ -659,9 +724,9 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                 {calView === "month" && <CalendarViews value={calView} onChange={setCalView} />}
                 {/* Week and day fill what is left of the window, so the page itself never scrolls: the hours do */}
                 <div
-                  className={`grid gap-6 lg:gap-10 ${
-                    calView === "month" ? "items-start lg:grid-cols-[minmax(0,32rem)_minmax(0,1fr)]"
-                    : calView === "day" ? "min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:grid-rows-[minmax(0,1fr)]"
+                  className={`grid gap-6 @4xl:gap-10 ${
+                    calView === "month" ? "items-start @4xl:grid-cols-[minmax(0,32rem)_minmax(0,1fr)]"
+                    : calView === "day" ? "min-h-0 flex-1 @4xl:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] @4xl:grid-rows-[minmax(0,1fr)]"
                     : "min-h-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]"
                   }`}
                 >
@@ -672,6 +737,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                       selected={selected}
                       onSelect={selectDay}
                       byDay={byDay}
+                      tagsByDay={tagsByDay}
                       projectsById={projectsById}
                       today={today}
                     />
@@ -697,7 +763,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                     />
                   )}
                   {calView !== "week" && (
-                    <div className={calView === "day" ? "min-h-0 lg:overflow-y-auto" : undefined}>
+                    <div className={calView === "day" ? "min-h-0 @4xl:overflow-y-auto" : undefined}>
                       <DayPanel
                         date={selected}
                         sessions={calendarSessions}
@@ -726,7 +792,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                   streakDays={streak(byDay, today)}
                   projectsById={projectsById}
                 />
-                <div className="grid gap-x-10 gap-y-2 lg:grid-cols-[minmax(0,1fr)_19rem]">
+                <div className="grid gap-x-10 gap-y-2 @4xl:grid-cols-[minmax(0,1fr)_19rem]">
                   <Heatmap
                     byDay={byDay}
                     projects={projects}
@@ -739,14 +805,18 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                       setTab("calendar");
                     }}
                   />
-                  <aside className="flex min-w-0 flex-col gap-7 pt-5 pb-2 lg:border-l lg:border-rule lg:pl-8">
+                  <aside className="flex min-w-0 flex-col gap-7 pt-5 pb-2 @4xl:border-l @4xl:border-rule @4xl:pl-8">
                     <ProjectTime byDay={byDay} projectsById={projectsById} today={today} onOpenProject={peek} />
                     <WeekdayRhythm byDay={byDay} today={today} />
+                    <PomodoroTags pomodoros={t.pomodoros} today={today} />
                   </aside>
                 </div>
               </>
             )}
+            </div>
           </main>
+          </>
+          )}
         </div>
 
         {!demo && <BottomTabBar tabs={tabs} value={tab} onChange={setTab} label="Sections" />}
@@ -831,7 +901,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
         />
       )}
 
-      <ProjectPeek open={peekOpen} onOpenChange={setPeekOpen} onWidth={onPeekWidth} project={peekProject} escPaused={pomodoroOpen}>
+      <ProjectPeek open={peekOpen} onOpenChange={setPeekOpen} onWidth={onPeekWidth} widthResetKey={peekResetKey} project={peekProject} escPaused={pomodoroOpen}>
         {peekProject && projectDetail(peekProject)}
       </ProjectPeek>
 

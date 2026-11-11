@@ -57,9 +57,9 @@ export default function ProjectBoard({
         onArchive(project.id);
         return false; // the card is gone from its column at once, so there is nothing to animate
       }
-      // Dropped on a status chip (phones), there is no column to place it in: it joins the end, and
-      // a card already in that status stays where it is
-      if (index != null || project.status_id !== target) onMove(project.id, target, index);
+      // A column's cards are ordered by when they were last edited, so a drop has no place to land in it:
+      // into another status, the card goes there (and tops it, as an edit); in its own, nothing changes
+      if (project.status_id !== target) onMove(project.id, target);
       return false;
     },
   });
@@ -72,10 +72,15 @@ export default function ProjectBoard({
   // While a card is held it already sits in the slot it would drop into (back home when the pointer
   // is over no column), and the cards around it step aside.
   const held = drag?.phase === "drag" ? ghostProject : null;
-  const inStatus = (id) => projects.filter((p) => p.status_id === id);
+  // Most recently edited on top
+  const inStatus = (id) =>
+    projects
+      .filter((p) => p.status_id === id)
+      .sort((a, b) => (Date.parse(b.updated_at) || 0) - (Date.parse(a.updated_at) || 0) || a.sort_order - b.sort_order);
+  // Over another column the card would land on top of it; over its own it stays where it is
   const slot = held
-    ? statuses.some((s) => s.id === drag.target)
-      ? { statusId: drag.target, index: drag.index ?? inStatus(drag.target).filter((p) => p.id !== held.id).length }
+    ? statuses.some((s) => s.id === drag.target) && drag.target !== held.status_id
+      ? { statusId: drag.target, index: 0 }
       : { statusId: held.status_id, index: inStatus(held.status_id).findIndex((p) => p.id === held.id) }
     : null;
   const cardsOf = (id) => {
@@ -143,7 +148,7 @@ export default function ProjectBoard({
       />
 
       {/* Phones: the status to look at, and where a dragged card is dropped */}
-      <div className="flex shrink-0 flex-wrap gap-x-4 gap-y-0.5 md:hidden" role="radiogroup" aria-label="Status">
+      <div className="flex shrink-0 flex-wrap gap-x-4 gap-y-0.5 @3xl:hidden" role="radiogroup" aria-label="Status">
         {statuses.map((s) => {
           const active = s.id === shownOnPhone;
           const target = over === s.id;
@@ -169,7 +174,7 @@ export default function ProjectBoard({
 
       {/* Larger screens: which statuses get a column. Phones already show one at a time. */}
       {statuses.length > 1 && (
-        <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-0.5 max-md:hidden" role="group" aria-label="Show columns">
+        <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-0.5 @max-3xl:hidden" role="group" aria-label="Show columns">
           <button
             onClick={() => setAllHidden(hidden.size === 0)}
             aria-label={hidden.size === 0 ? `Hide all columns but ${keptName}` : "Show all columns"}
@@ -223,7 +228,7 @@ export default function ProjectBoard({
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] gap-3 md:auto-cols-[minmax(0,21rem)] md:grid-flow-col md:grid-cols-none md:[justify-content:center]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] gap-3 @3xl:auto-cols-[minmax(0,21rem)] @3xl:grid-flow-col @3xl:grid-cols-none @3xl:[justify-content:center]">
         {statuses.map((status) => {
           const cards = inStatus(status.id);
           const shown = cardsOf(status.id);
@@ -233,8 +238,8 @@ export default function ProjectBoard({
               aria-label={`${status.name}, ${cards.length} ${cards.length === 1 ? "project" : "projects"}`}
               data-drop={status.id}
               className={`column-in min-h-0 flex-col border bg-surface-2/40 transition-colors ${
-                status.id === shownOnPhone ? "flex" : "max-md:hidden"
-              } ${hidden.has(status.id) ? "md:hidden" : "md:flex"} ${over === status.id ? "border-text bg-surface-2" : "border-line"}`}
+                status.id === shownOnPhone ? "flex" : "@max-3xl:hidden"
+              } ${hidden.has(status.id) ? "@3xl:hidden" : "@3xl:flex"} ${over === status.id ? "border-text bg-surface-2" : "border-line"}`}
             >
               <header className="flex shrink-0 items-center gap-2 border-b-[3px] border-double border-line-strong px-3 py-2">
                 <span className="size-2.5 shrink-0" style={{ background: inkFor(status.color) }} aria-hidden="true" />
@@ -266,8 +271,8 @@ export default function ProjectBoard({
                 ))}
                 {shown.length === 0 && (
                   <li className="grid place-items-center border border-dashed border-line-strong px-3 py-6 text-center text-[13px] text-faint">
-                    <span className="max-md:hidden">Drop a project here</span>
-                    <span className="md:hidden">Nothing here</span>
+                    <span className="@max-3xl:hidden">Drop a project here</span>
+                    <span className="@3xl:hidden">Nothing here</span>
                   </li>
                 )}
               </ul>

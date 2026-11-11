@@ -85,6 +85,7 @@ class ProjectOut(BaseModel):
     notes: str
     sort_order: int
     created_at: UTCDateTime
+    updated_at: UTCDateTime  # last edited (details, status, notes or to-dos)
     skipped_at: Optional[UTCDateTime] = None  # last sent to the back of the Feed's queue
     archived_at: Optional[UTCDateTime] = None  # when it was put away; None while it is on the board
     cancelled_at: Optional[UTCDateTime] = None  # when it was called off (it is archived too); None otherwise
@@ -198,6 +199,10 @@ class PomodoroCreate(BaseModel):
     start: UTCDateTime
     end: UTCDateTime
     completed: bool = True
+    # What it was for, all optional: a project, a task or to-do, or a free-text label
+    project_id: Optional[str] = None
+    todo_id: Optional[str] = None
+    label: Annotated[str, StringConstraints(strip_whitespace=True, max_length=120)] = ""
 
 
 class PomodoroOut(BaseModel):
@@ -207,6 +212,9 @@ class PomodoroOut(BaseModel):
     start: UTCDateTime
     end: UTCDateTime
     completed: bool
+    project_id: Optional[str] = None
+    todo_id: Optional[str] = None
+    label: str = ""
 
 
 # ── Interest counter (public) ───────────────────────────────────────────────

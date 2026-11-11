@@ -69,6 +69,11 @@ def _add_project_columns(engine: Engine) -> None:
         if "cancelled_at" not in columns:
             column_type = models.Project.__table__.c.cancelled_at.type.compile(dialect=engine.dialect)
             conn.execute(text(f"ALTER TABLE projects ADD COLUMN cancelled_at {column_type}"))
+        if "updated_at" not in columns:
+            # Projects made before it existed were last edited when they were made
+            column_type = models.Project.__table__.c.updated_at.type.compile(dialect=engine.dialect)
+            conn.execute(text(f"ALTER TABLE projects ADD COLUMN updated_at {column_type}"))
+            conn.execute(text("UPDATE projects SET updated_at = created_at WHERE updated_at IS NULL"))
 
 
 def _add_todo_columns(engine: Engine) -> None:
@@ -129,10 +134,18 @@ def _add_status_columns(engine: Engine) -> None:
 
 
 def _add_pomodoro_columns(engine: Engine) -> None:
-    """Pomodoros saved before `completed` existed were all finished ones: they get TRUE."""
-    if "completed" not in {c["name"] for c in inspect(engine).get_columns("pomodoros")}:
-        with engine.begin() as conn:
+    """Pomodoros saved before `completed` existed were all finished ones: they get TRUE. Ones saved
+    before they could say what they were for have no project, task or label."""
+    columns = {c["name"] for c in inspect(engine).get_columns("pomodoros")}
+    with engine.begin() as conn:
+        if "completed" not in columns:
             conn.execute(text("ALTER TABLE pomodoros ADD COLUMN completed BOOLEAN NOT NULL DEFAULT TRUE"))
+        if "project_id" not in columns:
+            conn.execute(text("ALTER TABLE pomodoros ADD COLUMN project_id VARCHAR"))
+        if "todo_id" not in columns:
+            conn.execute(text("ALTER TABLE pomodoros ADD COLUMN todo_id VARCHAR"))
+        if "label" not in columns:
+            conn.execute(text("ALTER TABLE pomodoros ADD COLUMN label VARCHAR(120) NOT NULL DEFAULT ''"))
 
 
 def _seed_statuses(db: DbSession) -> None:

@@ -1,16 +1,17 @@
 import { completedPomodoros, daySeconds, dayKey, fmtHM, pomodorosOnDay } from "../lib/time";
 
-// Tile dividers: two columns on phones, four in a row from lg.
+// Tile dividers: two columns when the page area is narrow (a phone, or the side peek taking half the window),
+// four in a row from @3xl. It follows the width of the area the tab sits in (a container query), not the window's.
 const TILE_EDGES = [
-  "border-r border-b lg:border-b-0",
-  "border-b lg:border-r lg:border-b-0",
+  "border-r border-b @3xl:border-b-0",
+  "border-b @3xl:border-r @3xl:border-b-0",
   "border-r",
   "",
 ];
 
 function Tile({ index, label, value, unit, children }) {
   return (
-    <div className={`min-w-0 border-rule py-3.5 pr-4 ${index % 2 ? "pl-4" : "lg:pl-4 lg:first:pl-0"} ${TILE_EDGES[index]}`}>
+    <div className={`min-w-0 border-rule py-3.5 pr-4 ${index % 2 ? "pl-4" : "@3xl:pl-4 @3xl:first:pl-0"} ${TILE_EDGES[index]}`}>
       <div className="text-xs text-muted">{label}</div>
       <div className="mt-0.5 flex items-baseline gap-1.5">
         <span className="figures text-[26px] leading-tight font-semibold">{value}</span>
@@ -56,7 +57,7 @@ export default function StatsStrip({ byDay, pomodoros, today, weekStart, streakD
   });
 
   return (
-    <section className="grid grid-cols-2 border-b border-line lg:grid-cols-4">
+    <section className="grid grid-cols-2 border-b border-line @3xl:grid-cols-4">
       <Tile index={0} label="Today" value={fmtHM(todayEntry?.total ?? 0)}>
         <SplitBar byProject={todayEntry?.byProject} projectsById={projectsById} />
       </Tile>

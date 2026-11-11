@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
-import { ArchiveRestore, ArrowDownToLine, Ban, Check, ChevronDown, CircleDot, Copy, GripVertical, ListChecks, NotebookText, History, Pencil, Play, Plus, Square, Trash2, Undo2 } from "lucide-react";
+import { ArchiveRestore, ArrowDownToLine, Ban, Check, ChevronDown, CircleDot, Copy, GripVertical, ListChecks, NotebookText, History, Pencil, Play, Plus, Square, Tag, Trash2, Undo2 } from "lucide-react";
 import { copyText, todoAsText } from "../lib/clipboard";
 import { Button } from "./Modal";
 import TabBar from "./TabBar";
@@ -15,7 +15,7 @@ const RECENT = 8;
  *  Everything saves as you go; peeking at another project saves a note you were still typing.
  *  An archived project has no timer, and offers Restore in its place. */
 export default function ProjectDetail({
-  project, status, todos, sessions, pomodoroCount = 0, isRunning, elapsed, totalSeconds, now, archived,
+  project, status, todos, sessions, pomodoroCount = 0, pomodoroTags = [], isRunning, elapsed, totalSeconds, now, archived,
   onEdit, onToggleTimer, onRestore, onCancel, onSaveNotes, onSaveSessionNote, todoOps, timedTodoId = null, onTimeTodo,
 }) {
   const Icon = iconFor(project.icon);
@@ -84,6 +84,23 @@ export default function ProjectDetail({
         </div>
       </div>
 
+      {/* What the pomodoros this project was worked on during were tagged as */}
+      {pomodoroTags.length > 0 && (
+        <ul className="-mt-2 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1" aria-label="Pomodoro tags">
+          {pomodoroTags.slice(0, 6).map(([label, count]) => (
+            <li
+              key={label}
+              className="inline-flex max-w-full items-center gap-1 text-[13px]"
+              title={`${label}: ${count} ${count === 1 ? "pomodoro" : "pomodoros"}`}
+            >
+              <Tag size={12} className="shrink-0 text-muted" aria-hidden="true" />
+              <span className="truncate">{label}</span>
+              {count > 1 && <span className="figures shrink-0 text-xs text-muted">×{count}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+
       <TabBar
         label="Project"
         value={tab}
@@ -144,8 +161,9 @@ function TodoTimer({ todo, timed, elapsed, color, onClick }) {
 /** A to-do list: a project's (`projectId`), or the tasks of their own (`projectId` null). `rowExtra(todo)`
  *  adds controls of the caller's to each top-level row (the Tasks tab's timer, for one). `hideDone` leaves
  *  the finished (and cancelled) ones out altogether: the Tasks tab keeps no list of what is over. `copyable`
- *  adds a button that copies the open to-dos (with their open sub-to-dos) as text. */
-export function TodoList({ todos, projectId, ops, rowExtra, hideDone = false, copyable = false, placeholder = "Add a to-do and press Enter", label = "New to-do" }) {
+ *  adds a button that copies the open to-dos (with their open sub-to-dos) as text. `quiet` keeps the
+ *  added-on date out of sight until a row is pointed at, for lists whose rows already carry a lot. */
+export function TodoList({ todos, projectId, ops, rowExtra, hideDone = false, copyable = false, quiet = false, placeholder = "Add a to-do and press Enter", label = "New to-do" }) {
   const [draft, setDraft] = useState("");
   const [showDone, setShowDone] = useState(false);
   const [collapsed, setCollapsed] = useState(() => new Set()); // parents whose sub-to-dos are folded away
@@ -191,6 +209,7 @@ export function TodoList({ todos, projectId, ops, rowExtra, hideDone = false, co
     folded: collapsed.has(t.id),
     onToggle: () => toggle(t.id),
     rowExtra,
+    quiet,
     canSkip: order === openOrder && i === 0 && open.length > 1,
   });
   // Days that more than one to-do was added on: those show the time too, to tell them apart
@@ -276,7 +295,7 @@ export function TodoList({ todos, projectId, ops, rowExtra, hideDone = false, co
 /** The calendar day a to-do was added, in local time; null if the server sent no date. */
 const dayKey = (todo) => (todo.created_at ? format(new Date(todo.created_at), "yyyy-MM-dd") : null);
 
-function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], folded = false, onToggle, isSub = false, rowExtra, canSkip = false }) {
+function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], folded = false, onToggle, isSub = false, rowExtra, quiet = false, canSkip = false }) {
   const extra = rowExtra?.(todo);
   const [draft, setDraft] = useState(todo.text);
   useEffect(() => setDraft(todo.text), [todo.text]);
@@ -308,8 +327,18 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
     if (folded) onToggle();
   };
 
-  const reveal = "sm:opacity-0 sm:focus:opacity-100 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100";
   const working = Boolean(todo.working_since) && !todo.done;
+  // When the to-do was added: always in view, or, in a `quiet` list, only with the other controls on hover
+  const dateTag = created && (
+    <time
+      dateTime={created.toISOString()}
+      title={`Added ${format(created, "EEE d MMM yyyy, HH:mm")}`}
+      className="figures mx-1 shrink-0 font-serif text-xs italic text-faint"
+    >
+      {format(created, created.getFullYear() === new Date().getFullYear() ? "d MMM" : "d MMM yyyy")}
+      {showTime && `, ${format(created, "HH:mm")}`}
+    </time>
+  );
 
   return (
     <li {...sort.row} className={`${isSub ? "" : "border-b border-rule"} ${sort.row.className ?? ""}`}>
@@ -360,21 +389,22 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
             todo.done ? "text-muted line-through" : ""
           }`}
         />
-        {/* The controls are kept close together at the end of the row, so the line takes the rest */}
-        <div className="flex shrink-0 items-center gap-0.5">
+        {/* What is always wanted sits at the end of the row. What is only wanted when the row is pointed at (mark it as
+            being worked on, the date of a quiet list, drag, cancel, delete) is laid over the end of the line while it
+            is, from sm up: it reserves no room, so the text takes all it can. Below sm there is no hover, so it is
+            part of the row. */}
+        <div className="relative flex shrink-0 items-center gap-0.5">
           {cancelled && <span className="mr-1 shrink-0 font-serif text-xs italic text-muted">Cancelled</span>}
-          {!todo.done && (
+          {working && (
             <button
-              onClick={() => ops.update(todo.id, { working: !working })}
-              aria-pressed={working}
-              aria-label={working ? `Stop marking "${todo.text}" as being worked on` : `Mark "${todo.text}" as being worked on`}
-              title={working ? `Working on this since ${format(new Date(todo.working_since), "EEE d MMM, HH:mm")}. Click to unmark` : "Currently working on this"}
-              className={`inline-flex h-7 shrink-0 items-center gap-1 px-1 text-xs font-semibold transition-colors ${
-                working ? "text-accent hover:bg-surface-2" : `text-muted hover:bg-surface-2 hover:text-text ${reveal}`
-              }`}
+              onClick={() => ops.update(todo.id, { working: false })}
+              aria-pressed
+              aria-label={`Stop marking "${todo.text}" as being worked on`}
+              title={`Working on this since ${format(new Date(todo.working_since), "EEE d MMM, HH:mm")}. Click to unmark`}
+              className="inline-flex h-7 shrink-0 items-center gap-1 px-1 text-xs font-semibold text-accent transition-colors hover:bg-surface-2"
             >
-              <CircleDot size={14} className={working ? "blink-dot" : ""} aria-hidden="true" />
-              {working && <span className="max-sm:sr-only">Working on</span>}
+              <CircleDot size={14} className="blink-dot" aria-hidden="true" />
+              <span className="max-sm:sr-only">Working on</span>
             </button>
           )}
           {extra}
@@ -386,28 +416,7 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
               {subsDone}/{subs.length}
             </span>
           )}
-          {created && (
-            <time
-              dateTime={created.toISOString()}
-              title={`Added ${format(created, "EEE d MMM yyyy, HH:mm")}`}
-              className="figures mx-1 shrink-0 font-serif text-xs italic text-faint"
-            >
-              {format(created, created.getFullYear() === new Date().getFullYear() ? "d MMM" : "d MMM yyyy")}
-              {showTime && `, ${format(created, "HH:mm")}`}
-            </time>
-          )}
-          <button
-            {...sort.grip}
-            aria-label={`Move "${todo.text}": drag, or use the up and down arrow keys. ${
-              isSub ? "Left arrow takes it out of its to-do" : "Right arrow puts it under the to-do above"
-            }`}
-            title={isSub ? "Drag to reorder; pull it left to take it out" : "Drag to reorder; pull it right to put it under the to-do above"}
-            className={`grid size-7 shrink-0 touch-none place-items-center text-faint transition-colors hover:bg-surface-2 hover:text-text ${
-              sort.held ? "cursor-grabbing text-text sm:opacity-100" : `cursor-grab ${reveal}`
-            }`}
-          >
-            <GripVertical size={14} />
-          </button>
+          {created && !quiet && dateTag}
           {canSkip && !todo.done && (
             <button
               onClick={() => ops.moveToBottom(todo.id)}
@@ -418,24 +427,54 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
               <ArrowDownToLine size={14} />
             </button>
           )}
-          {(!todo.done || cancelled) && (
-            <button
-              onClick={() => ops.update(todo.id, { cancelled: !cancelled })}
-              aria-label={cancelled ? `Take back the cancelling of "${todo.text}"` : `Cancel "${todo.text}"`}
-              title={cancelled ? "Take back the cancelling" : "Cancel: call it off, keeping it in the list of what is over"}
-              className={`grid size-7 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text ${reveal}`}
-            >
-              {cancelled ? <Undo2 size={14} /> : <Ban size={14} />}
-            </button>
-          )}
-          <button
-            onClick={() => ops.remove(todo.id)}
-            aria-label={`Delete "${todo.text}"`}
-            title={subs.length > 0 ? "Delete, with its sub-to-dos" : "Delete"}
-            className={`grid size-7 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-danger ${reveal}`}
+          <div
+            className={`flex items-center gap-0.5 sm:pointer-events-none sm:absolute sm:inset-y-0 sm:right-full sm:bg-[var(--row-bg,var(--bg))] sm:pl-2 sm:opacity-0 sm:group-focus-within:pointer-events-auto sm:group-focus-within:opacity-100 sm:group-hover:pointer-events-auto sm:group-hover:opacity-100 ${
+              sort.held ? "sm:pointer-events-auto sm:opacity-100" : ""
+            }`}
           >
-            <Trash2 size={14} />
-          </button>
+            {!todo.done && !working && (
+              <button
+                onClick={() => ops.update(todo.id, { working: true })}
+                aria-pressed={false}
+                aria-label={`Mark "${todo.text}" as being worked on`}
+                title="Currently working on this"
+                className="inline-flex h-7 shrink-0 items-center gap-1 px-1 text-xs font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-text"
+              >
+                <CircleDot size={14} aria-hidden="true" />
+              </button>
+            )}
+            {created && quiet && dateTag}
+            <button
+              {...sort.grip}
+              aria-label={`Move "${todo.text}": drag, or use the up and down arrow keys. ${
+                isSub ? "Left arrow takes it out of its to-do" : "Right arrow puts it under the to-do above"
+              }`}
+              title={isSub ? "Drag to reorder; pull it left to take it out" : "Drag to reorder; pull it right to put it under the to-do above"}
+              className={`grid size-7 shrink-0 touch-none place-items-center text-faint transition-colors hover:bg-surface-2 hover:text-text ${
+                sort.held ? "cursor-grabbing text-text" : "cursor-grab"
+              }`}
+            >
+              <GripVertical size={14} />
+            </button>
+            {(!todo.done || cancelled) && (
+              <button
+                onClick={() => ops.update(todo.id, { cancelled: !cancelled })}
+                aria-label={cancelled ? `Take back the cancelling of "${todo.text}"` : `Cancel "${todo.text}"`}
+                title={cancelled ? "Take back the cancelling" : "Cancel: call it off, keeping it in the list of what is over"}
+                className="grid size-7 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
+              >
+                {cancelled ? <Undo2 size={14} /> : <Ban size={14} />}
+              </button>
+            )}
+            <button
+              onClick={() => ops.remove(todo.id)}
+              aria-label={`Delete "${todo.text}"`}
+              title={subs.length > 0 ? "Delete, with its sub-to-dos" : "Delete"}
+              className="grid size-7 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-danger"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -452,6 +491,7 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
                 showTime={sharesDay(s)}
                 sharesDay={sharesDay}
                 rowExtra={rowExtra}
+                quiet={quiet}
                 isSub
               />
             ))}

@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Coffee, Ellipsis, Inbox, LogOut, Maximize2, Moon, NotebookPen, Pause, PictureInPicture2, Play, Plus, Search, SkipForward, SlidersHorizontal, Square, Sun, Timer } from "lucide-react";
+import FocusTag from "./FocusTag";
+import { Coffee, Ellipsis, Inbox, Tag, LogOut, Maximize2, Moon, NotebookPen, Pause, PictureInPicture2, Play, Plus, Search, SkipForward, SlidersHorizontal, Square, Sun, Timer } from "lucide-react";
 import { Button } from "./Modal";
 import { tint } from "../lib/palette";
 import { fmtClock, fmtCountdown, fmtHM } from "../lib/time";
 
 export default function Header({
-  runningProject, runningSession, elapsed, heldProject, heldSeconds, onSaveNote, pomodoro, pomodorosToday = 0, onStop, onStopFocus, onExpand, onMini, miniOpen, onNewProject,
-  theme, onToggleTheme, onSignOut, signOutLabel = "Sign out", onInbox, inboxUnread = 0, onSearch, searchHint, onStatuses, workingMenu,
+  runningProject, elapsed, heldProject, heldSeconds, pomodoro, pomodorosToday = 0, onStop, onStopFocus, onExpand, onMini, miniOpen, onNewProject,
+  focusChoices, theme, onToggleTheme, onSignOut, signOutLabel = "Sign out", onInbox, inboxUnread = 0, onSearch, searchHint, onStatuses, workingMenu,
 }) {
   return (
     <header data-app-header className="relative z-40 shrink-0 border-b-[3px] border-double border-line-strong bg-bg">
@@ -19,13 +20,12 @@ export default function Header({
         <div className="flex min-w-0 flex-1 justify-center">
           <NowTracking
             project={runningProject}
-            session={runningSession}
             elapsed={elapsed}
             heldProject={heldProject}
             heldSeconds={heldSeconds}
-            onSaveNote={onSaveNote}
             pomodoro={pomodoro}
             pomodorosToday={pomodorosToday}
+            focusChoices={focusChoices}
             onStop={onStop}
             onStopFocus={onStopFocus}
             onExpand={onExpand}
@@ -131,8 +131,8 @@ function MoreMenu({ theme, onToggleTheme, onSearch, onNewProject, onInbox, inbox
         >
           {item("Find a project", Search, onSearch, 0, "xl:hidden")}
           {item("New project", Plus, onNewProject, 0, "xl:hidden")}
-          {/* from sm up the tab bar has its own Statuses button */}
-          {onStatuses && item("Statuses", SlidersHorizontal, onStatuses, 0, "sm:hidden")}
+          {/* the tab bar has its own Statuses button where it has the room (a wide page); here it is always at hand */}
+          {onStatuses && item("Statuses", SlidersHorizontal, onStatuses)}
           {onInbox && item("Interest", Inbox, onInbox, inboxUnread)}
           {item(theme === "dark" ? "Light theme" : "Dark theme", theme === "dark" ? Sun : Moon, onToggleTheme)}
           {onSignOut && item(signOutLabel, LogOut, onSignOut)}
@@ -160,16 +160,16 @@ function ChipButton({ edge, onClick, label, text, className = "", children }) {
 
 /** The pomodoro, always there, and next to it the project timer while one runs (or is paused for the break). */
 function NowTracking({
-  project, session, elapsed, heldProject, heldSeconds, onSaveNote, pomodoro, pomodorosToday, onStop, onStopFocus, onExpand, onMini, miniOpen,
+  project, elapsed, heldProject, heldSeconds, pomodoro, pomodorosToday, focusChoices, onStop, onStopFocus, onExpand, onMini, miniOpen,
 }) {
   return (
     <div className="flex min-w-0 items-center gap-2">
       {/* The settings' top peek hangs its tab from the top edge right above this */}
       <div data-pomodoro-anchor className="flex shrink-0">
-        <PomodoroChip pomodoro={pomodoro} doneToday={pomodorosToday} onStopFocus={onStopFocus} projectRunning={Boolean(project)} onExpand={onExpand} onMini={onMini} miniOpen={miniOpen} />
+        <PomodoroChip pomodoro={pomodoro} doneToday={pomodorosToday} focusChoices={focusChoices} onStopFocus={onStopFocus} projectRunning={Boolean(project)} onExpand={onExpand} onMini={onMini} miniOpen={miniOpen} />
       </div>
       {project ? (
-        <ProjectChip project={project} session={session} elapsed={elapsed} onSaveNote={onSaveNote} onStop={onStop} />
+        <ProjectChip project={project} elapsed={elapsed} onStop={onStop} />
       ) : (
         heldProject && <HeldChip project={heldProject} seconds={heldSeconds} />
       )}
@@ -196,7 +196,7 @@ function HeldChip({ project, seconds }) {
 }
 
 /** The project timer: it counts up while you work on the project, and that time is what gets logged. */
-function ProjectChip({ project, session, elapsed, onSaveNote, onStop }) {
+function ProjectChip({ project, elapsed, onStop }) {
   const edge = tint(project.color, 55);
   return (
     <div className="relative flex h-[34px] min-w-0 items-stretch border" style={{ borderColor: edge, background: tint(project.color, 10) }}>
@@ -208,11 +208,6 @@ function ProjectChip({ project, session, elapsed, onSaveNote, onStop }) {
           <span className="sm:hidden">{fmtHM(elapsed)}</span>
         </span>
       </div>
-      {session && (
-        <div className="flex max-sm:hidden">
-          <TimerNote key={session.id} session={session} project={project} edge={edge} onSave={onSaveNote} />
-        </div>
-      )}
       {/* Phones show only what's running and for how long: its card and the Feed have the Stop button */}
       <ChipButton edge={edge} onClick={onStop} label={`Stop ${project.name} timer`} className="max-sm:hidden">
         <Square size={10} fill="currentColor" />
@@ -222,7 +217,7 @@ function ProjectChip({ project, session, elapsed, onSaveNote, onStop }) {
 }
 
 /** The pomodoro's own countdown: idle and ready to start, focusing (or paused), or on a break. */
-function PomodoroChip({ pomodoro, doneToday, onStopFocus, projectRunning, onExpand, onMini, miniOpen }) {
+function PomodoroChip({ pomodoro, doneToday, focusChoices, onStopFocus, projectRunning, onExpand, onMini, miniOpen }) {
   const { phase } = pomodoro;
   if (phase === "breakWait" || phase === "break" || phase === "breakPaused" || phase === "ready") {
     return <BreakChip pomodoro={pomodoro} onExpand={onExpand} onMini={onMini} miniOpen={miniOpen} />;
@@ -259,7 +254,25 @@ function PomodoroChip({ pomodoro, doneToday, onStopFocus, projectRunning, onExpa
             · {doneToday} today
           </span>
         )}
+        {pomodoro.focusFor?.label && (
+          <span className="hidden max-w-[8rem] truncate font-serif text-[13px] italic text-muted xl:block" title={`For: ${pomodoro.focusFor.label}`}>
+            {pomodoro.focusFor.label}
+          </span>
+        )}
       </div>
+      {/* What this pomodoro is for: a project, a task, or a chore (which goes when the focus ends). Saved with it. */}
+      <FocusTag value={pomodoro.focusFor} onChange={pomodoro.setFocusFor} choices={focusChoices}>
+        {(open, toggle) => (
+          <ChipButton
+            edge={edge}
+            onClick={toggle}
+            label={pomodoro.focusFor ? `For: ${pomodoro.focusFor.label}. Change it` : "What is this pomodoro for?"}
+            className={`max-sm:hidden ${open ? "bg-surface-2" : ""}`}
+          >
+            <Tag size={13} className={pomodoro.focusFor ? "text-accent" : ""} />
+          </ChipButton>
+        )}
+      </FocusTag>
       {phase === "idle" && (
         <ChipButton edge={edge} onClick={pomodoro.startFocus} label="Start a focus" text="Focus">
           <Play size={10} fill="currentColor" />

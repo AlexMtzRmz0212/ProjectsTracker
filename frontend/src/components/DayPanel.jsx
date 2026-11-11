@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
-import { CalendarPlus, Check, Hourglass, Moon, Pencil, Plus, Square, Trash2 } from "lucide-react";
+import { CalendarPlus, Check, Hourglass, Moon, Pencil, Plus, Square, Tag, Trash2 } from "lucide-react";
 import { iconFor, inkText } from "../lib/palette";
 import { completedPomodoros, dayKey, fmtHM, fmtTime, pomodoroProjects, pomodorosOnDay, sessionSeconds } from "../lib/time";
 import { SplitBar } from "./StatsStrip";
@@ -32,7 +32,7 @@ export default function DayPanel({ date, sessions, pomodoros, todos, todoOps, by
     .sort((a, b) => a.at - b.at);
 
   return (
-    <section className="border-t border-line pt-5 lg:border-t-0 lg:pt-0">
+    <section className="border-t border-line pt-5 @4xl:border-t-0 @4xl:pt-0">
       <div className="flex items-center gap-3">
         <h2 className="min-w-0 truncate font-serif text-[17px] font-semibold">
           <span className="sm:hidden">{format(date, "EEE d MMM")}</span>
@@ -166,9 +166,15 @@ export default function DayPanel({ date, sessions, pomodoros, todos, todoOps, by
           <ul>
             {dayPomodoros.map((p) => {
               // Longest first; a project that is gone (deleted) has nothing left to name
-              const worked = [...pomodoroProjects(p, sessions, now)]
+              const timed = pomodoroProjects(p, sessions, now);
+              // A project or task it was said to be for comes first, even when no timer ran on it; a chore (a label
+              // with no project) is shown as a tag
+              const linked = p.project_id && projectsById.has(p.project_id) ? p.project_id : null;
+              if (linked && !timed.has(linked)) timed.set(linked, 0);
+              const worked = [...timed]
                 .filter(([id]) => projectsById.has(id))
-                .sort((a, b) => b[1] - a[1]);
+                .sort((a, b) => Number(b[0] === linked) - Number(a[0] === linked) || b[1] - a[1]);
+              const label = !linked && p.label ? p.label : "";
               return (
                 <li key={p.id} className="flex min-h-9 items-center gap-3 border-b border-rule py-1 text-[13px]">
                   <span className={`figures shrink-0 whitespace-nowrap ${p.completed ? "" : "text-muted"}`}>
@@ -176,7 +182,13 @@ export default function DayPanel({ date, sessions, pomodoros, todos, todoOps, by
                   </span>
                   {!p.completed && <span className="shrink-0 font-serif text-xs italic text-muted">cut short</span>}
                   <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5">
-                    {worked.length === 0 && <span className="font-serif text-xs italic text-muted">no project timer</span>}
+                    {label && (
+                      <span className="flex min-w-0 items-center gap-1.5 font-semibold" title={`Chore: ${label}`}>
+                        <Tag size={13} className="shrink-0 text-muted" aria-hidden="true" />
+                        <span className="max-w-[12rem] truncate">{label}</span>
+                      </span>
+                    )}
+                    {worked.length === 0 && !label && <span className="font-serif text-xs italic text-muted">no project timer</span>}
                     {worked.map(([id, secs]) => {
                       const project = projectsById.get(id);
                       const Icon = iconFor(project.icon);
@@ -184,7 +196,7 @@ export default function DayPanel({ date, sessions, pomodoros, todos, todoOps, by
                         <span key={id} className="flex min-w-0 items-center gap-1.5" title={project.name}>
                           <Icon size={14} className="shrink-0" style={{ color: inkText(project.color) }} aria-hidden="true" />
                           <span className="max-w-[9rem] truncate max-sm:sr-only">{project.name}</span>
-                          <span className="figures shrink-0 text-muted">{fmtHM(secs)}</span>
+                          {secs >= 1 && <span className="figures shrink-0 text-muted">{fmtHM(secs)}</span>}
                         </span>
                       );
                     })}

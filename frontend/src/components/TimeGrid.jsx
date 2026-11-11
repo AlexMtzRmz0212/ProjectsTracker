@@ -582,7 +582,7 @@ function DayColumn({ index, column, mode, chip, hour, now, isToday, projectsById
           key={p.id}
           className="pointer-events-auto absolute left-0 w-[3px]"
           style={{ top, height, background: p.completed ? "var(--accent)" : "var(--line-strong)" }}
-          title={`Pomodoro ${fmtTime(p.start)}–${fmtTime(p.end)}${p.completed ? "" : ", cut short"}`}
+          title={`Pomodoro ${fmtTime(p.start)}–${fmtTime(p.end)}${p.label ? `, ${p.label}` : ""}${p.completed ? "" : ", cut short"}`}
         />
       ))}
 

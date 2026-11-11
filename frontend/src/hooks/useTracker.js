@@ -294,33 +294,27 @@ export function useTracker(api = realApi) {
     [api, attempt]
   );
 
-  /** Drop a project into a status's column (a drag on the board), at `index` among the cards that
-   *  are there (the end when it isn't given). The column's cards trade the sort_order values they
-   *  already hold, so nothing outside it is touched. Shows at once; a failure resyncs. */
+  /** Drop a project into a status's column (a drag on the board). The cards in a column are sorted by when
+   *  they were last edited, so there is no place in it to drop at: only the status changes, and that
+   *  counts as an edit, so the card lands on top. Shows at once; a failure resyncs. */
   const moveProject = useCallback(
-    (id, statusId, index) =>
+    (id, statusId) =>
       attempt(async () => {
-        const all = projectsRef.current;
-        const moved = all.find((p) => p.id === id);
-        if (!moved) return;
-        const column = all.filter((p) => p.status_id === statusId && !p.archived_at && p.id !== id);
-        const at = index == null ? column.length : Math.min(Math.max(index, 0), column.length);
-        const ordered = [...column.slice(0, at), moved, ...column.slice(at)];
-        const slots = [...column, moved].map((p) => p.sort_order).sort((a, b) => a - b);
-        const changes = new Map();
-        ordered.forEach((p, i) => {
-          const patch = {};
-          if (p.sort_order !== slots[i]) patch.sort_order = slots[i];
-          if (p.id === id && p.status_id !== statusId) patch.status_id = statusId;
-          if (Object.keys(patch).length) changes.set(p.id, patch);
-        });
-        if (changes.size === 0) return;
-        setProjects((prev) =>
-          prev.map((p) => (changes.has(p.id) ? { ...p, ...changes.get(p.id) } : p)).sort((a, b) => a.sort_order - b.sort_order)
-        );
-        await Promise.all([...changes].map(([pid, patch]) => api.updateProject(pid, patch)));
+        const moved = projectsRef.current.find((p) => p.id === id);
+        if (!moved || moved.status_id === statusId) return;
+        setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, status_id: statusId, updated_at: new Date().toISOString() } : p)));
+        const saved = await api.updateProject(id, { status_id: statusId });
+        setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, updated_at: saved.updated_at } : p)));
       }),
     [api, attempt]
+  );
+
+  /** Stamp a project as just edited, as the server does when its to-dos change, so the board's order follows. */
+  const touchProject = useCallback(
+    (projectId) => {
+      if (projectId) setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, updated_at: new Date().toISOString() } : p)));
+    },
+    []
   );
 
   /** Send a project to the back of the Feed's queue. Shows at once; the server's moment replaces
@@ -433,12 +427,14 @@ export function useTracker(api = realApi) {
       attempt(async () => {
         const created = await api.createTodo({ project_id: projectId, text, parent_id: parentId });
         setTodos((prev) => [...prev, created]);
+        touchProject(projectId);
       }),
     // Ticking and deleting show at once; a failure resyncs from the server (see attempt)
     update: (id, data) =>
       attempt(async () => {
         const before = todos.find((x) => x.id === id);
         setTodos((prev) => prev.map((x) => (x.id === id ? applyTodo(x, data) : x)));
+        if (!("sort_order" in data)) touchProject(before?.project_id);
         const saved = await api.updateTodo(id, data);
         // A task ticked off or cancelled leaves the Tasks list, so offer to take it back
         if (before && !before.project_id && !before.done && (data.done || data.cancelled)) {
@@ -485,6 +481,15 @@ export function useTracker(api = realApi) {
         const saved = await api.updateTodo(id, { sort_order: last });
         setTodos((prev) => prev.map((x) => (x.id === id ? { ...x, sort_order: saved.sort_order } : x)));
       }),
+    /** Bring a to-do to the front of the queue: it takes a sort_order before every other, so it ends up first in
+     *  whatever list it is in. `order` puts it back where it was (an undo). Shows at once; a failure resyncs. */
+    moveToTop: (id, order) =>
+      attempt(async () => {
+        if (!todos.some((x) => x.id === id)) return;
+        const first = order ?? Math.min(0, ...todos.map((x) => x.sort_order)) - 1;
+        setTodos((prev) => prev.map((x) => (x.id === id ? { ...x, sort_order: first } : x)).sort((a, b) => a.sort_order - b.sort_order));
+        await api.updateTodo(id, { sort_order: first });
+      }),
     /** Move a to-do under another (`parentId`), or back to the top level (null). It goes to the end of its new
      *  list. A task put under another task hands its time over to it, so that is resynced from the server. */
     nest: (id, parentId) =>
@@ -502,6 +507,7 @@ export function useTracker(api = realApi) {
     remove: (id) =>
       attempt(async () => {
         const gone = todos.find((x) => x.id === id);
+        touchProject(gone?.project_id);
         setTodos((prev) => prev.filter((x) => x.id !== id && x.parent_id !== id)); // its sub-to-dos go with it
         if (gone && !gone.project_id) {
           // A task's time and open items go with it
@@ -509,6 +515,15 @@ export function useTracker(api = realApi) {
           setOpenItems((prev) => prev.filter((x) => x.project_id !== taskKey(id)));
         }
         await api.deleteTodo(id);
+      }),
+    /** Turn a task into a project: it becomes one (named after it, with its sub-tasks as to-dos and its time),
+     *  and the task is gone. Everything it touches is resynced from the server. Resolves true on success. */
+    toProject: (id) =>
+      attempt(async () => {
+        const task = todos.find((x) => x.id === id);
+        const project = await api.taskToProject(id);
+        await load();
+        setNotice({ id: Date.now(), tone: "info", text: `"${task?.text ?? project.name}" is now a project` });
       }),
   };
 

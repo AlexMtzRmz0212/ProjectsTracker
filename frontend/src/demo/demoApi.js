@@ -114,6 +114,8 @@ function seed(now) {
       notes: def.projectNotes ?? "",
       sort_order: i + 1,
       created_at: new Date(now.getTime() - def.from * DAY).toISOString(),
+      // Last edited somewhere between when it was made and when it was last worked, so the board's order varies
+      updated_at: new Date(now.getTime() - Math.max(0, def.until + ((i * 3) % 7)) * DAY).toISOString(),
       skipped_at: null,
       archived_at: def.archived ? new Date(now.getTime() - def.until * DAY).toISOString() : null,
     };
@@ -253,6 +255,10 @@ export function createDemoApi() {
   };
   const firstOpen = () => [...statuses].sort((a, b) => a.sort_order - b.sort_order).find((s) => !s.is_done);
   const nextOrder = (list) => Math.max(0, ...list.map((x) => x.sort_order)) + 1;
+  /** Stamp a project as just edited (the server does this when its details or to-dos change). */
+  const touch = (projectId) => {
+    if (projectId) projects = projects.map((p) => (p.id === projectId ? { ...p, updated_at: new Date().toISOString() } : p));
+  };
   const uniqueName = (list, name, label, exceptId) => {
     if (list.some((x) => x.id !== exceptId && x.name.toLowerCase() === name.toLowerCase()))
       throw httpError(409, `There is already a ${label} called \u201c${name}\u201d`);
@@ -278,6 +284,7 @@ export function createDemoApi() {
         status_id: data.status_id ? status(data.status_id).id : firstOpen().id,
         sort_order: Math.max(0, ...projects.map((p) => p.sort_order)) + 1,
         created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
         skipped_at: null,
         archived_at: null,
         cancelled_at: null,
@@ -291,7 +298,7 @@ export function createDemoApi() {
         if (!data.status_id) throw httpError(422, "A project always has a status");
         if (status(data.status_id).is_done) stopTimerIf((p) => p.id === id);
       }
-      const next = { ...project(id), ...data };
+      const next = { ...project(id), ...data, updated_at: new Date().toISOString() };
       projects = projects.map((p) => (p.id === id ? next : p));
       return projectOut(next);
     },
@@ -386,10 +393,34 @@ export function createDemoApi() {
         sort_order: Math.max(0, ...todos.map((x) => x.sort_order)) + 1, created_at: new Date().toISOString(),
       };
       todos = [...todos, created];
+      touch(created.project_id);
       return { ...created };
+    },
+    taskToProject: async (id) => {
+      const task = todo(id);
+      if (task.project_id || task.parent_id) throw httpError(422, "Only a task can be turned into a project");
+      const stamp = new Date().toISOString();
+      const created = {
+        id: `demo-p${seq++}`, name: task.text.slice(0, 80), color: "#8b5cf6", icon: "folder", notes: "",
+        status_id: firstOpen().id, sort_order: nextOrder(projects), created_at: stamp, updated_at: stamp,
+        skipped_at: null, archived_at: null, cancelled_at: null,
+      };
+      projects = [...projects, created];
+      const subIds = new Set(todos.filter((x) => x.parent_id === id).map((x) => x.id));
+      todos = todos.filter((x) => x.id !== id).map((x) => (subIds.has(x.id) ? { ...x, project_id: created.id, parent_id: null } : x));
+      // Time on the task is the project's; time on a sub-task stays on that to-do, now in the project
+      const key = `task:${id}`;
+      const moveSubject = (x) => {
+        if (x.project_id === key) return { ...x, project_id: created.id, todo_id: null };
+        return subIds.has(taskOf(x.project_id)) ? { ...x, project_id: created.id, todo_id: taskOf(x.project_id) } : x;
+      };
+      sessions = sessions.map(moveSubject);
+      openItems = openItems.map(moveSubject);
+      return projectOut(created);
     },
     updateTodo: async (id, data) => {
       const current = todo(id);
+      if (!("sort_order" in data)) touch(current.project_id);
       const { working, cancelled, parent_id: parentId, ...rest } = data;
       const next = { ...current, ...rest };
       if (parentId !== undefined && parentId !== current.parent_id) {
@@ -434,6 +465,7 @@ export function createDemoApi() {
         openItems = openItems.filter((x) => !ids.has(taskOf(x.project_id)));
       }
       todos = todos.filter((x) => !ids.has(x.id));
+      touch(gone.project_id);
       return null;
     },
 
@@ -481,7 +513,16 @@ export function createDemoApi() {
       pomodoros.filter((p) => (!end || p.start < end) && (!start || p.end > start)).map((p) => ({ ...p })),
     createPomodoro: async (data) => {
       checkSpan(data.start, data.end);
-      const created = { id: `demo-m${seq++}`, start: data.start, end: data.end, completed: data.completed ?? true };
+      // What it was for, kept as the app holds it: a subject id in project_id (a project, or a task's key)
+      const taskId = data.todo_id ?? taskOf(data.project_id);
+      const linkedTodo = taskId ? todos.find((x) => x.id === taskId) : null;
+      const linkedProject = data.project_id && !taskOf(data.project_id) ? projects.find((p) => p.id === data.project_id) : null;
+      const created = {
+        id: `demo-m${seq++}`, start: data.start, end: data.end, completed: data.completed ?? true,
+        project_id: linkedTodo?.project_id ?? (linkedTodo ? `task:${linkedTodo.id}` : linkedProject?.id ?? null),
+        todo_id: linkedTodo?.id ?? null,
+        label: (data.label ?? "").trim() || linkedTodo?.text.slice(0, 120) || linkedProject?.name || "",
+      };
       pomodoros = [...pomodoros, created].sort((a, b) => a.start - b.start);
       return { ...created };
     },

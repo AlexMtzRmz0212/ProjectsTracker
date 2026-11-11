@@ -77,6 +77,12 @@ def _next_order(db: DbSession, model) -> int:
     return (db.scalar(select(func.max(model.sort_order))) or 0) + 1
 
 
+def _touch_project(db: DbSession, project_id: Optional[str]) -> None:
+    """Stamp a project as just edited. Not committed here: it goes in with the caller's change."""
+    if project_id is not None:
+        db.execute(update(Project).where(Project.id == project_id).values(updated_at=utcnow()))
+
+
 def _ensure_unique_name(db: DbSession, model, name: str, label: str, except_id: Optional[str] = None) -> None:
     """Two statuses with the same name can't be told apart in the UI."""
     query = select(model.id).where(func.lower(model.name) == name.lower())
@@ -210,6 +216,7 @@ def update_project(project_id: str, body: schemas.ProjectUpdate, db: DbSession =
             _stop_timers(db, Project.id == project.id)
     for field, value in changes.items():
         setattr(project, field, value)
+    project.updated_at = utcnow()
     db.commit()
     db.refresh(project)
     return _project_out(project, _totals(db).get(project.id, 0))
@@ -367,6 +374,7 @@ def create_todo(body: schemas.TodoCreate, db: DbSession = Depends(get_db)):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A sub-to-do goes under a top-level to-do of the same project")
     todo = Todo(**body.model_dump(), sort_order=_next_order(db, Todo))
     db.add(todo)
+    _touch_project(db, todo.project_id)
     db.commit()
     db.refresh(todo)
     return todo
@@ -423,9 +431,43 @@ def update_todo(todo_id: str, body: schemas.TodoUpdate, db: DbSession = Depends(
         current = _running(db)
         if todo.project_id is None and current is not None and current.todo_id == todo.id:
             _end_timer(db, current, utcnow())
+    _touch_project(db, todo.project_id)
     db.commit()
     db.refresh(todo)
     return _todo_out(todo, _task_totals(db))
+
+
+@api.post("/todos/{todo_id}/to-project", response_model=schemas.ProjectOut, status_code=status.HTTP_201_CREATED)
+def task_to_project(todo_id: str, db: DbSession = Depends(get_db)):
+    """Turn a task into a project of its own. The project is named after the task and starts in the first
+    open status; the task's sub-tasks become its to-dos, and the time and open items on the task (a
+    running timer too) become the project's. The task itself goes, as it is now the project."""
+    task = _get_todo(db, todo_id)
+    if task.project_id is not None or task.parent_id is not None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Only a task can be turned into a project")
+    project = Project(
+        name=task.text[:80],
+        status_id=_first_open_status(db).id,
+        sort_order=_next_order(db, Project),
+    )
+    db.add(project)
+    db.flush()
+    subs = db.scalars(select(Todo).where(Todo.parent_id == task.id)).all()
+    for sub in subs:  # they keep their order, as to-dos at the top level of the new project
+        sub.project_id = project.id
+        sub.parent_id = None
+    # Time on the task itself is the project's as a whole; time on a sub-task stays on that to-do
+    db.execute(update(Session).where(Session.todo_id == task.id).values(project_id=project.id, todo_id=None))
+    db.execute(update(OpenItem).where(OpenItem.todo_id == task.id).values(project_id=project.id, todo_id=None))
+    if subs:
+        sub_ids = [sub.id for sub in subs]
+        db.execute(update(Session).where(Session.todo_id.in_(sub_ids)).values(project_id=project.id))
+        db.execute(update(OpenItem).where(OpenItem.todo_id.in_(sub_ids)).values(project_id=project.id))
+    db.flush()
+    db.delete(task)
+    db.commit()
+    db.refresh(project)
+    return _project_out(project, _totals(db).get(project.id, 0))
 
 
 @api.delete("/todos/{todo_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -444,6 +486,7 @@ def delete_todo(todo_id: str, db: DbSession = Depends(get_db)):
     for sub in subs:
         db.delete(sub)
     db.delete(todo)
+    _touch_project(db, todo.project_id)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -633,7 +676,22 @@ def list_pomodoros(
 def create_pomodoro(body: schemas.PomodoroCreate, db: DbSession = Depends(get_db)):
     """Saved by the client when a focus ends: `completed` if its countdown ran out, otherwise it was cut short."""
     _validate_span(body.start, body.end)
-    pomodoro = Pomodoro(**body.model_dump())
+    data = body.model_dump()
+    # The link and the label are kept apart: if what it was for is deleted later, the label remains
+    if data["todo_id"] is not None:
+        todo = db.get(Todo, data["todo_id"])
+        if todo is None:
+            data["todo_id"] = None
+        else:
+            data["project_id"] = todo.project_id
+            data["label"] = data["label"] or todo.text[:120]
+    if data["project_id"] is not None:
+        project = db.get(Project, data["project_id"])
+        if project is None:
+            data["project_id"] = None
+        else:
+            data["label"] = data["label"] or project.name
+    pomodoro = Pomodoro(**data)
     db.add(pomodoro)
     db.commit()
     db.refresh(pomodoro)

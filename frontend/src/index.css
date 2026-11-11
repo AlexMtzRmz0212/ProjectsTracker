@@ -553,3 +553,19 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 :root[data-theme="dark"] input[type="time"]::-webkit-calendar-picker-indicator {
   filter: invert(1);
 }
+
+/* ── Page column ──────────────────────────────────────────────────────────
+   A block of the page (tab bar, content) with a width of `--cw`. With no side peek it is centred in the window.
+   The peek covers `--peek` px of the window's right side (the page's wrapper holds that much padding, so `100%` is
+   what is left). The block stays where the window centres it until the peek reaches it, then is pushed left
+   with it, and only once it meets the left edge does it get narrower. No `100vw` in it: the landing page's
+   demo sits in a card, and has no peek. */
+.pg {
+  --ml: max(0px, min((100% + var(--peek, 0px) - var(--cw)) / 2, 100% - var(--cw)));
+  margin-left: var(--ml);
+  width: min(var(--cw), 100% - var(--ml));
+  transition: margin-left 200ms ease-out, width 200ms ease-out;
+}
+[data-dragging] .pg {
+  transition: none;
+}

@@ -119,6 +119,30 @@ def test_projects_made_before_skipped_at_keep_working(tmp_path):
         assert conn.execute(text("SELECT skipped_at FROM projects WHERE id = 'p1'")).scalar() is None
 
 
+def test_projects_made_before_updated_at_start_from_when_they_were_made(tmp_path):
+    """A projects table that predates updated_at gets the column, filled with created_at; pomodoros get theirs too."""
+    engine = create_engine(f"sqlite:///{tmp_path / 'old-updated.db'}")
+    init_db(engine)
+    with engine.begin() as conn:
+        status_id = conn.execute(text("SELECT id FROM statuses WHERE name = 'Active'")).scalar()
+        conn.execute(
+            text("INSERT INTO projects (id, name, color, icon, status_id, sort_order, created_at) "
+                 "VALUES ('p1', 'Old', '#2f5d8a', 'code', :s, 1, '2026-02-01 10:00:00')"),
+            {"s": status_id},
+        )
+        conn.execute(text("ALTER TABLE projects DROP COLUMN updated_at"))
+        for column in ("project_id", "todo_id", "label"):
+            conn.execute(text(f"ALTER TABLE pomodoros DROP COLUMN {column}"))
+
+    init_db(engine)
+    init_db(engine)  # repeatable
+
+    assert "updated_at" in {c["name"] for c in inspect(engine).get_columns("projects")}
+    assert {"project_id", "todo_id", "label"} <= {c["name"] for c in inspect(engine).get_columns("pomodoros")}
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT updated_at FROM projects WHERE id = 'p1'")).scalar() == "2026-02-01 10:00:00"
+
+
 def test_statuses_made_before_is_pinned_keep_working(tmp_path):
     """A database whose statuses table predates is_pinned gets the column; old rows are not pinned."""
     engine = create_engine(f"sqlite:///{tmp_path / 'old-statuses.db'}")

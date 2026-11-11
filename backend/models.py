@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, false, true
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, false, func, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -51,6 +51,9 @@ class Project(Base):
     notes: Mapped[str] = mapped_column(Text, default="", server_default="")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    # When it was last edited: its details, status or notes, or its to-dos. Skipping it in the Feed or
+    # working on it doesn't count. The routes set it (see _touch_project); the Projects board sorts by it.
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, server_default=func.now())
     skipped_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -132,9 +135,12 @@ class OpenItem(Base):
 
 
 class Pomodoro(Base):
-    """One focus. It has no project: which ones it covered is whatever sessions overlap
-    [start, end], so the timers clicked during it are logged as usual. `completed` is False
-    for a focus that was stopped or cut short before its countdown ran out."""
+    """One focus. Which projects it covered is whatever sessions overlap [start, end], so the timers
+    clicked during it are logged as usual. It can also say what it was for: a project (`project_id`),
+    a task or a project's to-do (`todo_id`), or a plain `label` for a chore or activity with no home
+    of its own. The links are plain ids, not foreign keys: a pomodoro outlives what it was for, and
+    then the label (copied from its name when it was saved) is what's left.
+    `completed` is False for a focus that was stopped or cut short before its countdown ran out."""
 
     __tablename__ = "pomodoros"
 
@@ -142,6 +148,9 @@ class Pomodoro(Base):
     start: Mapped[datetime] = mapped_column(DateTime, index=True)
     end: Mapped[datetime] = mapped_column(DateTime, index=True)
     completed: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    project_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    todo_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    label: Mapped[str] = mapped_column(String(120), default="", server_default="")
 
 
 class InterestVote(Base):

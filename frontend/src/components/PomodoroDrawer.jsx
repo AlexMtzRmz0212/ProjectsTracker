@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown, Minus, Plus, RotateCcw, SlidersHorizontal, X } from "lucide-react";
 import { DEFAULTS, LIMITS } from "../hooks/usePomodoro";
 import { useEdgeDrag } from "../hooks/useEdgeDrag";
+import { useClickOutside } from "../hooks/useClickOutside";
 
 const WIDTH = 640; // px, at most
 const MARGIN = 12; // px kept clear of the window's sides
@@ -26,6 +27,9 @@ export default function PomodoroDrawer({ open, onOpenChange, anchor = "header", 
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onOpenChange]);
+
+  // A press anywhere outside the panel (its tab hangs from it, so that counts as inside) puts it away
+  useClickOutside(panel, open, () => onOpenChange(false));
 
   return (
     <aside

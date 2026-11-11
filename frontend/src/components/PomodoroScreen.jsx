@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Coffee, Maximize, Minimize, PanelRight, Pause, PictureInPicture2, Play, Search, SkipForward, Square, Timer, X } from "lucide-react";
+import { Coffee, Maximize, Minimize, PanelRight, Pause, PictureInPicture2, Play, Search, SkipForward, Square, Tag, Timer, X } from "lucide-react";
 import { Button } from "./Modal";
 import { TimerNote } from "./Header";
+import FocusTag from "./FocusTag";
 import ProjectSearch from "./ProjectSearch";
 import { iconFor, inkText, tint } from "../lib/palette";
 import { fmtClock, fmtCountdown } from "../lib/time";
@@ -300,6 +301,30 @@ export default function PomodoroScreen({
               ))}
             </div>
 
+            {/* What this focus is for, saved with the pomodoro: a project, a task, or a chore (which goes when the focus ends) */}
+            <FocusTag value={pomodoro.focusFor} onChange={pomodoro.setFocusFor} choices={projects}>
+              {(open, toggle) => (
+                <button
+                  onClick={toggle}
+                  aria-expanded={open}
+                  className={`inline-flex h-9 max-w-full items-center gap-2 border border-dashed border-line-strong px-3 text-[13px] transition-colors hover:border-text hover:bg-surface-2 ${
+                    open ? "bg-surface-2" : ""
+                  }`}
+                  title="Say what this focus is for: a project, a task, or a chore of your own"
+                >
+                  <Tag size={14} className={pomodoro.focusFor ? "text-accent" : "text-muted"} aria-hidden="true" />
+                  {pomodoro.focusFor?.label ? (
+                    <span className="min-w-0 truncate">
+                      <span className="text-muted">For </span>
+                      <b className="font-semibold">{pomodoro.focusFor.label}</b>
+                    </span>
+                  ) : (
+                    <span className="text-muted">What is this focus for?</span>
+                  )}
+                </button>
+              )}
+            </FocusTag>
+
             <ProjectCard
               runningProject={runningProject}
               runningSession={runningSession}
@@ -350,7 +375,7 @@ function SidePanel({ title, onClose, padded = false, children }) {
   return (
     <aside
       aria-label={title}
-      className={`z-20 flex min-h-0 shrink-0 flex-col border-line-strong bg-surface max-xl:absolute max-xl:inset-y-0 max-xl:w-[min(22rem,90vw)] border-l max-xl:right-0 xl:w-[26rem]`}
+      className={`z-20 flex min-h-0 shrink-0 flex-col border-line-strong bg-surface [--row-bg:var(--surface)] max-xl:absolute max-xl:inset-y-0 max-xl:w-[min(22rem,90vw)] border-l max-xl:right-0 xl:w-[26rem]`}
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-line-strong py-2 pl-4 pr-2">
         <h2 className="min-w-0 flex-1 truncate font-serif text-[15px] font-semibold" title={title}>

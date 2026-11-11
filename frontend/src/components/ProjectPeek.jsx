@@ -33,10 +33,10 @@ function saveWidth(w) {
  * screen when it is away, to bring the same project back. The tab is also its handle: click it to
  * open or put away the peek, drag it to set how wide the peek is (that width is remembered in this
  * browser), or drag it most of the way to the right edge to put it away. With the tab focused, the
- * left and right arrow keys widen and narrow it. Esc puts it away too, except while a window is open
+ * left and right arrow keys widen and narrow it. `widthResetKey` going up brings it back to its usual width. Esc puts it away too, except while a window is open
  * on top, while `escPaused`, and inside a text box (a sub-to-do uses it to cancel).
  */
-export default function ProjectPeek({ open, onOpenChange, onWidth, project, escPaused = false, children }) {
+export default function ProjectPeek({ open, onOpenChange, onWidth, widthResetKey = 0, project, escPaused = false, children }) {
   const panel = useRef(null);
   const top = useHeaderBottom();
   const id = useId();
@@ -95,6 +95,17 @@ export default function ProjectPeek({ open, onOpenChange, onWidth, project, escP
     e.preventDefault();
   };
 
+  // `widthResetKey` going up puts the peek back to its usual width (and keeps it open): the page asks for it when
+  // the peek has left too little room for anything but the tabs
+  const firstKey = useRef(widthResetKey);
+  useEffect(() => {
+    if (widthResetKey === firstKey.current) return;
+    firstKey.current = widthResetKey;
+    const next = fitWidth(DEFAULT_WIDTH);
+    setWidth(next);
+    saveWidth(next);
+  }, [widthResetKey]);
+
   const dragging = dragW !== null;
   const shownWidth = dragging ? fitWidth(dragW) : width;
   const transform = dragging ? `translateX(${Math.max(0, MIN_WIDTH - dragW)}px)` : open ? "translateX(0)" : "translateX(100%)";
@@ -123,7 +134,7 @@ export default function ProjectPeek({ open, onOpenChange, onWidth, project, escP
     <aside
       ref={panel}
       aria-label={project ? `${project.name}, side peek` : "Side peek"}
-      className="fixed bottom-[var(--bottom-bar,0px)] right-0 z-[35] flex flex-col border-l border-line-strong bg-surface transition-transform duration-200 ease-out"
+      className="fixed bottom-[var(--bottom-bar,0px)] right-0 z-[35] flex flex-col border-l border-line-strong bg-surface [--row-bg:var(--surface)] transition-transform duration-200 ease-out"
       style={{ top, width: `min(${shownWidth}px, calc(100vw - ${GAP}px))`, transform, transition: dragging ? "none" : undefined }}
     >
       {/* The tab stays on screen when the panel is away, so there is always something to pull it in by */}

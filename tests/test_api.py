@@ -904,3 +904,78 @@ def test_a_project_todo_can_be_timed(client):
     # Time on a project's to-do is the project's
     client.post("/api/timer/stop")
     assert client.get("/api/projects").json()[0]["total_seconds"] >= 10 * 60
+
+
+# ── Project last-edited stamp ────────────────────────────────────────────────
+
+def test_project_updated_at_follows_edits_and_todos_but_not_skips(client):
+    project = make_project(client)
+    assert project["updated_at"]
+    first = project["updated_at"]
+
+    client.post(f"/api/projects/{project['id']}/skip")
+    assert client.get("/api/projects").json()[0]["updated_at"] == first  # skipping in the Feed is not an edit
+
+    client.post("/api/todos", json={"project_id": project["id"], "text": "Write tests"})
+    after_todo = client.get("/api/projects").json()[0]["updated_at"]
+    assert after_todo > first
+
+    client.patch(f"/api/projects/{project['id']}", json={"notes": "hello"})
+    assert client.get("/api/projects").json()[0]["updated_at"] > after_todo
+
+
+# ── A task turned into a project ─────────────────────────────────────────────
+
+def test_a_task_becomes_a_project_with_its_subtasks_and_time(client):
+    task = make_task(client, "Plan the trip")
+    sub = client.post("/api/todos", json={"text": "Book flights", "parent_id": task["id"]}).json()
+    t1 = now() - timedelta(hours=3)
+    client.post("/api/sessions", json={"todo_id": task["id"], "start": iso(t1), "end": iso(t1 + timedelta(minutes=30))})
+
+    res = client.post(f"/api/todos/{task['id']}/to-project")
+    assert res.status_code == 201, res.text
+    project = res.json()
+    assert project["name"] == "Plan the trip"
+    assert project["total_seconds"] == 30 * 60  # the task's time came along
+
+    todos = client.get("/api/todos").json()
+    assert [t["id"] for t in todos] == [sub["id"]]  # the task is gone; its sub-task is now a to-do of the project
+    assert todos[0]["project_id"] == project["id"] and todos[0]["parent_id"] is None
+    sessions = client.get("/api/sessions").json()
+    assert [(s["project_id"], s["todo_id"]) for s in sessions] == [(project["id"], None)]
+
+
+def test_only_a_top_level_task_can_become_a_project(client):
+    project = make_project(client)
+    todo = client.post("/api/todos", json={"project_id": project["id"], "text": "A to-do"}).json()
+    assert client.post(f"/api/todos/{todo['id']}/to-project").status_code == 422
+    task = make_task(client)
+    sub = client.post("/api/todos", json={"text": "A step", "parent_id": task["id"]}).json()
+    assert client.post(f"/api/todos/{sub['id']}/to-project").status_code == 422
+    assert client.post("/api/todos/nope/to-project").status_code == 404
+
+
+# ── What a pomodoro was for ──────────────────────────────────────────────────
+
+def test_a_pomodoro_can_say_what_it_was_for(client):
+    project = make_project(client, "Website")
+    task = make_task(client, "Renew passport")
+    plain = make_pomodoro(client)
+    assert plain["project_id"] is None and plain["todo_id"] is None and plain["label"] == ""
+
+    on_project = make_pomodoro(client, ended_ago=timedelta(hours=2), project_id=project["id"])
+    assert on_project["project_id"] == project["id"] and on_project["label"] == "Website"  # named from the project
+
+    on_task = make_pomodoro(client, ended_ago=timedelta(hours=3), todo_id=task["id"])
+    assert on_task["todo_id"] == task["id"] and on_task["project_id"] is None and on_task["label"] == "Renew passport"
+
+    chore = make_pomodoro(client, ended_ago=timedelta(hours=4), label="  Tidy the desk  ")
+    assert chore["label"] == "Tidy the desk" and chore["project_id"] is None
+
+
+def test_a_pomodoro_keeps_its_label_when_what_it_was_for_is_deleted(client):
+    project = make_project(client, "Website")
+    made = make_pomodoro(client, project_id=project["id"])
+    client.delete(f"/api/projects/{project['id']}")
+    left = client.get("/api/pomodoros").json()[0]
+    assert left["id"] == made["id"] and left["label"] == "Website"

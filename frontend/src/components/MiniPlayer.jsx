@@ -160,6 +160,7 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
     color: projectClock ? "var(--text)" : idle ? "var(--muted)" : view.color,
   };
   const label = projectClock ? "Timer running" : view.label;
+  const tag = pomodoro.tag ?? ""; // what this focus is for, while it has a tag
   const projectTime = project && !projectClock ? fmtClock(runningProject ? clock : heldSeconds) : null;
   const controls = controlsFor(pomodoro, pomodoro.startFocus, onStopFocus, Boolean(runningProject), onStopTimer);
   const controlsW = controls.length * 40 + (onSearch ? 40 : 0);
@@ -210,7 +211,7 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
     const withGlass = w >= 130 && glassH >= 26;
     const withProject = Boolean(project) && h >= 62;
     return (
-      <div className="group relative flex h-full items-center gap-2.5 px-2.5" style={{ background: wash }} title={label} {...tapToReveal}>
+      <div className="group relative flex h-full items-center gap-2.5 px-2.5" style={{ background: wash }} title={tag ? `${label} · ${tag}` : label} {...tapToReveal}>
         {withGlass && glass(glassH)}
         <div className="min-w-0 flex-1">
           {digits(fit(w - 20 - (withGlass ? glassH * 0.6 + 10 : 0), h - 14 - (withProject ? 20 : 0)))}
@@ -223,8 +224,8 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
   }
 
   // The phase and set position on the countdown's own line, ruled off from it: 25:00 ── Focus ── 2/4
-  const phaseReserve = (room) => clampNum(label.length * 7.5 + 76, 120, room * 0.5);
-  const phaseLine = <PhaseRule label={label} pomodoro={pomodoro} color={idle ? undefined : view.color} />;
+  const phaseReserve = (room) => clampNum((label.length + (tag ? tag.length + 3 : 0)) * 7.5 + 76, 120, room * 0.5);
+  const phaseLine = <PhaseRule label={label} tag={tag} pomodoro={pomodoro} color={idle ? undefined : view.color} />;
 
   if (layout === "strip") {
     const glassH = h - 22;
@@ -237,7 +238,7 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
       <div className="group relative flex h-full items-center gap-3 px-2.5 pt-2.5 pb-3" style={{ background: wash }} {...tapToReveal}>
         {glass(glassH)}
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-1">
-          {aboveLabel && <PhaseLabel label={label} pomodoro={pomodoro} color={idle ? undefined : view.color} />}
+          {aboveLabel && <PhaseLabel label={label} tag={tag} pomodoro={pomodoro} color={idle ? undefined : view.color} />}
           {besideLabel ? (
             <div className="flex min-w-0 items-center gap-3">
               {digits(fit(textW - phaseReserve(textW) - 12, digitsH))}
@@ -266,7 +267,7 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
       <div className="flex h-full gap-4 p-3" style={{ background: wash }}>
         <div className="grid shrink-0 place-items-center">{glass(glassH)}</div>
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-2">
-          {!besideLabel && <PhaseLabel label={label} pomodoro={pomodoro} color={idle ? undefined : view.color} />}
+          {!besideLabel && <PhaseLabel label={label} tag={tag} pomodoro={pomodoro} color={idle ? undefined : view.color} />}
           <div className="flex min-w-0 shrink-0 items-center gap-3" style={{ height: besideLabel ? bigH : bigH - 26 }}>
             {besideLabel ? (
               <>
@@ -306,7 +307,7 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
         style={{ height: artH, background: wash }}
         {...tapToReveal}
       >
-        <PhaseLabel label={label} pomodoro={pomodoro} color={idle ? undefined : view.color} />
+        <PhaseLabel label={label} tag={tag} pomodoro={pomodoro} color={idle ? undefined : view.color} />
         <div className={`flex min-h-0 flex-1 items-center justify-center ${side ? "gap-3.5" : "flex-col gap-2"}`}>
           {glass(glassH)}
           {digits(fontSize)}
@@ -332,12 +333,13 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
 }
 
 /** The phase and the set position ruled off along the countdown's line: ── Focus ── 2/4 */
-function PhaseRule({ label, pomodoro, color }) {
+function PhaseRule({ label, tag, pomodoro, color }) {
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2" aria-label={pomodoro.continuous ? label : `${label}, focus ${pomodoro.position} of ${pomodoro.settings.longEvery}`}>
       <span className="h-px min-w-3 flex-1 bg-line-strong" aria-hidden="true" />
       <span className="min-w-0 truncate font-serif text-sm font-semibold italic" style={{ color }}>
         {label}
+        {tag && <span className="font-normal text-muted"> · {tag}</span>}
       </span>
       <span className="h-px min-w-3 flex-1 bg-line-strong" aria-hidden="true" />
       {!pomodoro.continuous && (
@@ -349,11 +351,12 @@ function PhaseRule({ label, pomodoro, color }) {
   );
 }
 
-function PhaseLabel({ label, pomodoro, color }) {
+function PhaseLabel({ label, tag, pomodoro, color }) {
   return (
     <div className="flex h-[18px] shrink-0 items-baseline justify-between gap-2">
       <span className="min-w-0 truncate font-serif text-sm font-semibold italic" style={{ color }}>
         {label}
+        {tag && <span className="font-normal text-muted"> · {tag}</span>}
       </span>
       {!pomodoro.continuous && (
         <span className="figures shrink-0 text-xs text-muted" title="Focus periods in this set">

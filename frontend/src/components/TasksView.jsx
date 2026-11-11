@@ -1,8 +1,12 @@
 import { useState } from "react";
 import { format } from "date-fns";
-import { Ban, CalendarPlus, Check, CircleDot, Copy, Hourglass, PanelRight, Play, Square } from "lucide-react";
+import { Ban, CalendarPlus, Check, CircleDot, ClipboardPaste, Copy, FolderPlus, Hourglass, PanelRight, Play, Search, Sparkles, Square, X } from "lucide-react";
 import { TodoList } from "./ProjectDetail";
+import ActionMenu from "./ActionMenu";
+import TaskAiPanel from "./TaskAiPanel";
 import { copyText, todoAsText } from "../lib/clipboard";
+import { buildPrompt } from "../lib/aiTasks";
+import { EMPTY_FILTER, FILTER_CHIPS, isFiltering, loadFilter, saveFilter, taskMatches } from "../lib/taskFilter";
 import { ON_INK, TASK_INK, iconFor, TASK_ICON } from "../lib/palette";
 import { fmtClock, fmtHM, fmtTime, sessionSeconds } from "../lib/time";
 import { taskKey } from "../api";
@@ -12,6 +16,8 @@ import { taskKey } from "../api";
  * marked as being worked on, and takes time like a project does: its own timer (▶, which the pomodoro
  * follows), time logged after the fact, or left open for long work (the hourglass) to close later.
  * `secondsFor(task)` is the time on one, the running timer and open items included.
+ * A row keeps to what is always wanted (the time, the timer); the rest of its actions are under its "more" menu.
+ * Above the list: filters, and the way to work the list over with an AI (copy it out, paste the answer back).
  */
 export default function TasksView({
   tasks, todoOps, runningId, clock, openItems, now, secondsFor, onStart, onStop, onLeaveOpen, onLogTime, onOpenItem, onOpenTask,
@@ -42,17 +48,6 @@ export default function TasksView({
           </button>
         )}
         {secs >= 60 && !running && <span className="figures px-1 text-xs text-muted" title="Time logged">{fmtHM(secs)}</span>}
-        <IconButton label="Open its details: sessions, cancel" onClick={() => onOpenTask(key)}>
-          <PanelRight size={14} />
-        </IconButton>
-        <IconButton label="Log time on it" onClick={() => onLogTime(key)} className="max-sm:hidden">
-          <CalendarPlus size={14} />
-        </IconButton>
-        {!item && (
-          <IconButton label="Start it and leave it open, for long work" onClick={() => onLeaveOpen(key)}>
-            <Hourglass size={14} />
-          </IconButton>
-        )}
         <button
           onClick={() => (running ? onStop() : onStart(key))}
           aria-label={running ? `Stop the timer on "${task.text}"` : `Start the timer on "${task.text}"`}
@@ -71,50 +66,143 @@ export default function TasksView({
             <Play size={11} fill="currentColor" aria-hidden="true" />
           )}
         </button>
+        <ActionMenu
+          label={`More for "${task.text}"`}
+          items={[
+            { label: "Open its details", icon: PanelRight, onClick: () => onOpenTask(key) },
+            { label: "Log time on it", icon: CalendarPlus, onClick: () => onLogTime(key) },
+            !item && { label: "Start it and leave it open", icon: Hourglass, onClick: () => onLeaveOpen(key) },
+            { label: "Turn it into a project", icon: FolderPlus, onClick: () => todoOps.toProject(task.id) },
+          ]}
+        />
       </span>
     );
   };
 
+  const subsAll = (task) => tasks.filter((s) => s.parent_id === task.id);
   const openTasks = tasks.filter((x) => !x.done && !x.parent_id);
   const open = openTasks.length;
   const working = tasks.filter((x) => !x.done && x.working_since).length;
 
-  const [copied, setCopied] = useState(false);
-  const copyList = async () => {
-    const text = openTasks.map((x) => todoAsText(x, tasks.filter((s) => s.parent_id === x.id && !s.done))).join("\n");
-    if (!text || !(await copyText(text))) return;
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+  // Filters: the list shows the tasks that pass, each with its sub-tasks
+  const [filter, setFilterNow] = useState(loadFilter);
+  const setFilter = (next) => {
+    setFilterNow(next);
+    saveFilter(next);
   };
+  const filtering = isFiltering(filter);
+  const activeKeys = new Set([runningId, ...openItems.map((x) => x.project_id)]);
+  const nowMs = Number(now);
+  const passing = new Set(
+    openTasks
+      .filter((task) =>
+        taskMatches(task, filter, { subs: subsAll(task), seconds: secondsFor(task), active: activeKeys.has(taskKey(task.id)), now: nowMs })
+      )
+      .map((x) => x.id)
+  );
+  const visible = filtering ? tasks.filter((x) => passing.has(x.id) || (x.parent_id && passing.has(x.parent_id))) : tasks;
+  const toggleChip = (id) =>
+    setFilter({ ...filter, chips: filter.chips.includes(id) ? filter.chips.filter((c) => c !== id) : [...filter.chips, id] });
+
+  const [copied, setCopied] = useState("");
+  const flash = (what) => {
+    setCopied(what);
+    setTimeout(() => setCopied((c) => (c === what ? "" : c)), 1500);
+  };
+  const copyList = async () => {
+    const text = openTasks.map((x) => todoAsText(x, subsAll(x).filter((s) => !s.done))).join("\n");
+    if (text && (await copyText(text))) flash("list");
+  };
+  const copyForAi = async () => {
+    if (await copyText(buildPrompt(openTasks, (t) => subsAll(t).filter((s) => !s.done)))) flash("ai");
+  };
+  const [aiOpen, setAiOpen] = useState(false);
 
   return (
-    <section className="mx-auto flex h-full max-w-3xl flex-col">
-      <div className="flex items-baseline gap-3">
+    <section className="flex h-full flex-col">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2 className="font-serif text-[17px] font-semibold">Tasks</h2>
         <span className="font-serif text-xs italic text-muted">
-          {open} to do{working > 0 && `, ${working} being worked on`}
+          {filtering ? `${passing.size} of ${open} shown` : `${open} to do`}
+          {working > 0 && `, ${working} being worked on`}
         </span>
-        {open > 0 && (
-          <button
-            onClick={copyList}
-            className="ml-auto inline-flex h-7 items-center gap-1.5 self-center px-2 text-xs font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-text"
-            title="Copy the tasks still to do as text"
-          >
-            {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
-            {copied ? "Copied" : "Copy list"}
-          </button>
-        )}
+        <div className="ml-auto flex items-center gap-0.5 self-center">
+          {open > 0 && (
+            <>
+              <HeaderButton onClick={copyList} done={copied === "list"} icon={Copy} title="Copy the tasks still to do as text">
+                {copied === "list" ? "Copied" : "Copy list"}
+              </HeaderButton>
+              <HeaderButton
+                onClick={copyForAi}
+                done={copied === "ai"}
+                icon={Sparkles}
+                title="Copy the tasks with a prompt that asks an AI for sub-tasks and an estimate on each"
+              >
+                {copied === "ai" ? "Copied" : "Copy for AI"}
+              </HeaderButton>
+            </>
+          )}
+          <HeaderButton onClick={() => setAiOpen((o) => !o)} pressed={aiOpen} icon={ClipboardPaste} title="Paste an AI's reply to rewrite the tasks">
+            Paste AI reply
+          </HeaderButton>
+        </div>
       </div>
       <p className="mt-0.5 mb-3 text-[13px] text-muted">
         Things to do, and to time, that aren't part of a project. A task happens once: when it's ticked off it's logged
         on that day in the calendar and leaves this list. Time on a task shows on the calendar like a project's.
       </p>
+
+      {aiOpen && <TaskAiPanel tasks={openTasks} subsOf={subsAll} todoOps={todoOps} onClose={() => setAiOpen(false)} />}
+
+      {open > 0 && (
+        <div className="mb-2 flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5" role="search" aria-label="Filter the tasks">
+          <label className="flex h-8 min-w-[10rem] flex-1 items-center gap-2 border border-line-strong px-2 focus-within:border-text sm:max-w-[16rem]">
+            <Search size={14} className="shrink-0 text-muted" aria-hidden="true" />
+            <input
+              value={filter.q}
+              onChange={(e) => setFilter({ ...filter, q: e.target.value })}
+              placeholder="Search tasks"
+              aria-label="Search tasks"
+              className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-faint"
+            />
+          </label>
+          {FILTER_CHIPS.map((chip) => {
+            const on = filter.chips.includes(chip.id);
+            return (
+              <button
+                key={chip.id}
+                onClick={() => toggleChip(chip.id)}
+                aria-pressed={on}
+                title={chip.hint}
+                className={`inline-flex h-8 items-center border px-2.5 text-xs font-semibold transition-colors ${
+                  on ? "border-text bg-text text-bg" : "border-line text-muted hover:border-text hover:text-text"
+                }`}
+              >
+                {chip.label}
+              </button>
+            );
+          })}
+          {filtering && (
+            <button
+              onClick={() => setFilter(EMPTY_FILTER)}
+              className="inline-flex h-8 items-center gap-1 px-2 text-xs text-muted transition-colors hover:text-text"
+            >
+              <X size={13} aria-hidden="true" /> Clear
+            </button>
+          )}
+        </div>
+      )}
+      {filtering && passing.size === 0 && (
+        <p className="mb-2 font-serif text-sm italic text-muted">No task matches. Clear the filters to see them all.</p>
+      )}
+
       <TodoList
-        todos={tasks}
+        todos={visible}
         projectId={null}
         ops={todoOps}
         rowExtra={rowExtra}
         hideDone
+        quiet
         placeholder="Add a task and press Enter"
         label="New task"
       />
@@ -122,15 +210,19 @@ export default function TasksView({
   );
 }
 
-function IconButton({ label, onClick, className = "", children }) {
+/** A small text button in the tab's header. `done` swaps its icon for a tick; `pressed` marks a panel it opens. */
+function HeaderButton({ onClick, icon: Icon, done = false, pressed, title, children }) {
   return (
     <button
       onClick={onClick}
-      aria-label={label}
-      title={label}
-      className={`grid size-7 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text ${className}`}
+      aria-pressed={pressed}
+      title={title}
+      className={`inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap px-2 text-xs font-semibold transition-colors hover:bg-surface-2 hover:text-text ${
+        pressed ? "bg-surface-2 text-text" : "text-muted"
+      }`}
     >
-      {children}
+      {done ? <Check size={13} aria-hidden="true" /> : <Icon size={13} aria-hidden="true" />}
+      <span className="@max-[34rem]:sr-only">{children}</span>
     </button>
   );
 }
