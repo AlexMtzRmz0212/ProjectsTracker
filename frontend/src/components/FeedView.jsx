@@ -155,7 +155,7 @@ function FeedCard({
             <button
               onClick={onOpen}
               title={name}
-              aria-label={isTasks ? "Open the Tasks tab" : `Open ${name}: notes and to-dos`}
+              aria-label={isTasks ? "Open the Tasks tab" : `Open ${name}: to-dos and sessions`}
               className="min-w-0 text-left font-serif text-[16px] font-medium leading-snug underline-offset-4 hover:underline focus-visible:underline"
             >
               <span className="line-clamp-2 break-words">{name}</span>

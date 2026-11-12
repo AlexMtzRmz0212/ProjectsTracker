@@ -3,53 +3,37 @@ import { createPortal } from "react-dom";
 import { ChevronLeft, PanelRight, X } from "lucide-react";
 import { iconFor, inkText } from "../lib/palette";
 import { useHeaderBottom } from "../hooks/useHeaderBottom";
+import { useClickOutside } from "../hooks/useClickOutside";
 
-const WIDTH_KEY = "pt-peek-width";
-const DEFAULT_WIDTH = 576;
 const MIN_WIDTH = 352;
+const DEFAULT_WIDTH = MIN_WIDTH; // it opens at its least width
 const GAP = 40; // the strip of window always left beside it, where its tab sits
+const SLIDE_MS = 260; // a little over the time it takes to slide away
 const fitWidth = (w) => Math.round(Math.max(MIN_WIDTH, Math.min(w, window.innerWidth - GAP)));
-
-function readWidth() {
-  try {
-    return Number(localStorage.getItem(WIDTH_KEY)) || DEFAULT_WIDTH;
-  } catch {
-    return DEFAULT_WIDTH;
-  }
-}
-
-function saveWidth(w) {
-  try {
-    localStorage.setItem(WIDTH_KEY, String(w));
-  } catch {
-    // storage blocked: it just won't survive a reload
-  }
-}
+// A press on a window open over the page (or the menus and pickers a row opens) is not a press "elsewhere"
+const KEEP_WIDE = '[role="dialog"], [role="menu"]';
 
 /**
  * A side peek: the project last clicked, in a panel off the right edge, under the header. The board
  * stays in reach beside it, so another project can be clicked straight into it. Where the window is wide
  * enough the page gives way to it (`onWidth` says how much it covers); otherwise it goes over the page. Its tab stays on
  * screen when it is away, to bring the same project back. The tab is also its handle: click it to
- * open or put away the peek, drag it to set how wide the peek is (that width is remembered in this
- * browser), or drag it most of the way to the right edge to put it away. With the tab focused, the
- * left and right arrow keys widen and narrow it. `widthResetKey` going up brings it back to its usual width. Esc puts it away too, except while a window is open
+ * open or put away the peek, drag it to set how wide the peek is, or drag it most of the way to the right edge
+ * to put it away. With the tab focused, the left and right arrow keys widen and narrow it. The peek is always
+ * at its least width to begin with: a width pulled out lasts until a press lands elsewhere on the page, or
+ * the peek is put away. `widthResetKey` going up brings it back to that width too. Esc puts it away too, except while a window is open
  * on top, while `escPaused`, and inside a text box (a sub-to-do uses it to cancel).
  */
 export default function ProjectPeek({ open, onOpenChange, onWidth, widthResetKey = 0, project, escPaused = false, children }) {
   const panel = useRef(null);
   const top = useHeaderBottom();
   const id = useId();
-  const [width, setWidth] = useState(readWidth);
+  const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [dragW, setDragW] = useState(null); // the width the tab has been pulled to, while it is being dragged
   const drag = useRef(null);
   const dragged = useRef(false); // a drag must not also count as the tab's click
 
-  const setAndSave = (w) => {
-    const next = fitWidth(w);
-    setWidth(next);
-    saveWidth(next);
-  };
+  const setAndSave = (w) => setWidth(fitWidth(w));
 
   // The tab sits on the panel's left edge, so the panel widens as it is pulled left. Pulled in from shut,
   // it starts from nothing; narrower than the least width it starts to slide away, and well short of it
@@ -101,10 +85,18 @@ export default function ProjectPeek({ open, onOpenChange, onWidth, widthResetKey
   useEffect(() => {
     if (widthResetKey === firstKey.current) return;
     firstKey.current = widthResetKey;
-    const next = fitWidth(DEFAULT_WIDTH);
-    setWidth(next);
-    saveWidth(next);
+    setWidth(fitWidth(DEFAULT_WIDTH));
   }, [widthResetKey]);
+
+  // Back to the least width: when a press lands elsewhere on the page, and once the peek has slid away
+  // (not before: it would visibly shrink on its way out)
+  const wide = width > fitWidth(DEFAULT_WIDTH);
+  useClickOutside(panel, open && wide && drag.current === null, () => setWidth(fitWidth(DEFAULT_WIDTH)), KEEP_WIDE);
+  useEffect(() => {
+    if (open) return;
+    const timer = setTimeout(() => setWidth(fitWidth(DEFAULT_WIDTH)), SLIDE_MS);
+    return () => clearTimeout(timer);
+  }, [open]);
 
   const dragging = dragW !== null;
   const shownWidth = dragging ? fitWidth(dragW) : width;
@@ -119,7 +111,7 @@ export default function ProjectPeek({ open, onOpenChange, onWidth, widthResetKey
   useEffect(() => {
     if (!open || escPaused) return;
     const onKey = (e) => {
-      if (e.key !== "Escape" || document.querySelector('[role="dialog"]')) return;
+      if (e.key !== "Escape" || document.querySelector('[role="dialog"], [role="menu"]')) return;
       if (e.target instanceof Element && e.target.closest("textarea, input")) return;
       onOpenChange(false);
     };

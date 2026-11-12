@@ -1,6 +1,6 @@
 import { useCallback, useId, useLayoutEffect, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Ellipsis, ListChecks, NotebookText, Pencil, Play, Plus, Square } from "lucide-react";
+import { Ellipsis, ListChecks, Pencil, Play, Plus, Square } from "lucide-react";
 import { ON_INK, iconFor, inkFor, inkText, tint } from "../lib/palette";
 import { fmtClock, fmtHM } from "../lib/time";
 import { Button } from "./Modal";
@@ -576,7 +576,7 @@ function BoardCard({
         <button
           onClick={onOpen}
           title={name}
-          aria-label={`Open ${name}: notes and to-dos`}
+          aria-label={`Open ${name}: to-dos and sessions`}
           className={`min-w-0 flex-1 text-left font-serif text-[15px] font-medium leading-snug underline-offset-4 hover:underline focus-visible:underline ${
             finished ? "text-muted" : ""
           }`}
@@ -596,12 +596,6 @@ function BoardCard({
             <ListChecks size={13} aria-hidden="true" />
             <span className="figures">{openTodos}</span>
             <span className="sr-only">open to-dos</span>
-          </span>
-        )}
-        {project.notes && (
-          <span title="Has notes" className="inline-flex">
-            <NotebookText size={13} aria-hidden="true" />
-            <span className="sr-only">Has notes</span>
           </span>
         )}
         <Sparkline className="ml-auto shrink-0" days={lastSeven} color={color} />

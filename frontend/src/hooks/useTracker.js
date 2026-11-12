@@ -433,7 +433,18 @@ export function useTracker(api = realApi) {
     update: (id, data) =>
       attempt(async () => {
         const before = todos.find((x) => x.id === id);
-        setTodos((prev) => prev.map((x) => (x.id === id ? applyTodo(x, data) : x)));
+        setTodos((prev) => {
+          const next = prev.map((x) => (x.id === id ? applyTodo(x, data) : x));
+          const closed = next.find((x) => x.id === id);
+          if (!before || before.done || !closed?.done) return next;
+          // Closing a to-do closes the sub-to-dos still being worked on, the same way (done, or cancelled)
+          const at = new Date().toISOString();
+          return next.map((x) =>
+            x.parent_id === id && !x.done && x.working_since
+              ? { ...x, working_since: null, done: true, cancelled_at: closed.cancelled_at ? at : null, completed_at: closed.cancelled_at ? null : at }
+              : x
+          );
+        });
         if (!("sort_order" in data)) touchProject(before?.project_id);
         const saved = await api.updateTodo(id, data);
         // A task ticked off or cancelled leaves the Tasks list, so offer to take it back

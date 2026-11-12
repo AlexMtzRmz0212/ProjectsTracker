@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Ellipsis } from "lucide-react";
 import { useClickOutside } from "../hooks/useClickOutside";
 
@@ -9,7 +10,9 @@ const EDGE = 8; // px kept clear of the window's edges
  * A "more" button with a small menu of actions under it, for the controls a row doesn't need in sight all the
  * time. `items` is [{ label, icon: Icon, onClick, danger? }]; falsy entries are skipped. It closes on a pick, a
  * press outside, Esc, or when the page scrolls or resizes. The menu is placed with fixed coordinates under the
- * button (above it near the bottom of the window), so a scrolling list around it never clips it.
+ * button (above it near the bottom of the window), so a scrolling list around it never clips it. It is drawn
+ * into the page's body: inside a panel that slides in (the side peek is moved with a transform), fixed
+ * coordinates would be taken from the panel, not the window, and the menu would land out of sight.
  */
 export default function ActionMenu({ items, label = "More actions", className = "" }) {
   const [open, setOpen] = useState(false);
@@ -18,7 +21,7 @@ export default function ActionMenu({ items, label = "More actions", className = 
   const button = useRef(null);
   const shown = items.filter(Boolean);
 
-  useClickOutside(root, open, () => setOpen(false));
+  useClickOutside(root, open, () => setOpen(false), "[data-action-menu]");
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -52,11 +55,12 @@ export default function ActionMenu({ items, label = "More actions", className = 
       >
         <Ellipsis size={16} />
       </button>
-      {open && place && (
+      {open && place && createPortal(
         <div
           role="menu"
           aria-label={label}
-          className="fade-in fixed z-50 border border-line-strong bg-surface py-1"
+          data-action-menu
+          className="fade-in fixed z-[70] border border-line-strong bg-surface py-1"
           style={{ width: MENU_W, ...place }}
         >
           {shown.map(({ label: text, icon: Icon, onClick, danger }) => (
@@ -73,7 +77,8 @@ export default function ActionMenu({ items, label = "More actions", className = 
               <span className="min-w-0 flex-1 truncate">{text}</span>
             </button>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </span>
   );

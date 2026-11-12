@@ -1,7 +1,8 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { format } from "date-fns";
-import { CircleDot, GripHorizontal, MoveDiagonal2, Search, X } from "lucide-react";
+import { CircleDot, GripHorizontal, MoveDiagonal2, Search, Tag, X } from "lucide-react";
+import { FocusPicker } from "./FocusTag";
 import { ActionButton, controlsFor, phaseView } from "./PomodoroScreen";
 import { TASKS_TAB, TodoNote, searchResults, withTasksTab } from "./ProjectSearch";
 import { iconFor, inkText, tint } from "../lib/palette";
@@ -85,6 +86,9 @@ function MiniClock(props) {
   const ref = useRef(null);
   const { w, h } = useBox(ref);
   const [searching, setSearching] = useState(false);
+  const [tagging, setTagging] = useState(false);
+  // What the pomodoro is for can be said from here when there is somewhere to say it
+  const canTag = Boolean(props.pomodoro?.setFocusFor);
   const canSearch = Boolean(props.onPickProject) && (props.projects?.length > 0 || Boolean(props.onTasks));
 
   useEffect(() => {
@@ -110,7 +114,21 @@ function MiniClock(props) {
         setSearching(true);
       }}
     >
-      <ClockFace w={w} h={h} {...props} onSearch={canSearch ? () => setSearching(true) : undefined} />
+      <ClockFace
+        w={w}
+        h={h}
+        {...props}
+        onSearch={canSearch ? () => setSearching(true) : undefined}
+        onTag={canTag ? () => setTagging(true) : undefined}
+      />
+      {tagging && (
+        <MiniTag
+          value={props.pomodoro.focusFor}
+          choices={props.projects}
+          onChange={props.pomodoro.setFocusFor}
+          onClose={() => setTagging(false)}
+        />
+      )}
       {searching && (
         <MiniSearch
           projects={props.projects}
@@ -141,7 +159,7 @@ function MiniClock(props) {
  *   bottom, the buttons sliding up over it on hover; tall enough, the buttons stay out under it and
  *   the to-dos fill the rest.
  */
-function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSeconds, todos = [], todoOps, timedTodoId = null, onStopFocus, onStopTimer, onSearch }) {
+function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSeconds, todos = [], todoOps, timedTodoId = null, onStopFocus, onStopTimer, onSearch, onTag }) {
   const view = phaseView(pomodoro);
   const idle = view.tone === "idle";
   const flowing = pomodoro.phase === "focus" || pomodoro.phase === "break";
@@ -163,7 +181,7 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
   const tag = pomodoro.tag ?? ""; // what this focus is for, while it has a tag
   const projectTime = project && !projectClock ? fmtClock(runningProject ? clock : heldSeconds) : null;
   const controls = controlsFor(pomodoro, pomodoro.startFocus, onStopFocus, Boolean(runningProject), onStopTimer);
-  const controlsW = controls.length * 40 + (onSearch ? 40 : 0);
+  const controlsW = controls.length * 40 + (onSearch ? 40 : 0) + (onTag ? 40 : 0);
   const wash = `linear-gradient(140deg, ${tint(big.color, 20)}, ${tint(big.color, 4)} 65%)`;
   // What is left to do on what's being worked on, the to-dos marked as being worked on first. A task is its
   // own to-do: it is listed, with its sub-to-dos, so they can be ticked off from here.
@@ -188,7 +206,7 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
     </p>
   );
   const glass = (height) => <Hourglass height={height} progress={view.progress} color={view.color} flowing={flowing} />;
-  const buttons = <Controls controls={controls} onSearch={onSearch} />;
+  const buttons = <Controls controls={controls} onSearch={onSearch} onTag={onTag} tagged={Boolean(pomodoro.focusFor)} />;
   const hover = (className) => (
     <HoverLayer shown={reveal || hovered} className={className}>
       {buttons}
@@ -395,12 +413,22 @@ function ProgressBar({ progress, color, className = "" }) {
   );
 }
 
-function Controls({ controls, onSearch }) {
+function Controls({ controls, onSearch, onTag, tagged = false }) {
   return (
     <div className="flex shrink-0 items-center gap-1">
       {controls.map((c) => (
         <ActionButton key={c.id} {...c} compact />
       ))}
+      {onTag && (
+        <button
+          onClick={onTag}
+          className={`grid size-9 place-items-center transition-colors hover:bg-surface-2 hover:text-text ${tagged ? "text-accent" : "text-muted"}`}
+          aria-label={tagged ? "What this pomodoro is for. Change it" : "What is this pomodoro for?"}
+          title="What is this pomodoro for?"
+        >
+          <Tag size={14} />
+        </button>
+      )}
       {onSearch && (
         <button
           onClick={onSearch}
@@ -492,6 +520,39 @@ function WorkingToggle({ todo, todoOps }) {
       <CircleDot size={13} className={working ? "blink-dot" : ""} aria-hidden="true" />
       {working && "Working on"}
     </button>
+  );
+}
+
+/** What the pomodoro is for, said inside the mini clock: the same picker as the header's, laid over the clock
+ *  (a popover would sit on the page, not in the floating window). Esc, or a pick, goes back. */
+function MiniTag({ value, choices, onChange, onClose }) {
+  return (
+    <div
+      className="fade-in absolute inset-0 z-20 flex flex-col bg-bg"
+      role="dialog"
+      aria-label="What is this pomodoro for?"
+      onKeyDown={(e) => {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }}
+    >
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line-strong pl-2.5">
+        <Tag size={14} className="shrink-0 text-muted" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">For</span>
+        <button
+          onClick={onClose}
+          className="grid h-full w-9 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
+          aria-label="Close"
+        >
+          <X size={14} />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        <FocusPicker value={value} onChange={onChange} choices={choices} onDone={onClose} />
+      </div>
+    </div>
   );
 }
 

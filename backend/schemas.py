@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Annotated, Optional
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, PlainSerializer, StringConstraints
@@ -215,6 +215,47 @@ class PomodoroOut(BaseModel):
     project_id: Optional[str] = None
     todo_id: Optional[str] = None
     label: str = ""
+
+
+# ── Habits (from the My Habits backup on Drive) ─────────────────────────────
+
+class HabitEntryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    entry_date: date
+    status: str
+    value: Optional[float] = None
+
+
+class HabitOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    question: str = ""
+    unit: str = ""
+    value_type: str
+    target_type: Optional[str] = None
+    target_value: Optional[float] = None
+    freq_num: Optional[int] = None
+    freq_den: Optional[int] = None
+    position: int = 0
+    archived: bool = False
+    removed_at: Optional[UTCDateTime] = None
+    entries: list[HabitEntryOut] = []
+
+
+class HabitsOut(BaseModel):
+    habits: list[HabitOut]
+    configured: bool  # whether Drive sync is set up on the server
+    synced_at: Optional[UTCDateTime] = None
+    source_file: str = ""
+
+
+class HabitSyncOut(BaseModel):
+    changed: bool
+    file_name: str
+    habits: int
 
 
 # ── Interest counter (public) ───────────────────────────────────────────────

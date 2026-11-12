@@ -15,12 +15,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Response, status
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session as DbSession
+from sqlalchemy.orm import Session as DbSession, selectinload
 
-from . import auth, schemas
+from . import auth, habits as habits_sync, schemas
 from .bootstrap import init_db
 from .database import engine, get_db
-from .models import InterestMessage, InterestVote, OpenItem, Pomodoro, Project, Session, Status, Todo, utcnow
+from .models import Habit, HabitSync, InterestMessage, InterestVote, OpenItem, Pomodoro, Project, Session, Status, Todo, utcnow
 
 init_db(engine)
 
@@ -427,6 +427,16 @@ def update_todo(todo_id: str, body: schemas.TodoUpdate, db: DbSession = Depends(
             todo.cancelled_at = None
     if todo.done:
         todo.working_since = None
+        if not was_done:
+            # Closing a to-do closes the sub-to-dos still being worked on, the same way (done, or cancelled)
+            now = utcnow()
+            for sub in db.scalars(
+                select(Todo).where(Todo.parent_id == todo.id, Todo.done.is_(False), Todo.working_since.is_not(None))
+            ):
+                sub.working_since = None
+                sub.done = True
+                sub.cancelled_at = (sub.cancelled_at or now) if todo.cancelled_at else None
+                sub.completed_at = None if todo.cancelled_at else now
         # A task ticked off is finished: its timer stops, as a finished project's does
         current = _running(db)
         if todo.project_id is None and current is not None and current.todo_id == todo.id:
@@ -696,6 +706,31 @@ def create_pomodoro(body: schemas.PomodoroCreate, db: DbSession = Depends(get_db
     db.commit()
     db.refresh(pomodoro)
     return pomodoro
+
+#endregion
+# ─────────────────────────────────────────────────────────────────────────────
+#region Habits
+
+@api.get("/habits", response_model=schemas.HabitsOut)
+def list_habits(db: DbSession = Depends(get_db)):
+    """The habits copied in from the My Habits backup, with their last days (see habits.py)."""
+    found = db.scalars(select(Habit).options(selectinload(Habit.entries)).order_by(Habit.position, Habit.name)).all()
+    synced = db.get(HabitSync, 1)
+    return {
+        "habits": found,
+        "configured": habits_sync.drive_configured(),
+        "synced_at": synced.synced_at if synced else None,
+        "source_file": synced.file_name if synced else "",
+    }
+
+
+@api.post("/habits/sync", response_model=schemas.HabitSyncOut)
+def sync_habits(force: bool = False, db: DbSession = Depends(get_db)):
+    """Copy the newest backup in the Drive folder in, unless it is the one already copied (`force` copies it anyway)."""
+    try:
+        return habits_sync.sync(db, force=force)
+    except habits_sync.HabitsError as error:
+        raise HTTPException(error.status, str(error))
 
 #endregion
 # ─────────────────────────────────────────────────────────────────────────────

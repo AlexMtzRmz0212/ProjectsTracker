@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { format, isSameMonth, startOfMonth, startOfWeek } from "date-fns";
-import { CalendarDays, ChartColumn, Columns3, ListChecks, ListTodo, RotateCw, ServerOff, SlidersHorizontal } from "lucide-react";
+import { Briefcase, CalendarDays, ChartColumn, Columns3, ListChecks, ListTodo, Repeat, RotateCw, ServerOff, SlidersHorizontal } from "lucide-react";
 import { useTracker } from "./hooks/useTracker";
 import { useTheme } from "./hooks/useTheme";
 import { useInbox } from "./hooks/useInbox";
+import { useHabits } from "./hooks/useHabits";
 import { useNow } from "./hooks/useNow";
 import { usePomodoro } from "./hooks/usePomodoro";
 import { useFeedOrder } from "./hooks/useFeedOrder";
@@ -33,6 +34,8 @@ import ProjectDetail from "./components/ProjectDetail";
 import ProjectPeek from "./components/ProjectPeek";
 import ProjectSearch, { todoEntries } from "./components/ProjectSearch";
 import TasksView, { TaskDetail } from "./components/TasksView";
+import HabitsView from "./components/HabitsView";
+import WorkspaceView from "./components/WorkspaceView";
 import OpenItemsBar from "./components/OpenItemsBar";
 import WorkingMenu from "./components/WorkingMenu";
 import SessionModal from "./components/SessionModal";
@@ -41,7 +44,8 @@ import InterestInbox from "./components/InterestInbox";
 import Toast from "./components/Toast";
 import { Button } from "./components/Modal";
 import { TASK_ICON, TASK_INK, inkFor } from "./lib/palette";
-import { isTaskKey, taskIdOf, taskKey } from "./api";
+import { isTaskKey, taskIdOf, taskKey, todoSubject } from "./api";
+import { isActive as isActiveHabit } from "./lib/habits";
 
 const FEED_TASKS = "feed:tasks"; // the id of the Tasks card in the Feed
 const PEEK_PUSH_MIN = 900; // narrower windows never push: the peek goes over the page (it is a phone or a small window)
@@ -53,6 +57,7 @@ const PEEK_PUSH_MIN = 900; // narrower windows never push: the peek goes over th
  */
 export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) {
   const t = useTracker(api);
+  const habits = useHabits(api); // from the My Habits backup on Drive; kept apart so it can fail on its own
   const inbox = useInbox(!demo); // the notes visitors left: only the owner's app asks for them
   const [inboxOpen, setInboxOpen] = useState(false);
   const now = useNow(Boolean(t.running));
@@ -97,10 +102,10 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
 
   const [cursor, setCursor] = useState(() => new Date());
   const [selected, setSelected] = useState(() => new Date());
-  const [tab, setTab] = useState("feed"); // feed | projects | tasks | calendar | stats
+  const [tab, setTab] = useState("feed"); // feed | workspace | projects | tasks | habits | calendar | stats
   const [calView, setCalView] = useCalendarView(); // month | week | day
   const [statusesOpen, setStatusesOpen] = useState(false);
-  // The side peek: the project last clicked (its notes, to-dos and sessions), and whether the panel is out
+  // The side peek: the project last clicked (its to-dos and sessions), and whether the panel is out
   const [peekId, setPeekId] = useState(null);
   const [peekOpen, setPeekOpen] = useState(false);
   const peek = (id) => {
@@ -173,6 +178,30 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     [t.sessions, t.pomodoros, t.todos, projects]
   );
   const runningId = t.running?.project_id;
+  // The Workspace tab: to-dos marked as being worked on, and the chores that earlier pomodoros were for
+  const workingTodos = useMemo(
+    () =>
+      t.todos
+        .filter((x) => !x.done && x.working_since)
+        .map((todo) => {
+          const owner = todo.project_id ? projectsById.get(todo.project_id) : null;
+          const parent = todo.parent_id ? t.todos.find((x) => x.id === todo.parent_id) : null;
+          return {
+            todo,
+            subjectId: todoSubject(todo),
+            context: [owner?.name ?? (todo.project_id ? "" : "Task"), parent && !todo.project_id ? parent.text : ""].filter(Boolean).join(": "),
+          };
+        }),
+    [t.todos, projectsById]
+  );
+  const chores = useMemo(() => {
+    const seen = new Set();
+    return [...t.pomodoros]
+      .sort((a, b) => b.start - a.start)
+      .filter((p) => !p.project_id && !p.todo_id && p.label && !seen.has(p.label) && seen.add(p.label))
+      .map((p) => p.label)
+      .slice(0, 12);
+  }, [t.pomodoros]);
   // The tasks sit in the Feed as one card of their own, while there are any to do. Unlike a project it is not
   // ranked by when it was last worked on: it stays on top until it is skipped, and then goes behind the projects
   // that have not been worked on since (so it is back on top once they all have). Skipping it is kept in this
@@ -417,6 +446,15 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   /** Time one of a project's to-dos: the project's timer, on that to-do (which is marked as being worked on). */
   const startTodo = (todo) => startProject(todo.project_id, todo.id);
 
+  /** Time any to-do: a project's, or a task's (a sub-task is timed on its task, and is the one marked). */
+  const startAnyTodo = (todo) => (todo.project_id ? startTodo(todo) : startProject(taskKey(todo.parent_id ?? todo.id), todo.id));
+
+  /** Start a pomodoro for a chore or a habit: no project timer, just a focus with these words as what it is for. */
+  const startChore = (label) => {
+    pomodoro.setFocusFor({ project_id: null, todo_id: null, label });
+    pomodoro.followTimer();
+  };
+
   /** Stop a focus, and the project timer that goes with it. Stopping a break leaves a running timer alone. */
   const stopFocus = () => {
     pomodoro.dismiss();
@@ -448,7 +486,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     };
   };
 
-  /** A project opened up (to-dos, notes, sessions): in the side peek, and in the pomodoro's full screen.
+  /** A project opened up (to-dos, sessions): in the side peek, and in the pomodoro's full screen.
    *  A task opens as one too, with what a task has. */
   const projectDetail = (project) => {
     const isRunning = t.running?.project_id === project.id;
@@ -488,7 +526,6 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
         onCancel={() => t.cancelProject(project.id)}
         onEdit={() => setProjectModal({ project })}
         onToggleTimer={() => (isRunning ? t.stopTimer() : startProject(project.id))}
-        onSaveNotes={(notes) => saveProject(project.id, { notes })}
         onSaveSessionNote={(id, note) => t.updateSession(id, { note })}
         todoOps={t.todoOps}
         timedTodoId={isRunning ? t.running.todo_id ?? null : null}
@@ -551,8 +588,10 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
 
   const tabs = [
     { id: "feed", label: "Feed", icon: ListTodo, color: "#bf3a30" },
+    { id: "workspace", label: "Workspace", short: "Work", icon: Briefcase, color: "#2c8a86" },
     { id: "projects", label: "Projects", icon: Columns3, color: "#2f5d8a" },
     { id: "tasks", label: "Tasks", icon: ListChecks, color: "#4f7a52" },
+    { id: "habits", label: "Habits", icon: Repeat, color: "#a8512f" },
     { id: "calendar", label: "Calendar", icon: CalendarDays, color: "#b07d2a" },
     { id: "stats", label: "Stats", icon: ChartColumn, color: "#7a5a96" },
   ];
@@ -624,7 +663,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                 {/* Only where the tab bar has room for it beside the tabs (and the Statuses button, on the board) */}
                 <span
                   className={`figures hidden whitespace-nowrap text-xs text-muted ${
-                    tab === "projects" ? "@[55rem]:inline" : "@[49rem]:inline"
+                    tab === "projects" ? "@[64rem]:inline" : "@[58rem]:inline"
                   }`}
                 >
                   Today <span className="font-semibold text-text">{fmtHM(todaySecs)}</span>
@@ -634,7 +673,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                 {tab === "projects" && t.status === "ready" && (
                   <button
                     onClick={() => setStatusesOpen(true)}
-                    className="hidden h-8 items-center gap-1.5 px-2 text-[13px] text-muted transition-colors hover:bg-surface-2 hover:text-text @[43rem]:inline-flex"
+                    className="hidden h-8 items-center gap-1.5 px-2 text-[13px] text-muted transition-colors hover:bg-surface-2 hover:text-text @[52rem]:inline-flex"
                   >
                     <SlidersHorizontal size={14} /> Statuses
                   </button>
@@ -659,7 +698,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
             className="@container relative min-h-0 w-full flex-1 overflow-y-auto px-4 py-3 sm:px-6"
           >
             {/* The page column: the Feed and Tasks are a narrow one, the rest use the width there is */}
-            <div className={`pg h-full ${tab === "feed" || tab === "tasks" ? "[--cw:48rem]" : "[--cw:77rem]"}`}>
+            <div className={`pg h-full ${["feed", "tasks", "habits", "workspace"].includes(tab) ? "[--cw:48rem]" : "[--cw:77rem]"}`}>
             {t.status === "loading" ? (
               <Skeleton />
             ) : tab === "projects" ? (
@@ -697,6 +736,33 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                 onLogTime={(key) => setSessionModal({ projectId: key, date: today })}
                 onOpenItem={(item) => setSessionModal({ openItem: item })}
                 onOpenTask={peek}
+              />
+            ) : tab === "habits" ? (
+              <HabitsView
+                habits={habits.habits}
+                status={habits.status}
+                configured={habits.configured}
+                syncedAt={habits.synced_at}
+                sourceFile={habits.source_file}
+                syncing={habits.syncing}
+                onSync={habits.sync}
+                today={today}
+              />
+            ) : tab === "workspace" ? (
+              <WorkspaceView
+                working={workingTodos}
+                projects={openProjects}
+                tasks={openTaskSubjects}
+                habits={habits.habits.filter(isActiveHabit)}
+                chores={chores}
+                runningId={runningId}
+                timedTodoId={t.running?.todo_id ?? null}
+                focusLabel={pomodoro.focusFor?.label ?? null}
+                today={today}
+                onStartSubject={startProject}
+                onStartTodo={startAnyTodo}
+                onStartChore={startChore}
+                onStop={t.stopTimer}
               />
             ) : tab === "feed" ? (
               projects.length === 0 ? (

@@ -63,7 +63,7 @@ export function phaseView(pomodoro) {
 
 /** The pomodoro with the whole screen to itself: the same countdown and buttons as the header chip, a
  *  small, optional card for the project being worked on, and a side panel that can be put away: on the
- *  right, the project being worked on (`renderDetail(project)`: its to-dos, notes and sessions).
+ *  right, the project being worked on (`renderDetail(project)`: its to-dos and sessions).
  *
  *  A project picked here is only chosen: it starts together with the next focus (`startFocusOn`).
  *  Once a project timer is running, or a focus is already going, there is no next focus to wait for,
@@ -347,7 +347,7 @@ export default function PomodoroScreen({
               renderDetail?.(active)
             ) : (
               <div className="grid flex-1 place-items-center border border-dashed border-line-strong p-6 text-center">
-                <p className="text-[13px] text-muted">Pick a project or task to see its to-dos, notes and sessions here.</p>
+                <p className="text-[13px] text-muted">Pick a project or task to see its to-dos and sessions here.</p>
               </div>
             )}
           </SidePanel>

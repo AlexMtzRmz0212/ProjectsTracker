@@ -18,7 +18,7 @@ const FEATURES = [
   {
     icon: LayoutGrid,
     name: "Status board",
-    text: "Every status is a column. Drag a project from Idea to Active to Done, or up to the trash to delete it, and add notes and to-dos to each one.",
+    text: "Every status is a column. Drag a project from Idea to Active to Done, or up to the trash to delete it, and add to-dos to each one.",
   },
   {
     icon: CalendarPlus,

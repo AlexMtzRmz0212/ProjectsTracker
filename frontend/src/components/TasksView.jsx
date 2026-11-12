@@ -2,7 +2,6 @@ import { useState } from "react";
 import { format } from "date-fns";
 import { Ban, CalendarPlus, Check, CircleDot, ClipboardPaste, Copy, FolderPlus, Hourglass, PanelRight, Play, Search, Sparkles, Square, X } from "lucide-react";
 import { TodoList } from "./ProjectDetail";
-import ActionMenu from "./ActionMenu";
 import TaskAiPanel from "./TaskAiPanel";
 import { copyText, todoAsText } from "../lib/clipboard";
 import { buildPrompt } from "../lib/aiTasks";
@@ -66,17 +65,21 @@ export default function TasksView({
             <Play size={11} fill="currentColor" aria-hidden="true" />
           )}
         </button>
-        <ActionMenu
-          label={`More for "${task.text}"`}
-          items={[
-            { label: "Open its details", icon: PanelRight, onClick: () => onOpenTask(key) },
-            { label: "Log time on it", icon: CalendarPlus, onClick: () => onLogTime(key) },
-            !item && { label: "Start it and leave it open", icon: Hourglass, onClick: () => onLeaveOpen(key) },
-            { label: "Turn it into a project", icon: FolderPlus, onClick: () => todoOps.toProject(task.id) },
-          ]}
-        />
       </span>
     );
+  };
+
+  // The task's own entries in its row's "more" menu, ahead of working on / cancel / delete
+  const rowMenu = (task) => {
+    if (task.parent_id || task.done) return [];
+    const key = taskKey(task.id);
+    const item = openFor.get(key);
+    return [
+      { label: "Open its details", icon: PanelRight, onClick: () => onOpenTask(key) },
+      { label: "Log time on it", icon: CalendarPlus, onClick: () => onLogTime(key) },
+      !item && { label: "Start it and leave it open", icon: Hourglass, onClick: () => onLeaveOpen(key) },
+      { label: "Turn it into a project", icon: FolderPlus, onClick: () => todoOps.toProject(task.id) },
+    ];
   };
 
   const subsAll = (task) => tasks.filter((s) => s.parent_id === task.id);
@@ -201,8 +204,8 @@ export default function TasksView({
         projectId={null}
         ops={todoOps}
         rowExtra={rowExtra}
+        rowMenu={rowMenu}
         hideDone
-        quiet
         placeholder="Add a task and press Enter"
         label="New task"
       />

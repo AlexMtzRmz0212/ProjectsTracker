@@ -8,7 +8,7 @@ export default function BottomTabBar({ tabs, value, onChange, label }) {
       className="relative z-[31] shrink-0 border-t-[3px] border-double border-line-strong bg-bg pb-[env(safe-area-inset-bottom)] sm:hidden"
     >
       <ul className="grid" style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}>
-        {tabs.map(({ id, label: text, icon: Icon, color }) => {
+        {tabs.map(({ id, label: text, short, icon: Icon, color }) => {
           const active = id === value;
           return (
             <li key={id}>
@@ -21,7 +21,7 @@ export default function BottomTabBar({ tabs, value, onChange, label }) {
                 style={active && color ? { borderTopColor: color } : undefined}
               >
                 {Icon && <Icon size={20} aria-hidden="true" />}
-                {text}
+                {short ?? text}
               </button>
             </li>
           );

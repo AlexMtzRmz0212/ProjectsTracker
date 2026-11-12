@@ -175,6 +175,11 @@ export const api = {
   closeOpenItem: async (id, { end } = {}) =>
     parseSession(await fetchApi(`/open-items/${id}/close`, json("POST", serialize({ end })))),
   deleteOpenItem: (id) => fetchApi(`/open-items/${id}`, { method: "DELETE" }),
+
+  /** The habits copied in from the My Habits backup on Drive, with their last days. */
+  listHabits: () => fetchApi("/habits"),
+  /** Copy the newest backup in; `force` copies it even if it is the one already copied. */
+  syncHabits: ({ force = false } = {}) => fetchApi(`/habits/sync${force ? "?force=true" : ""}`, { method: "POST" }),
 };
 
 /** Dates as ISO strings, and a subject id as the server's project_id / todo_id. */

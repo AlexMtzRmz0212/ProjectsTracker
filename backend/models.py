@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, false, func, true
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, false, func, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -173,3 +173,52 @@ class InterestMessage(Base):
     email: Mapped[str] = mapped_column(String(254), default="")
     message: Mapped[str] = mapped_column(String(1000), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
+class Habit(Base):
+    """A habit from the My Habits app (a Loop Habit Tracker fork), copied in from its Drive backup (see habits.py).
+    `loop_uuid` is the habit's key in that app: a sync updates the row it matches and adds the rest. `value_type`
+    is boolean (yes/no), numerical, or time (minutes since midnight). `removed_at` is when a sync found it missing
+    from the newest backup; its days are kept. Read-only here: habits are edited in the other app."""
+
+    __tablename__ = "habits"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    loop_uuid: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    question: Mapped[str] = mapped_column(String(300), default="", server_default="")
+    unit: Mapped[str] = mapped_column(String(40), default="", server_default="")
+    value_type: Mapped[str] = mapped_column(String(12), default="boolean")
+    target_type: Mapped[Optional[str]] = mapped_column(String(12), nullable=True)
+    target_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    freq_num: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    freq_den: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    removed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    entries: Mapped[list["HabitEntry"]] = relationship(cascade="all, delete-orphan")
+
+
+class HabitEntry(Base):
+    """One habit on one day. `status` is yes, no, skip or unknown for a yes/no habit, and `value` (with `value`
+    holding the number, or the minutes since midnight of a time) for the others."""
+
+    __tablename__ = "habit_entries"
+
+    habit_id: Mapped[str] = mapped_column(ForeignKey("habits.id", ondelete="CASCADE"), primary_key=True)
+    entry_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    status: Mapped[str] = mapped_column(String(10), default="unknown")
+    value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+
+class HabitSync(Base):
+    """The one row saying which backup the habits were last copied from, and when."""
+
+    __tablename__ = "habit_sync"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    file_name: Mapped[str] = mapped_column(String(255), default="")
+    md5: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+

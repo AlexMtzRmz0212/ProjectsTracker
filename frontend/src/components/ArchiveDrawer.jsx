@@ -79,7 +79,7 @@ export default function ArchiveDrawer({ projects, statusesById, dragging, over, 
               <button
                 onClick={() => onOpen(p.id)}
                 title={p.name}
-                aria-label={`Open ${p.name}: notes, to-dos and sessions`}
+                aria-label={`Open ${p.name}: to-dos and sessions`}
                 className={`min-w-0 flex-1 truncate text-left font-serif text-[14px] underline-offset-4 hover:underline focus-visible:underline ${
                   p.cancelled_at ? "text-muted line-through" : ""
                 }`}

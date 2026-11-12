@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { format } from "date-fns";
-import { ArchiveRestore, ArrowDownToLine, Ban, Check, ChevronDown, CircleDot, Copy, GripVertical, ListChecks, NotebookText, History, Pencil, Play, Plus, Square, Tag, Trash2, Undo2 } from "lucide-react";
+import { ArchiveRestore, ArrowDownToLine, ArrowUpDown, Ban, Check, ChevronDown, CircleDot, Copy, GripVertical, ListChecks, History, Pencil, Play, Plus, Square, Tag, Trash2, Undo2 } from "lucide-react";
 import { copyText, todoAsText } from "../lib/clipboard";
+import { SORTS, loadSort, saveSort, sortTodos } from "../lib/todoSort";
 import { Button } from "./Modal";
+import ActionMenu from "./ActionMenu";
 import TabBar from "./TabBar";
 import ParentTag from "./ParentTag";
 import { ON_INK, inkFor, iconFor } from "../lib/palette";
@@ -11,12 +13,12 @@ import { useReorder } from "../hooks/useReorder";
 
 const RECENT = 8;
 
-/** One project opened up, in the side peek: its to-dos, free-form notes, and the sessions you've logged on it.
- *  Everything saves as you go; peeking at another project saves a note you were still typing.
+/** One project opened up, in the side peek: its to-dos and the sessions you've logged on it.
+ *  Everything saves as you go.
  *  An archived project has no timer, and offers Restore in its place. */
 export default function ProjectDetail({
   project, status, todos, sessions, pomodoroCount = 0, pomodoroTags = [], isRunning, elapsed, totalSeconds, now, archived,
-  onEdit, onToggleTimer, onRestore, onCancel, onSaveNotes, onSaveSessionNote, todoOps, timedTodoId = null, onTimeTodo,
+  onEdit, onToggleTimer, onRestore, onCancel, onSaveSessionNote, todoOps, timedTodoId = null, onTimeTodo,
 }) {
   const Icon = iconFor(project.icon);
   const finished = status.is_done;
@@ -107,19 +109,15 @@ export default function ProjectDetail({
         onChange={setTab}
         tabs={[
           { id: "todos", label: "To-dos", icon: ListChecks, count: openTodos || undefined },
-          { id: "notes", label: "Notes", icon: NotebookText },
           { id: "sessions", label: "Sessions", icon: History, count: sessions.length || undefined },
         ]}
       />
 
-      {/* Every panel stays mounted so a half-typed note isn't lost by switching tabs.
+      {/* Every panel stays mounted, so a half-typed to-do isn't lost by switching tabs.
           Everything above stays put; only the open panel's own list scrolls. */}
       <div className="flex min-h-[19rem] flex-1 flex-col">
         <div className={tab === "todos" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
           <TodoList todos={todos} projectId={project.id} ops={todoOps} rowExtra={todoTimer} copyable />
-        </div>
-        <div className={tab === "notes" ? "min-h-0 flex-1 overflow-y-auto" : "hidden"}>
-          <Notes key={project.id} value={project.notes} onSave={onSaveNotes} />
         </div>
         <div className={tab === "sessions" ? "min-h-0 flex-1 overflow-y-auto" : "hidden"}>
           <RecentSessions sessions={sessions} todos={todos} now={now} onSaveNote={onSaveSessionNote} />
@@ -161,27 +159,46 @@ function TodoTimer({ todo, timed, elapsed, color, onClick }) {
 /** A to-do list: a project's (`projectId`), or the tasks of their own (`projectId` null). `rowExtra(todo)`
  *  adds controls of the caller's to each top-level row (the Tasks tab's timer, for one). `hideDone` leaves
  *  the finished (and cancelled) ones out altogether: the Tasks tab keeps no list of what is over. `copyable`
- *  adds a button that copies the open to-dos (with their open sub-to-dos) as text. `quiet` keeps the
- *  added-on date out of sight until a row is pointed at, for lists whose rows already carry a lot. */
-export function TodoList({ todos, projectId, ops, rowExtra, hideDone = false, copyable = false, quiet = false, placeholder = "Add a to-do and press Enter", label = "New to-do" }) {
+ *  adds a button that copies the open to-dos (with their open sub-to-dos) as text. `rowMenu(todo)` gives
+ *  the caller's own entries for a row's "more" menu, ahead of the list's (working on, cancel, delete).
+ *  The sort button orders the list by when to-dos were added, or by name; Manual is the order you dragged them
+ *  into. Dragging while sorted another way makes the order on screen the Manual one. */
+export function TodoList({ todos, projectId, ops, rowExtra, rowMenu, hideDone = false, copyable = false, placeholder = "Add a to-do and press Enter", label = "New to-do" }) {
   const [draft, setDraft] = useState("");
   const [showDone, setShowDone] = useState(false);
   const [collapsed, setCollapsed] = useState(() => new Set()); // parents whose sub-to-dos are folded away
+  const sortKey = projectId ? "project" : "tasks";
+  const [sortMode, setSortMode] = useState(() => loadSort(sortKey));
+  const manual = sortMode === "manual";
+  const chooseSort = (mode) => {
+    setSortMode(mode);
+    saveSort(sortKey, mode);
+  };
   // Sub-to-dos sit under their parent; one whose parent is gone is shown as a top-level to-do
   const ids = new Set(todos.map((t) => t.id));
   const subsOf = new Map();
   for (const t of todos) {
     if (t.parent_id && ids.has(t.parent_id)) subsOf.set(t.parent_id, [...(subsOf.get(t.parent_id) ?? []), t]);
   }
-  const top = todos.filter((t) => !t.parent_id || !ids.has(t.parent_id));
+  for (const [id, list] of subsOf) subsOf.set(id, sortTodos(list, sortMode));
+  const top = sortTodos(todos.filter((t) => !t.parent_id || !ids.has(t.parent_id)), sortMode);
   const open = top.filter((t) => !t.done);
   const done = top.filter((t) => t.done);
   // Open and finished to-dos are rearranged separately, each only among its own
   // Pulling an open to-do to the right puts it under the one above it (one with sub-to-dos of its own can't
   // go under another: they only go one level deep); its new parent is opened to show it
-  const openOrder = useReorder(open.map((t) => t.id), ops.reorder, {
+  // Moving one while the list is sorted by something else keeps the order on screen, with the move, as the Manual order
+  const toManual = () => {
+    if (!manual) chooseSort("manual");
+  };
+  const reorder = (ids) => {
+    toManual();
+    return ops.reorder(ids);
+  };
+  const openOrder = useReorder(open.map((t) => t.id), reorder, {
     canNest: (id) => !subsOf.has(id),
     onNest: (id, parentId) => {
+      toManual();
       setCollapsed((prev) => {
         if (!prev.has(parentId)) return prev;
         const next = new Set(prev);
@@ -191,7 +208,7 @@ export function TodoList({ todos, projectId, ops, rowExtra, hideDone = false, co
       ops.nest(id, parentId);
     },
   });
-  const doneOrder = useReorder(done.map((t) => t.id), ops.reorder);
+  const doneOrder = useReorder(done.map((t) => t.id), reorder);
   const toggle = (id) =>
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -203,22 +220,14 @@ export function TodoList({ todos, projectId, ops, rowExtra, hideDone = false, co
     sort: { row: order.rowProps(i), grip: order.gripProps(t.id, i), held: order.held === t.id, nestTarget: order.nestInto === t.id },
     ops,
     projectId,
-    showTime: sharesDay(t),
-    sharesDay,
     subs: subsOf.get(t.id) ?? [],
     folded: collapsed.has(t.id),
     onToggle: () => toggle(t.id),
     rowExtra,
-    quiet,
-    canSkip: order === openOrder && i === 0 && open.length > 1,
+    rowMenu,
+    onManual: toManual,
+    canSkip: manual && order === openOrder && i === 0 && open.length > 1,
   });
-  // Days that more than one to-do was added on: those show the time too, to tell them apart
-  const dayCounts = new Map();
-  for (const t of todos) {
-    const day = dayKey(t);
-    if (day) dayCounts.set(day, (dayCounts.get(day) ?? 0) + 1);
-  }
-  const sharesDay = (t) => dayCounts.get(dayKey(t)) > 1;
 
   const add = async (e) => {
     e.preventDefault();
@@ -238,7 +247,7 @@ export function TodoList({ todos, projectId, ops, rowExtra, hideDone = false, co
 
   return (
     <section className="flex min-h-0 flex-1 flex-col">
-      <form onSubmit={add} className="flex shrink-0 items-center gap-2 border-b border-line-strong focus-within:border-text">
+      <form onSubmit={add} className="@container flex shrink-0 items-center gap-2 border-b border-line-strong focus-within:border-text">
         <Plus size={15} className="shrink-0 text-muted" aria-hidden="true" />
         <input
           value={draft}
@@ -248,6 +257,26 @@ export function TodoList({ todos, projectId, ops, rowExtra, hideDone = false, co
           aria-label={label}
           className="h-10 min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-faint"
         />
+        {todos.length > 1 && (
+          <label
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 px-2 text-xs font-semibold text-muted transition-colors focus-within:bg-surface-2 hover:bg-surface-2 hover:text-text"
+            title="Sort the list: Manual is the order you dragged them into"
+          >
+            <ArrowUpDown size={13} aria-hidden="true" />
+            <select
+              value={sortMode}
+              onChange={(e) => chooseSort(e.target.value)}
+              aria-label="Sort the to-dos"
+              className="cursor-pointer appearance-none bg-transparent font-semibold outline-none"
+            >
+              {SORTS.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {copyable && open.length > 0 && (
           <button
             type="button"
@@ -256,12 +285,12 @@ export function TodoList({ todos, projectId, ops, rowExtra, hideDone = false, co
             title="Copy the open to-dos as text"
           >
             {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
-            {copied ? "Copied" : "Copy list"}
+            <span className="@max-[26rem]:sr-only">{copied ? "Copied" : "Copy list"}</span>
           </button>
         )}
       </form>
 
-      <div data-scroll className="min-h-0 flex-1 overflow-y-auto">
+      <div data-scroll className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
       <ul>
         {open.map((t, i) => (
           <TodoRow key={t.id} {...rowProps(t, i, openOrder)} />
@@ -292,20 +321,38 @@ export function TodoList({ todos, projectId, ops, rowExtra, hideDone = false, co
   );
 }
 
-/** The calendar day a to-do was added, in local time; null if the server sent no date. */
-const dayKey = (todo) => (todo.created_at ? format(new Date(todo.created_at), "yyyy-MM-dd") : null);
+// Browsers without `field-sizing: content` get a textarea sized by hand to fit its text
+const AUTO_SIZES = typeof CSS !== "undefined" && CSS.supports?.("field-sizing", "content");
 
-function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], folded = false, onToggle, isSub = false, rowExtra, quiet = false, canSkip = false }) {
+function TodoRow({ todo, sort, ops, projectId, subs = [], folded = false, onToggle, isSub = false, rowExtra, rowMenu, onManual, canSkip = false }) {
   const extra = rowExtra?.(todo);
   const [draft, setDraft] = useState(todo.text);
   useEffect(() => setDraft(todo.text), [todo.text]);
+  const field = useRef(null);
+  useLayoutEffect(() => {
+    const el = field.current;
+    if (!el || AUTO_SIZES) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [draft]);
   const [adding, setAdding] = useState(false);
   const [subDraft, setSubDraft] = useState("");
-  const created = todo.created_at ? new Date(todo.created_at) : null;
   const subsDone = subs.filter((s) => s.done && !s.cancelled_at).length;
   const cancelled = Boolean(todo.cancelled_at);
   const showSubs = subs.length > 0 && !folded;
-  const subOrder = useReorder(subs.map((x) => x.id), ops.reorder, { onOutdent: (id) => ops.nest(id, null) });
+  const subOrder = useReorder(
+    subs.map((x) => x.id),
+    (ids) => {
+      onManual?.();
+      return ops.reorder(ids);
+    },
+    {
+      onOutdent: (id) => {
+        onManual?.();
+        ops.nest(id, null);
+      },
+    }
+  );
 
   // An emptied line goes back to what it was; delete is the trash button
   const commit = () => {
@@ -328,22 +375,22 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
   };
 
   const working = Boolean(todo.working_since) && !todo.done;
-  // When the to-do was added: always in view, or, in a `quiet` list, only with the other controls on hover
-  const dateTag = created && (
-    <time
-      dateTime={created.toISOString()}
-      title={`Added ${format(created, "EEE d MMM yyyy, HH:mm")}`}
-      className="figures mx-1 shrink-0 font-serif text-xs italic text-faint"
-    >
-      {format(created, created.getFullYear() === new Date().getFullYear() ? "d MMM" : "d MMM yyyy")}
-      {showTime && `, ${format(created, "HH:mm")}`}
-    </time>
-  );
+  // Everything that is only sometimes wanted lives under the row's "more" menu, so it never covers the text
+  const menuItems = [
+    ...(rowMenu?.(todo) ?? []),
+    !todo.done && !working && { label: "Mark as working on", icon: CircleDot, onClick: () => ops.update(todo.id, { working: true }) },
+    (!todo.done || cancelled) && {
+      label: cancelled ? "Take back the cancelling" : "Cancel (call it off)",
+      icon: cancelled ? Undo2 : Ban,
+      onClick: () => ops.update(todo.id, { cancelled: !cancelled }),
+    },
+    { label: subs.length > 0 ? "Delete, with its sub-to-dos" : "Delete", icon: Trash2, danger: true, onClick: () => ops.remove(todo.id) },
+  ];
 
   return (
     <li {...sort.row} className={`${isSub ? "" : "border-b border-rule"} ${sort.row.className ?? ""}`}>
       <div
-        className={`group flex items-center gap-2 ${isSub ? "border-t border-rule pl-11" : ""} ${
+        className={`group flex items-start gap-2 ${isSub ? "border-t border-rule" : ""} ${
           sort.nestTarget
             ? "bg-[color-mix(in_srgb,var(--accent-2)_14%,transparent)] outline outline-1 -outline-offset-1 outline-accent-2"
             : working
@@ -351,6 +398,20 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
               : ""
         }`}
       >
+        {/* The drag handle is first on the row. Dragging while the list is sorted makes the order on screen the Manual one. */}
+        <button
+          {...sort.grip}
+          aria-label={`Move "${todo.text}": drag, or use the up and down arrow keys. ${
+            isSub ? "Left arrow takes it out of its to-do" : "Right arrow puts it under the to-do above"
+          }`}
+          title={isSub ? "Drag to reorder; pull it left to take it out" : "Drag to reorder; pull it right to put it under the to-do above"}
+          className={`mt-1 grid h-7 w-5 shrink-0 touch-none place-items-center text-faint transition-colors hover:bg-surface-2 hover:text-text ${
+            sort.held ? "cursor-grabbing text-text" : "cursor-grab"
+          }`}
+        >
+          <GripVertical size={14} />
+        </button>
+        {isSub && <span className="w-9 shrink-0" aria-hidden="true" />}
         {!isSub && (
           <button
             onClick={subs.length > 0 ? onToggle : openAdd}
@@ -361,7 +422,7 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
                 : `Add a sub-to-do under "${todo.text}"`
             }
             title={subs.length > 0 ? (folded ? "Show sub-to-dos" : "Hide sub-to-dos") : "Add a sub-to-do"}
-            className="grid size-5 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
+            className="mt-2 grid size-5 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
           >
             {subs.length > 0 ? (
               <ChevronDown size={15} className={`transition-transform ${folded ? "-rotate-90" : ""}`} />
@@ -374,26 +435,26 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
           type="checkbox"
           checked={todo.done}
           onChange={(e) => ops.update(todo.id, { done: e.target.checked })}
+          data-cancelled={cancelled || undefined}
           aria-label={`Mark "${todo.text}" ${todo.done ? "not done" : "done"}`}
-          className="size-4 shrink-0 cursor-pointer accent-(--text)"
+          className="mt-[10px] size-4 shrink-0 cursor-pointer accent-(--text)"
         />
-        <input
+        {/* The text wraps, so all of it can be read; nothing is laid over it */}
+        <textarea
+          ref={field}
+          rows={1}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => setDraft(e.target.value.replace(/\s*\n\s*/g, " "))}
           onBlur={commit}
-          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+          onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), e.currentTarget.blur())}
           maxLength={200}
           aria-label={isSub ? "Sub-to-do" : "To-do"}
-          title={todo.text}
-          className={`h-9 min-w-0 flex-1 bg-transparent text-[14px] outline-none focus:bg-surface-2 ${
+          className={`field-sizing-content min-h-9 min-w-0 flex-1 resize-none overflow-hidden bg-transparent py-2 text-[14px] leading-5 outline-none focus:bg-surface-2 ${
             todo.done ? "text-muted line-through" : ""
           }`}
         />
-        {/* What is always wanted sits at the end of the row. What is only wanted when the row is pointed at (mark it as
-            being worked on, the date of a quiet list, drag, cancel, delete) is laid over the end of the line while it
-            is, from sm up: it reserves no room, so the text takes all it can. Below sm there is no hover, so it is
-            part of the row. */}
-        <div className="relative flex shrink-0 items-center gap-0.5">
+        {/* What is always wanted sits at the end of the row; the rest is under the "more" menu */}
+        <div className="flex h-9 shrink-0 items-center gap-0.5">
           {cancelled && <span className="mr-1 shrink-0 font-serif text-xs italic text-muted">Cancelled</span>}
           {working && (
             <button
@@ -416,7 +477,6 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
               {subsDone}/{subs.length}
             </span>
           )}
-          {created && !quiet && dateTag}
           {canSkip && !todo.done && (
             <button
               onClick={() => ops.moveToBottom(todo.id)}
@@ -427,54 +487,11 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
               <ArrowDownToLine size={14} />
             </button>
           )}
-          <div
-            className={`flex items-center gap-0.5 sm:pointer-events-none sm:absolute sm:inset-y-0 sm:right-full sm:bg-[var(--row-bg,var(--bg))] sm:pl-2 sm:opacity-0 sm:group-focus-within:pointer-events-auto sm:group-focus-within:opacity-100 sm:group-hover:pointer-events-auto sm:group-hover:opacity-100 ${
-              sort.held ? "sm:pointer-events-auto sm:opacity-100" : ""
-            }`}
-          >
-            {!todo.done && !working && (
-              <button
-                onClick={() => ops.update(todo.id, { working: true })}
-                aria-pressed={false}
-                aria-label={`Mark "${todo.text}" as being worked on`}
-                title="Currently working on this"
-                className="inline-flex h-7 shrink-0 items-center gap-1 px-1 text-xs font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-text"
-              >
-                <CircleDot size={14} aria-hidden="true" />
-              </button>
-            )}
-            {created && quiet && dateTag}
-            <button
-              {...sort.grip}
-              aria-label={`Move "${todo.text}": drag, or use the up and down arrow keys. ${
-                isSub ? "Left arrow takes it out of its to-do" : "Right arrow puts it under the to-do above"
-              }`}
-              title={isSub ? "Drag to reorder; pull it left to take it out" : "Drag to reorder; pull it right to put it under the to-do above"}
-              className={`grid size-7 shrink-0 touch-none place-items-center text-faint transition-colors hover:bg-surface-2 hover:text-text ${
-                sort.held ? "cursor-grabbing text-text" : "cursor-grab"
-              }`}
-            >
-              <GripVertical size={14} />
-            </button>
-            {(!todo.done || cancelled) && (
-              <button
-                onClick={() => ops.update(todo.id, { cancelled: !cancelled })}
-                aria-label={cancelled ? `Take back the cancelling of "${todo.text}"` : `Cancel "${todo.text}"`}
-                title={cancelled ? "Take back the cancelling" : "Cancel: call it off, keeping it in the list of what is over"}
-                className="grid size-7 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
-              >
-                {cancelled ? <Undo2 size={14} /> : <Ban size={14} />}
-              </button>
-            )}
-            <button
-              onClick={() => ops.remove(todo.id)}
-              aria-label={`Delete "${todo.text}"`}
-              title={subs.length > 0 ? "Delete, with its sub-to-dos" : "Delete"}
-              className="grid size-7 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-danger"
-            >
-              <Trash2 size={14} />
-            </button>
-          </div>
+          <ActionMenu
+            label={`More for "${todo.text}"`}
+            items={menuItems}
+            className="text-faint"
+          />
         </div>
       </div>
 
@@ -488,15 +505,14 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
                 sort={{ row: subOrder.rowProps(i), grip: subOrder.gripProps(s.id, i), held: subOrder.held === s.id }}
                 ops={ops}
                 projectId={projectId}
-                showTime={sharesDay(s)}
-                sharesDay={sharesDay}
                 rowExtra={rowExtra}
-                quiet={quiet}
+                rowMenu={rowMenu}
+                onManual={onManual}
                 isSub
               />
             ))}
           {!adding && showSubs && (
-            <li className="border-t border-rule pl-11">
+            <li className="border-t border-rule pl-[4.5rem]">
               <button
                 onClick={openAdd}
                 className="flex h-8 items-center gap-1.5 text-[13px] text-muted transition-colors hover:text-text"
@@ -506,7 +522,7 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
             </li>
           )}
           {adding && (
-            <li className="border-t border-rule pl-11">
+            <li className="border-t border-rule pl-[4.5rem]">
               <form onSubmit={addSub} className="flex items-center gap-2">
                 <input
                   autoFocus
@@ -525,43 +541,6 @@ function TodoRow({ todo, sort, ops, projectId, showTime, sharesDay, subs = [], f
         </ul>
       )}
     </li>
-  );
-}
-
-// ── Notes ────────────────────────────────────────────────────────────────────
-
-function Notes({ value, onSave }) {
-  const [draft, setDraft] = useState(value);
-  const draftRef = useRef(draft);
-  const savedRef = useRef(value);
-  const saveRef = useRef(onSave);
-  saveRef.current = onSave;
-
-  const save = () => {
-    if (draftRef.current === savedRef.current) return;
-    savedRef.current = draftRef.current;
-    saveRef.current(draftRef.current);
-  };
-  // Closing the window while the cursor is still in the box must not lose the text
-  useEffect(() => save, []);
-
-  return (
-    <section>
-      <p className="mb-2 font-serif text-xs italic text-muted">Saves when you click away.</p>
-      <textarea
-        value={draft}
-        onChange={(e) => {
-          draftRef.current = e.target.value;
-          setDraft(e.target.value);
-        }}
-        onBlur={save}
-        maxLength={20000}
-        rows={10}
-        placeholder="Ideas, links, where you left off…"
-        aria-label="Project notes"
-        className="w-full resize-y border border-line-strong bg-transparent p-3 text-[14px] leading-relaxed outline-none transition-colors placeholder:text-faint focus:border-text"
-      />
-    </section>
   );
 }
 

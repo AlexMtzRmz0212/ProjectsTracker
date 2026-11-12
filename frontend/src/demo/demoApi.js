@@ -451,6 +451,15 @@ export function createDemoApi() {
       }
       if (next.done) {
         next.working_since = null;
+        if (!current.done) {
+          // Closing a to-do closes the sub-to-dos still being worked on, the same way (done, or cancelled)
+          const at = new Date().toISOString();
+          todos = todos.map((x) =>
+            x.parent_id === id && !x.done && x.working_since
+              ? { ...x, working_since: null, done: true, cancelled_at: next.cancelled_at ? x.cancelled_at ?? at : null, completed_at: next.cancelled_at ? null : at }
+              : x
+          );
+        }
         const current_ = running();
         if (!next.project_id && current_?.project_id === `task:${id}`) endTimer(current_, new Date());
       }
@@ -558,5 +567,39 @@ export function createDemoApi() {
       openItems = openItems.filter((x) => x.id !== id);
       return null;
     },
+
+    // Habits: a few sample ones. There is no Drive in the demo, so there is nothing to sync.
+    listHabits: async () => ({ habits: demoHabits(), configured: false, synced_at: null, source_file: "" }),
+    syncHabits: async () => {
+      throw httpError(503, "The demo has no Drive to sync from");
+    },
   };
+}
+
+/** Sample habits for the demo: a yes/no one, a counted one and a bedtime, with the last 90 days. */
+function demoHabits() {
+  const random = mulberry32(7);
+  const today = new Date();
+  const key = (daysAgo) => {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysAgo);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+  const days = (make) => Array.from({ length: 90 }, (_, i) => make(i)).filter(Boolean);
+  const base = { target_type: null, target_value: null, freq_num: 1, freq_den: 1, archived: false, removed_at: null, unit: "" };
+  return [
+    {
+      ...base, id: "demo-h1", name: "Read", question: "Did you read today?", value_type: "boolean", position: 0,
+      entries: days((i) => (i > 0 || random() < 0.7 ? { entry_date: key(i), status: random() < 0.72 ? "yes" : "no", value: null } : null)),
+    },
+    {
+      ...base, id: "demo-h2", name: "Water", question: "Glasses of water", value_type: "numerical", unit: "glasses",
+      target_type: "at_least", target_value: 8, position: 1,
+      entries: days((i) => ({ entry_date: key(i), status: "value", value: 4 + Math.round(random() * 6) })),
+    },
+    {
+      ...base, id: "demo-h3", name: "Bedtime", question: "What time did you go to bed?", value_type: "time", unit: "HH:MM",
+      target_type: "at_most", target_value: 1410, position: 2,
+      entries: days((i) => ({ entry_date: key(i), status: "value", value: 1350 + Math.round(random() * 90) })),
+    },
+  ];
 }

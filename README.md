@@ -31,13 +31,13 @@ with the time you worked, and a year-long activity heatmap.
 - **Statuses**: a list you manage yourself (the **Statuses** button on the Projects tab): Active, On
   hold, Idea, ... Each project has one. Tick *Finished* on the statuses that mean it's over: projects
   there lose their timer. A fresh database starts with Active and Done.
-- **Notes and to-dos per project**: click a project's name to open it in a side peek, a panel on the
+- **To-dos per project**: click a project's name to open it in a side peek, a panel on the
   right with the board still usable beside it (click another project and the peek switches to it). Its
   tab stays on the right edge when the peek is put away (the tab, ✕, Esc or a drag to the right), so the
   same project comes back in one click. The tab is also how wide the peek is: drag it left or right
-  (or pull it out from shut to the width you want); the width is remembered. It holds a checklist of
-  to-dos, free-form notes (saved as you leave the box) and the sessions logged on it, on three tabs.
-  Cards show how many to-dos are open and a notebook mark when there are notes. A to-do remembers
+  (or pull it out from shut to the width you want); it always opens at its least width, and goes back to it when you click elsewhere or put it away. It holds a checklist of
+  to-dos and the sessions logged on it, on two tabs.
+  Cards show how many to-dos are open. A to-do list can be sorted (manual, newest, oldest, A-Z). A to-do remembers
   when it was ticked off, and the Sessions tab lists it under the session it was done in. A sub-to-do ticked off is listed with a tag naming its
   parent, on the Sessions tab and on the Calendar's *Ticked off* list.
 - **One timer at a time**: starting a project stops whatever was running. Timers live on the
