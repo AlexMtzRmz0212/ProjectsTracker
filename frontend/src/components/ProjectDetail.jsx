@@ -456,18 +456,6 @@ function TodoRow({ todo, sort, ops, projectId, subs = [], folded = false, onTogg
         {/* What is always wanted sits at the end of the row; the rest is under the "more" menu */}
         <div className="flex h-9 shrink-0 items-center gap-0.5">
           {cancelled && <span className="mr-1 shrink-0 font-serif text-xs italic text-muted">Cancelled</span>}
-          {working && (
-            <button
-              onClick={() => ops.update(todo.id, { working: false })}
-              aria-pressed
-              aria-label={`Stop marking "${todo.text}" as being worked on`}
-              title={`Working on this since ${format(new Date(todo.working_since), "EEE d MMM, HH:mm")}. Click to unmark`}
-              className="inline-flex h-7 shrink-0 items-center gap-1 px-1 text-xs font-semibold text-accent transition-colors hover:bg-surface-2"
-            >
-              <CircleDot size={14} className="blink-dot" aria-hidden="true" />
-              <span className="max-sm:sr-only">Working on</span>
-            </button>
-          )}
           {extra}
           {subs.length > 0 && (
             <span
@@ -485,6 +473,19 @@ function TodoRow({ todo, sort, ops, projectId, subs = [], folded = false, onTogg
               className="grid size-7 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
             >
               <ArrowDownToLine size={14} />
+            </button>
+          )}
+          {/* Just the blinking dot, by the menu: the tinted row already says it's being worked on, and a label
+              would squeeze the text in a narrow panel */}
+          {working && (
+            <button
+              onClick={() => ops.update(todo.id, { working: false })}
+              aria-pressed
+              aria-label={`Stop marking "${todo.text}" as being worked on`}
+              title={`Working on this since ${format(new Date(todo.working_since), "EEE d MMM, HH:mm")}. Click to unmark`}
+              className="grid size-7 shrink-0 place-items-center text-accent transition-colors hover:bg-surface-2"
+            >
+              <CircleDot size={13} className="blink-dot" aria-hidden="true" />
             </button>
           )}
           <ActionMenu

@@ -26,15 +26,16 @@ export default function TaskAiPanel({ tasks, subsOf, todoOps, onClose }) {
   const apply = async () => {
     setApplying(true);
     // One at a time, so the sub-tasks keep the AI's order
-    for (const { task, text, addSubs } of changes) {
+    for (const { task, text, addSubs, editSubs } of changes) {
       if (text) await todoOps.update(task.id, { text });
+      for (const { sub, text: subText } of editSubs) await todoOps.update(sub.id, { text: subText });
       for (const sub of addSubs) await todoOps.add(null, sub, task.id);
     }
     setApplying(false);
     onClose();
   };
 
-  const subCount = changes?.reduce((n, c) => n + c.addSubs.length, 0) ?? 0;
+  const subCount = changes?.reduce((n, c) => n + c.addSubs.length + c.editSubs.length, 0) ?? 0;
 
   return (
     <section className="mb-3 shrink-0 border border-line-strong bg-surface p-3" aria-label="Paste the AI's reply">
@@ -62,7 +63,7 @@ export default function TaskAiPanel({ tasks, subsOf, todoOps, onClose }) {
         }}
         rows={5}
         spellCheck={false}
-        placeholder='{"tasks":[{"id":"…","text":"Write report (~45m)","subtasks":["Outline","Draft"]}]}'
+        placeholder='{"tasks":[{"id":"…","text":"Write report (~45m)","subtasks":["Outline (~15m)","Draft (~30m)"]}]}'
         aria-label="The AI's reply"
         className="figures mt-2 w-full resize-y border border-line-strong bg-transparent p-2.5 text-[12px] leading-relaxed outline-none transition-colors placeholder:text-faint focus:border-text"
       />
@@ -78,7 +79,7 @@ export default function TaskAiPanel({ tasks, subsOf, todoOps, onClose }) {
             <p className="text-[13px] text-muted">Nothing to change: the reply matches what you already have.</p>
           ) : (
             <ul className="max-h-72 divide-y divide-rule overflow-y-auto border-y border-rule">
-              {changes.map(({ task, text, addSubs }) => (
+              {changes.map(({ task, text, addSubs, editSubs }) => (
                 <li key={task.id} className="py-2 text-[13px]">
                   {text ? (
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -89,8 +90,15 @@ export default function TaskAiPanel({ tasks, subsOf, todoOps, onClose }) {
                   ) : (
                     <div className="font-semibold">{task.text}</div>
                   )}
-                  {addSubs.length > 0 && (
+                  {(editSubs.length > 0 || addSubs.length > 0) && (
                     <ul className="mt-1 pl-4 text-muted">
+                      {editSubs.map(({ sub, text: subText }) => (
+                        <li key={sub.id} className="flex flex-wrap items-center gap-x-2">
+                          <span className="line-through">{sub.text}</span>
+                          <ArrowRight size={11} className="shrink-0 text-faint" aria-hidden="true" />
+                          <span>{subText}</span>
+                        </li>
+                      ))}
                       {addSubs.map((s) => (
                         <li key={s}>+ {s}</li>
                       ))}

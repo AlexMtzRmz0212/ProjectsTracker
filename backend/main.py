@@ -428,11 +428,9 @@ def update_todo(todo_id: str, body: schemas.TodoUpdate, db: DbSession = Depends(
     if todo.done:
         todo.working_since = None
         if not was_done:
-            # Closing a to-do closes the sub-to-dos still being worked on, the same way (done, or cancelled)
+            # Closing a to-do closes its open sub-to-dos, the same way (done, or cancelled)
             now = utcnow()
-            for sub in db.scalars(
-                select(Todo).where(Todo.parent_id == todo.id, Todo.done.is_(False), Todo.working_since.is_not(None))
-            ):
+            for sub in db.scalars(select(Todo).where(Todo.parent_id == todo.id, Todo.done.is_(False))):
                 sub.working_since = None
                 sub.done = True
                 sub.cancelled_at = (sub.cancelled_at or now) if todo.cancelled_at else None

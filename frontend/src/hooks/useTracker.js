@@ -437,10 +437,10 @@ export function useTracker(api = realApi) {
           const next = prev.map((x) => (x.id === id ? applyTodo(x, data) : x));
           const closed = next.find((x) => x.id === id);
           if (!before || before.done || !closed?.done) return next;
-          // Closing a to-do closes the sub-to-dos still being worked on, the same way (done, or cancelled)
+          // Closing a to-do closes its open sub-to-dos, the same way (done, or cancelled)
           const at = new Date().toISOString();
           return next.map((x) =>
-            x.parent_id === id && !x.done && x.working_since
+            x.parent_id === id && !x.done
               ? { ...x, working_since: null, done: true, cancelled_at: closed.cancelled_at ? at : null, completed_at: closed.cancelled_at ? null : at }
               : x
           );

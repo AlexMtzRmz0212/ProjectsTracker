@@ -363,13 +363,30 @@ export default function TimeGrid({
   });
   const rangeTotal = columns.reduce((sum, c) => sum + c.total, 0);
 
-  // Open at the first thing logged in view (an hour before it), else at 8 in the morning. Only when the
-  // days shown change, not on every tick of a running timer.
+  /** Bring the now line a third of the way down what shows, so the hours just gone and those coming both show.
+   *  Only the nearest thing that scrolls moves: the hours, or in a narrow day view (the hours stacked over the
+   *  day's list) the panel around them. Once laid out, so the heights are real. */
+  const scrollToNow = () =>
+    requestAnimationFrame(() => {
+      const line = scroller.current?.querySelector("[data-now]");
+      let box = scroller.current;
+      while (box && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
+      if (!line || !box) return;
+      box.scrollTop += line.getBoundingClientRect().top - box.getBoundingClientRect().top - box.clientHeight / 3;
+    });
+
+  // Open at now when today is in view; otherwise at the first thing logged (an hour before it), else at 8 in
+  // the morning. Only when the days shown change, not on every tick of a running timer.
   const rangeKey = `${mode}:${dayKey(first)}`;
+  const showsToday = columns.some((c) => c.key === todayKey);
   const earliest = Math.min(...columns.flatMap((c) => [...c.blocks.map((b) => b.top), ...c.ticked.map((t) => t.top)]));
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
+    if (showsToday) {
+      scrollToNow();
+      return;
+    }
     const target = Number.isFinite(earliest) ? Math.min(earliest, 9 * hour) - hour : 8 * hour;
     el.scrollTop = Math.max(0, target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -449,7 +466,7 @@ export default function TimeGrid({
             <ChevronLeft size={17} />
           </NavButton>
           <button
-            onClick={() => onNavigate(today)}
+            onClick={() => (showsToday ? scrollToNow() : onNavigate(today))}
             className="h-8 px-2.5 text-[13px] font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-text"
           >
             Today
@@ -713,7 +730,7 @@ function DayColumn({ index, column, mode, chip, hour, now, isToday, projectsById
       </div>
 
       {isToday && (
-        <div className="pointer-events-none absolute inset-x-0 z-10 flex items-center" style={{ top: (minutesInto(now, dayStart) * hour) / 60 }} aria-hidden="true">
+        <div data-now className="pointer-events-none absolute inset-x-0 z-10 flex items-center" style={{ top: (minutesInto(now, dayStart) * hour) / 60 }} aria-hidden="true">
           <span className="-ml-1 size-2 rounded-full bg-accent" />
           <span className="h-[2px] flex-1 bg-accent" />
         </div>

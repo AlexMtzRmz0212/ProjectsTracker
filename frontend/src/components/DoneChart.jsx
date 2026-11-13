@@ -18,6 +18,9 @@ export default function DoneChart({ ticked, projectsById }) {
       <h3 className="flex items-baseline gap-2 border-b border-rule py-1 text-left font-serif text-xs font-normal italic text-muted">
         Done <span className="figures not-italic">{ticked.length}</span>
       </h3>
+      <p className="mt-1 text-left font-serif text-xs italic text-faint">
+        To-dos and tasks ticked off this day, counted by project or task.
+      </p>
       <ul className="mt-2 space-y-1.5">
         {rows.map(([id, count]) => {
           const project = projectsById.get(id);

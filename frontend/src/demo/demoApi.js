@@ -452,10 +452,10 @@ export function createDemoApi() {
       if (next.done) {
         next.working_since = null;
         if (!current.done) {
-          // Closing a to-do closes the sub-to-dos still being worked on, the same way (done, or cancelled)
+          // Closing a to-do closes its open sub-to-dos, the same way (done, or cancelled)
           const at = new Date().toISOString();
           todos = todos.map((x) =>
-            x.parent_id === id && !x.done && x.working_since
+            x.parent_id === id && !x.done
               ? { ...x, working_since: null, done: true, cancelled_at: next.cancelled_at ? x.cancelled_at ?? at : null, completed_at: next.cancelled_at ? null : at }
               : x
           );

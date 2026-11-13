@@ -41,6 +41,7 @@ import WorkingMenu from "./components/WorkingMenu";
 import SessionModal from "./components/SessionModal";
 import ConfirmDialog from "./components/ConfirmDialog";
 import InterestInbox from "./components/InterestInbox";
+import GuideModal from "./components/GuideModal";
 import Toast from "./components/Toast";
 import { Button } from "./components/Modal";
 import { TASK_ICON, TASK_INK, inkFor } from "./lib/palette";
@@ -105,6 +106,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   const [tab, setTab] = useState("feed"); // feed | workspace | projects | tasks | habits | calendar | stats
   const [calView, setCalView] = useCalendarView(); // month | week | day
   const [statusesOpen, setStatusesOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   // The side peek: the project last clicked (its to-dos and sessions), and whether the panel is out
   const [peekId, setPeekId] = useState(null);
   const [peekOpen, setPeekOpen] = useState(false);
@@ -622,6 +624,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           onInbox={demo ? undefined : () => setInboxOpen(true)}
           inboxUnread={inbox.unread}
           onStatuses={!demo && tab === "projects" && t.status === "ready" ? () => setStatusesOpen(true) : undefined}
+          onGuide={() => setGuideOpen(true)}
           workingMenu={
             t.status === "ready" && (
               <WorkingMenu todos={t.todos} projectsById={projectsById} todoOps={t.todoOps} now={now} onOpen={peek} />
@@ -947,6 +950,8 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
       <Toast notice={t.notice} onDismiss={t.dismissNotice} />
 
       {inboxOpen && <InterestInbox inbox={inbox} onClose={() => setInboxOpen(false)} />}
+
+      {guideOpen && <GuideModal onClose={() => setGuideOpen(false)} />}
 
       {statusesOpen && (
         // All projects, archived too: an archived project still holds on to its status

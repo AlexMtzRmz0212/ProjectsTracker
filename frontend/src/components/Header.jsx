@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import FocusTag from "./FocusTag";
-import { Coffee, Ellipsis, Inbox, Tag, LogOut, Maximize2, Moon, NotebookPen, Pause, PictureInPicture2, Play, Plus, Search, SkipForward, SlidersHorizontal, Square, Sun, Timer } from "lucide-react";
+import { BookOpen, Coffee, Ellipsis, Inbox, Tag, LogOut, Maximize2, Moon, NotebookPen, Pause, PictureInPicture2, Play, Plus, Search, SkipForward, SlidersHorizontal, Square, Sun, Timer } from "lucide-react";
 import { Button } from "./Modal";
 import { tint } from "../lib/palette";
 import { fmtClock, fmtCountdown, fmtHM } from "../lib/time";
 
 export default function Header({
   runningProject, elapsed, heldProject, heldSeconds, pomodoro, pomodorosToday = 0, onStop, onStopFocus, onExpand, onMini, miniOpen, onNewProject,
-  focusChoices, theme, onToggleTheme, onSignOut, signOutLabel = "Sign out", onInbox, inboxUnread = 0, onSearch, searchHint, onStatuses, workingMenu,
+  focusChoices, theme, onToggleTheme, onSignOut, signOutLabel = "Sign out", onInbox, inboxUnread = 0, onSearch, searchHint, onStatuses, onGuide, workingMenu,
 }) {
   return (
     <header data-app-header className="relative z-40 shrink-0 border-b-[3px] border-double border-line-strong bg-bg">
@@ -63,6 +63,7 @@ export default function Header({
             onInbox={onInbox}
             inboxUnread={inboxUnread}
             onStatuses={onStatuses}
+            onGuide={onGuide}
             onSignOut={onSignOut}
             signOutLabel={signOutLabel}
           />
@@ -74,7 +75,7 @@ export default function Header({
 
 /** Everything the header row has no room for, in one menu: on a wide screen the inbox, the theme and sign
  *  out; below that, finding and adding projects too. Closes on a pick, an outside press or Esc. */
-function MoreMenu({ theme, onToggleTheme, onSearch, onNewProject, onInbox, inboxUnread, onStatuses, onSignOut, signOutLabel }) {
+function MoreMenu({ theme, onToggleTheme, onSearch, onNewProject, onInbox, inboxUnread, onStatuses, onGuide, onSignOut, signOutLabel }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -134,6 +135,7 @@ function MoreMenu({ theme, onToggleTheme, onSearch, onNewProject, onInbox, inbox
           {/* the tab bar has its own Statuses button where it has the room (a wide page); here it is always at hand */}
           {onStatuses && item("Statuses", SlidersHorizontal, onStatuses)}
           {onInbox && item("Interest", Inbox, onInbox, inboxUnread)}
+          {onGuide && item("Guide", BookOpen, onGuide)}
           {item(theme === "dark" ? "Light theme" : "Dark theme", theme === "dark" ? Sun : Moon, onToggleTheme)}
           {onSignOut && item(signOutLabel, LogOut, onSignOut)}
         </div>

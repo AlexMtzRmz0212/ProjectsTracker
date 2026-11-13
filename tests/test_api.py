@@ -780,7 +780,7 @@ def test_working_on_follows_the_flag_and_clears_when_done(client):
     assert client.patch(f"/api/todos/{b['id']}", json={"done": True}).json()["working_since"] is None
 
 
-def test_closing_a_parent_closes_the_subs_being_worked_on(client):
+def test_closing_a_parent_closes_its_open_subs(client):
     project = make_project(client)
     parent = client.post("/api/todos", json={"project_id": project["id"], "text": "Parent"}).json()
     busy = client.post("/api/todos", json={"project_id": project["id"], "text": "Busy", "parent_id": parent["id"]}).json()
@@ -789,12 +789,16 @@ def test_closing_a_parent_closes_the_subs_being_worked_on(client):
 
     client.patch(f"/api/todos/{parent['id']}", json={"done": True})
     todos = {t["id"]: t for t in client.get("/api/todos").json()}
-    # The one being worked on is ticked off and no longer worked on; the idle one is left as it was
+    # Every open sub is ticked off, and the one being worked on no longer is
     assert todos[busy["id"]]["done"] is True and todos[busy["id"]]["working_since"] is None
     assert todos[busy["id"]]["completed_at"] is not None and todos[busy["id"]]["cancelled_at"] is None
-    assert todos[idle["id"]]["done"] is False
+    assert todos[idle["id"]]["done"] is True and todos[idle["id"]]["completed_at"] is not None
 
-    # Cancelling the parent cancels the subs still being worked on
+    # Unticking the parent leaves its subs as they are
+    client.patch(f"/api/todos/{parent['id']}", json={"done": False})
+    assert next(t for t in client.get("/api/todos").json() if t["id"] == idle["id"])["done"] is True
+
+    # Cancelling the parent cancels its open subs
     other = client.post("/api/todos", json={"project_id": project["id"], "text": "Other"}).json()
     sub = client.post("/api/todos", json={"project_id": project["id"], "text": "Sub", "parent_id": other["id"]}).json()
     client.patch(f"/api/todos/{sub['id']}", json={"working": True})
