@@ -1,7 +1,9 @@
-import { useState } from "react";
-import { Check, Hourglass, Moon, Trash2, TriangleAlert } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, Hourglass, Moon, Search, Tag, Trash2, TriangleAlert } from "lucide-react";
 import Modal, { Button } from "./Modal";
-import { iconFor, inkText, tint } from "../lib/palette";
+import { matchProjects } from "./ProjectSearch";
+import { choreKey, choreLabelOf, isChoreKey } from "../api";
+import { CHORE_ICON, CHORE_INK, iconFor, inkText, tint } from "../lib/palette";
 import {
   dayKey, fmtDurationInput, fmtHM, parseClock, parseDuration, toDateInput, toTimeInput,
 } from "../lib/time";
@@ -47,7 +49,7 @@ function initialSpan(session, openItem, date, span) {
  * projects and tasks.
  */
 export default function SessionModal({
-  session, openItem, projectId, date, span, startOpen = false, projects, onClose, onSave, onDelete, onSaveOpen, onCloseOpen,
+  session, openItem, projectId, date, span, startOpen = false, projects, todos = [], chores = [], onClose, onSave, onDelete, onSaveOpen, onCloseOpen,
 }) {
   const first = initialSpan(session, openItem, date, span);
   const [pid, setPid] = useState(session?.project_id ?? openItem?.project_id ?? projectId ?? projects[0]?.id);
@@ -59,8 +61,46 @@ export default function SessionModal({
   // The field being typed in keeps its raw text; the others are shown from start and end
   const [typing, setTyping] = useState({ field: null, text: "" });
 
-  const canOpen = Boolean(onSaveOpen) && !session; // a session already logged stays a session
-  const project = projects.find((p) => p.id === pid);
+  // The list is searchable: Ctrl+F (⌘F) jumps to the filter instead of the browser's find. Like the pomodoro's
+  // picker, words that match no project or task can be used as a chore: time with only a label.
+  const [query, setQuery] = useState("");
+  const searchRef = useRef(null);
+  const q = query.trim();
+  const visible = useMemo(() => matchProjects(projects, query), [projects, query]);
+  // Typed, it finds open to-dos by name too: picking one files the time under what it belongs to
+  const todoHits = useMemo(() => (q ? matchProjects(todos, query).slice(0, 8) : []), [todos, query, q]);
+  // ...and the chores logged before. An open item has to be on a project or task, so it gets no chores.
+  const choreHits = useMemo(
+    () => (q && !open ? matchProjects(chores.filter((c) => !projects.some((p) => p.id === c.id)), query).slice(0, 8) : []),
+    [chores, projects, query, q, open]
+  );
+  const exactHit = q ? [...visible, ...choreHits].find((x) => x.name.toLowerCase() === q.toLowerCase()) : null;
+  const newChore = q && !open && !exactHit && choreKey(q.slice(0, 120)) !== pid ? choreKey(q.slice(0, 120)) : null;
+  const firstHit = exactHit?.id ?? visible[0]?.id ?? choreHits[0]?.id ?? todoHits[0]?.subjectId ?? newChore;
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== "f") return;
+      e.preventDefault();
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  // A chore picked but not logged before has no subject yet: make one to show and color it
+  const chosenChore = isChoreKey(pid)
+    ? projects.find((p) => p.id === pid) ?? chores.find((c) => c.id === pid) ??
+      { id: pid, kind: "chore", name: choreLabelOf(pid), color: CHORE_INK, icon: CHORE_ICON }
+    : null;
+  const chips = [
+    ...(chosenChore && !projects.some((p) => p.id === pid) ? [chosenChore] : []),
+    ...visible,
+    ...choreHits.filter((c) => c.id !== pid),
+  ];
+
+  const canOpen = Boolean(onSaveOpen) && !session && !chosenChore; // a session already logged stays a session; a chore can't be left open
+  const project = projects.find((p) => p.id === pid) ?? chosenChore ?? undefined;
   const color = project?.color ?? "var(--accent-2)";
   const minutes = Math.round((end - start) / MINUTE);
   const crossesMidnight = dayKey(start) !== dayKey(end);
@@ -173,8 +213,26 @@ export default function SessionModal({
       <form onSubmit={submit} className="space-y-5">
         <fieldset>
           <legend className={labelClass}>Project or task</legend>
+          <div className="mb-2 flex items-center gap-2 border-b border-line-strong focus-within:border-text">
+            <Search size={15} className="shrink-0 text-muted" aria-hidden="true" />
+            <input
+              ref={searchRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                e.preventDefault(); // Enter picks the best match (or the words as a chore) instead of saving
+                if (firstHit) setPid(firstHit);
+              }}
+              aria-label="Search projects and tasks, or name a chore"
+              placeholder={open ? "Search (Ctrl+F), Enter picks the first" : "Search (Ctrl+F), or type a chore"}
+              autoComplete="off"
+              spellCheck={false}
+              className="h-9 min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-faint"
+            />
+          </div>
           <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Project or task">
-            {projects.map((p) => {
+            {chips.map((p) => {
               const Icon = iconFor(p.icon);
               const active = p.id === pid;
               return (
@@ -186,7 +244,8 @@ export default function SessionModal({
                   onClick={() => setPid(p.id)}
                   className={`inline-flex h-9 max-w-full items-center gap-2 border px-3 text-[13px] font-medium transition-colors ${
                     active ? "" : "border-line text-muted hover:border-line-strong hover:text-text"
-                  } ${p.kind === "task" ? "border-dashed" : ""}`}
+                  } ${p.kind === "task" ? "border-dashed" : p.kind === "chore" ? "border-dotted" : ""}`}
+                  title={p.kind === "chore" ? "Chore: time with no project" : undefined}
                   style={active ? { borderColor: p.color, background: tint(p.color, 14) } : undefined}
                 >
                   <Icon size={15} style={{ color: inkText(p.color) }} className="shrink-0" />
@@ -195,6 +254,44 @@ export default function SessionModal({
               );
             })}
             {projects.length === 0 && <p className="text-[13px] text-muted">No open projects or tasks.</p>}
+            {todoHits.map((x) => {
+              const Icon = iconFor(x.icon);
+              const active = x.subjectId === pid;
+              return (
+                <button
+                  key={x.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => setPid(x.subjectId)}
+                  title={`To-do in ${x.in}`}
+                  className={`inline-flex h-9 max-w-full items-center gap-2 border border-dotted px-3 text-[13px] font-medium transition-colors ${
+                    active ? "" : "border-line text-muted hover:border-line-strong hover:text-text"
+                  }`}
+                  style={active ? { borderColor: x.color, background: tint(x.color, 14) } : undefined}
+                >
+                  <Icon size={15} style={{ color: inkText(x.color) }} className="shrink-0" />
+                  <span className="truncate">
+                    {x.name} <span className="font-normal text-faint">in {x.in}</span>
+                  </span>
+                </button>
+              );
+            })}
+            {newChore && (
+              <button
+                type="button"
+                onClick={() => setPid(newChore)}
+                className="inline-flex h-9 max-w-full items-center gap-2 border border-dotted border-line-strong px-3 text-[13px] font-medium text-text transition-colors hover:bg-surface-2"
+              >
+                <Tag size={15} className="shrink-0 text-muted" aria-hidden="true" />
+                <span className="truncate">
+                  Use “<b>{q}</b>” as a chore
+                </span>
+              </button>
+            )}
+            {q && chips.length === 0 && todoHits.length === 0 && !newChore && (
+              <p className="text-[13px] text-muted">Nothing matches “{q}”.</p>
+            )}
           </div>
         </fieldset>
 

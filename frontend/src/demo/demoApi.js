@@ -483,16 +483,19 @@ export function createDemoApi() {
         .filter((s) => (!end || s.start < end) && (!start || !s.end || s.end > start))
         .map((s) => ({ ...s })),
     createSession: async (data) => {
-      subject(data.project_id);
+      // A chore ("chore:" and a label) is time with no project or task
+      const label = data.project_id?.startsWith("chore:") ? data.project_id.slice(6) : "";
+      if (!label) subject(data.project_id);
       checkSpan(data.start, data.end);
-      const created = { id: newId(), project_id: data.project_id, start: data.start, end: data.end, note: data.note ?? "" };
+      const created = { id: newId(), project_id: data.project_id, label, start: data.start, end: data.end, note: data.note ?? "" };
       sessions = [...sessions, created].sort((a, b) => a.start - b.start);
       return { ...created };
     },
     updateSession: async (id, data) => {
       const current = session(id);
-      if ("project_id" in data) subject(data.project_id);
-      const next = { ...current, ...data };
+      const label = data.project_id?.startsWith("chore:") ? data.project_id.slice(6) : "";
+      if ("project_id" in data && !label) subject(data.project_id);
+      const next = { ...current, ...data, ...("project_id" in data ? { label } : {}) };
       checkSpan(next.start, next.end);
       return replaceSession(id, next);
     },

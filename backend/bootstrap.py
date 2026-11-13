@@ -96,10 +96,14 @@ def _add_todo_columns(engine: Engine) -> None:
 
 
 def _add_session_columns(engine: Engine) -> None:
-    """Sessions made before todo_id existed are a project's, with no to-do named."""
-    if "todo_id" not in {c["name"] for c in inspect(engine).get_columns("sessions")}:
-        with engine.begin() as conn:
+    """Sessions made before todo_id existed are a project's, with no to-do named. Ones made before
+    chores existed have no label."""
+    columns = {c["name"] for c in inspect(engine).get_columns("sessions")}
+    with engine.begin() as conn:
+        if "todo_id" not in columns:
             conn.execute(text("ALTER TABLE sessions ADD COLUMN todo_id VARCHAR REFERENCES todos(id) ON DELETE SET NULL"))
+        if "label" not in columns:
+            conn.execute(text("ALTER TABLE sessions ADD COLUMN label VARCHAR(120) NOT NULL DEFAULT ''"))
 
 
 def _make_nullable(engine: Engine, table: Table, column: str) -> None:

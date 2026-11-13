@@ -204,8 +204,9 @@ function ProjectChip({ project, elapsed, onStop }) {
     <div className="relative flex h-[34px] min-w-0 items-stretch border" style={{ borderColor: edge, background: tint(project.color, 10) }}>
       <div className="flex min-w-0 items-center gap-2 pl-2.5 pr-2 sm:pl-3 sm:pr-2.5">
         <span className="blink-dot size-2 shrink-0 rounded-full bg-accent" aria-hidden="true" />
-        <span className="hidden max-w-[10rem] truncate font-serif text-[15px] italic lg:block">{project.name}</span>
-        <span className="figures min-w-0 truncate text-[15px] font-semibold" role="timer" aria-label={`Time on ${project.name}`}>
+        <span className="hidden min-w-0 max-w-[10rem] truncate font-serif text-[15px] italic lg:block">{project.name}</span>
+        {/* The time never gives way: when the row is tight, the name is what gets cut */}
+        <span className="figures shrink-0 whitespace-nowrap text-[15px] font-semibold" role="timer" aria-label={`Time on ${project.name}`}>
           <span className="max-sm:hidden">{fmtClock(elapsed)}</span>
           <span className="sm:hidden">{fmtHM(elapsed)}</span>
         </span>

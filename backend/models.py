@@ -96,8 +96,9 @@ class Todo(Base):
 
 class Session(Base):
     """One block of time worked on a project, or on a task (a to-do with no project: `project_id`
-    NULL, `todo_id` set). A project's session may name one of its to-dos too. `end` is NULL while
-    the timer runs."""
+    NULL, `todo_id` set). A project's session may name one of its to-dos too. A chore is time with
+    no home of its own: no project, no task, just a free-text `label` (like a pomodoro's). `end` is
+    NULL while the timer runs."""
 
     __tablename__ = "sessions"
 
@@ -111,6 +112,7 @@ class Session(Base):
     start: Mapped[datetime] = mapped_column(DateTime, index=True)
     end: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
     note: Mapped[str] = mapped_column(String(280), default="")
+    label: Mapped[str] = mapped_column(String(120), default="", server_default="")
 
     project: Mapped[Project] = relationship(back_populates="sessions")
 

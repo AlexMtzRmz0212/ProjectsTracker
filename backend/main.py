@@ -171,6 +171,18 @@ def _subject(db: DbSession, project_id: Optional[str], todo_id: Optional[str]) -
     return project_id, todo_id
 
 
+def _session_subject(
+    db: DbSession, project_id: Optional[str], todo_id: Optional[str], label: str = ""
+) -> tuple[Optional[str], Optional[str], str]:
+    """Like _subject, and a session can also be a chore: no project or task, only a label. A session
+    on a project or task keeps no label. Returns (project_id, todo_id, label)."""
+    label = (label or "").strip()[:120]
+    if project_id is None and todo_id is None and label:
+        return None, None, label
+    project_id, todo_id = _subject(db, project_id, todo_id)
+    return project_id, todo_id, ""
+
+
 def _project_out(project: Project, total_seconds: int = 0) -> schemas.ProjectOut:
     out = schemas.ProjectOut.model_validate(project)
     out.total_seconds = total_seconds
@@ -519,9 +531,9 @@ def list_sessions(
 
 @api.post("/sessions", response_model=schemas.SessionOut, status_code=status.HTTP_201_CREATED)
 def create_session(body: schemas.SessionCreate, db: DbSession = Depends(get_db)):
-    project_id, todo_id = _subject(db, body.project_id, body.todo_id)
+    project_id, todo_id, label = _session_subject(db, body.project_id, body.todo_id, body.label)
     _validate_span(body.start, body.end)
-    session = Session(**{**body.model_dump(), "project_id": project_id, "todo_id": todo_id})
+    session = Session(**{**body.model_dump(), "project_id": project_id, "todo_id": todo_id, "label": label})
     db.add(session)
     db.commit()
     db.refresh(session)
@@ -532,9 +544,12 @@ def create_session(body: schemas.SessionCreate, db: DbSession = Depends(get_db))
 def update_session(session_id: str, body: schemas.SessionUpdate, db: DbSession = Depends(get_db)):
     session = _get_session(db, session_id)
     changes = body.model_dump(exclude_unset=True)
-    if "project_id" in changes or "todo_id" in changes:
-        changes["project_id"], changes["todo_id"] = _subject(
-            db, changes.get("project_id", session.project_id), changes.get("todo_id", session.todo_id)
+    if "project_id" in changes or "todo_id" in changes or "label" in changes:
+        changes["project_id"], changes["todo_id"], changes["label"] = _session_subject(
+            db,
+            changes.get("project_id", session.project_id),
+            changes.get("todo_id", session.todo_id),
+            changes.get("label", session.label),
         )
     _validate_span(changes.get("start", session.start), changes.get("end", session.end))
     for field, value in changes.items():

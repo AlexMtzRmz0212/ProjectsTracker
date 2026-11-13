@@ -741,6 +741,28 @@ def test_a_session_moves_between_a_project_and_a_task(client):
     assert back["project_id"] == project["id"] and back["todo_id"] is None
 
 
+def test_a_chore_is_a_session_with_only_a_label(client):
+    project = make_project(client)
+    t1 = now() - timedelta(hours=1)
+    span = {"start": iso(t1), "end": iso(t1 + timedelta(minutes=30))}
+    chore = client.post("/api/sessions", json={"label": "  Laundry ", **span})
+    assert chore.status_code == 201, chore.text
+    chore = chore.json()
+    assert chore["label"] == "Laundry" and chore["project_id"] is None and chore["todo_id"] is None
+    assert client.get("/api/projects").json()[0]["total_seconds"] == 0  # nobody's time
+
+    # A chore moves onto a project (the label goes), and back
+    moved = client.patch(f"/api/sessions/{chore['id']}", json={"project_id": project["id"], "todo_id": None, "label": ""}).json()
+    assert moved["project_id"] == project["id"] and moved["label"] == ""
+    back = client.patch(f"/api/sessions/{chore['id']}", json={"project_id": None, "todo_id": None, "label": "Dishes"}).json()
+    assert back["project_id"] is None and back["label"] == "Dishes"
+
+    # A project's session keeps no label, and an edit that names nothing is refused
+    kept = client.post("/api/sessions", json={"project_id": project["id"], "label": "Laundry", **span}).json()
+    assert kept["label"] == ""
+    assert client.patch(f"/api/sessions/{back['id']}", json={"label": "  "}).status_code == 422
+
+
 def test_ticking_a_task_off_stops_its_timer_and_deleting_it_takes_its_time(client):
     task = make_task(client)
     run = client.post("/api/timer/start", json={"todo_id": task["id"]}).json()

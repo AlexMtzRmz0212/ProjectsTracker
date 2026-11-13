@@ -44,8 +44,8 @@ import InterestInbox from "./components/InterestInbox";
 import GuideModal from "./components/GuideModal";
 import Toast from "./components/Toast";
 import { Button } from "./components/Modal";
-import { TASK_ICON, TASK_INK, inkFor } from "./lib/palette";
-import { isTaskKey, taskIdOf, taskKey, todoSubject } from "./api";
+import { CHORE_ICON, CHORE_INK, TASK_ICON, TASK_INK, inkFor } from "./lib/palette";
+import { choreKey, isChoreKey, isTaskKey, taskIdOf, taskKey, todoSubject } from "./api";
 import { isActive as isActiveHabit } from "./lib/habits";
 
 const FEED_TASKS = "feed:tasks"; // the id of the Tasks card in the Feed
@@ -159,7 +159,24 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     [tasks]
   );
   const openTaskSubjects = useMemo(() => taskSubjects.filter((x) => !x.done), [taskSubjects]);
-  const projectsById = useMemo(() => new Map([...projects, ...taskSubjects].map((p) => [p.id, p])), [projects, taskSubjects]);
+  // Chores: time logged with only a label. Each label seen in the sessions is a subject of its own, so the
+  // calendar, day panel and stats name and color it like a project. Not a place to start a timer or open a card.
+  const choreSubjects = useMemo(() => {
+    const byKey = new Map();
+    for (const s of t.sessions) {
+      if (isChoreKey(s.project_id) && !byKey.has(s.project_id)) {
+        byKey.set(s.project_id, {
+          id: s.project_id, kind: "chore", name: s.label, color: CHORE_INK, icon: CHORE_ICON,
+          total_seconds: 0, created_at: s.start, archived_at: null, status_id: null,
+        });
+      }
+    }
+    return [...byKey.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [t.sessions]);
+  const projectsById = useMemo(
+    () => new Map([...projects, ...taskSubjects, ...choreSubjects].map((p) => [p.id, p])),
+    [projects, taskSubjects, choreSubjects]
+  );
   const liveProjects = useMemo(() => projects.filter((p) => !p.archived_at), [projects]);
   const archivedProjects = useMemo(
     () => projects.filter((p) => p.archived_at).sort((a, b) => new Date(b.archived_at) - new Date(a.archived_at)),
@@ -204,6 +221,14 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
       .map((p) => p.label)
       .slice(0, 12);
   }, [t.pomodoros]);
+  // The chores Add time offers when typing: the ones time was logged on, and the ones a pomodoro was named for
+  const choreChoices = useMemo(() => {
+    const have = new Set(choreSubjects.map((c) => c.name.toLowerCase()));
+    const fromPomodoros = chores
+      .filter((label) => !have.has(label.toLowerCase()))
+      .map((label) => ({ id: choreKey(label), kind: "chore", name: label, color: CHORE_INK, icon: CHORE_ICON }));
+    return [...choreSubjects, ...fromPomodoros];
+  }, [choreSubjects, chores]);
   // The tasks sit in the Feed as one card of their own, while there are any to do. Unlike a project it is not
   // ranked by when it was last worked on: it stays on top until it is skipped, and then goes behind the projects
   // that have not been worked on since (so it is back on top once they all have). Skipping it is kept in this
@@ -536,7 +561,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     );
   };
 
-  const peekProject = peekId ? projectsById.get(peekId) ?? null : null;
+  const peekProject = peekId && !isChoreKey(peekId) ? projectsById.get(peekId) ?? null : null; // a chore has no card
 
   // A project found by name: its peek opens and the board is shown with its card scrolled into view and
   // briefly marked. An archived project or a task has no card on the board, so only the peek opens.
@@ -544,7 +569,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   const revealProject = (id) => {
     peek(id);
     const found = projectsById.get(id);
-    if (!found || found.archived_at) return;
+    if (!found || found.archived_at || found.kind === "chore") return;
     setTab("projects");
     setRevealId(id);
   };
@@ -996,6 +1021,8 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           span={sessionModal.span}
           startOpen={sessionModal.startOpen}
           projects={pickableProjects}
+          todos={pickTodos}
+          chores={choreChoices}
           onClose={() => setSessionModal(null)}
           onSave={(data) =>
             sessionModal.session ? t.updateSession(sessionModal.session.id, data) : t.addSession(data)

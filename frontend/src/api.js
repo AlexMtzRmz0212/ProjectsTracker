@@ -96,14 +96,25 @@ export const todoSubject = (todo) => todo.project_id ?? taskKey(todo.parent_id ?
 /** The subject of something the server sent: its project, or its task. */
 const subjectOf = (row) => row.project_id ?? (row.todo_id ? taskKey(row.todo_id) : null);
 
-/** The server's fields for a subject id (and the project to-do it names, if any). */
+// A chore is time with no project or task, only a few words: its subject id is "chore:" and the label. Only
+// sessions have them (a pomodoro's chore stays a label next to a null project).
+const CHORE = "chore:";
+export const choreKey = (label) => CHORE + label;
+export const isChoreKey = (id) => typeof id === "string" && id.startsWith(CHORE);
+export const choreLabelOf = (key) => key.slice(CHORE.length);
+
+/** The server's fields for a subject id (and the project to-do it names, if any). A chore has neither: the
+ *  label goes alongside, see serializeSession. */
 export function subjectFields(subjectId, todoId = null) {
+  if (isChoreKey(subjectId)) return { project_id: null, todo_id: null };
   return isTaskKey(subjectId) ? { project_id: null, todo_id: taskIdOf(subjectId) } : { project_id: subjectId, todo_id: todoId };
 }
 
-/** API sessions carry ISO strings; the app works with Date objects, and a subject id in `project_id`. */
+/** API sessions carry ISO strings; the app works with Date objects, and a subject id in `project_id`
+ *  (for a chore, its key). */
 export function parseSession(s) {
-  return { ...s, project_id: subjectOf(s), start: new Date(s.start), end: s.end ? new Date(s.end) : null };
+  const chore = !s.project_id && !s.todo_id && s.label ? choreKey(s.label) : null;
+  return { ...s, project_id: chore ?? subjectOf(s), start: new Date(s.start), end: s.end ? new Date(s.end) : null };
 }
 
 /** An open item: like a session that hasn't ended. */
@@ -145,9 +156,9 @@ export const api = {
     const rows = await fetchApi(`/sessions${qs ? `?${qs}` : ""}`);
     return rows.map(parseSession);
   },
-  createSession: async (data) => parseSession(await fetchApi("/sessions", json("POST", serialize(data)))),
+  createSession: async (data) => parseSession(await fetchApi("/sessions", json("POST", serializeSession(data)))),
   updateSession: async (id, data) =>
-    parseSession(await fetchApi(`/sessions/${id}`, json("PATCH", serialize(data)))),
+    parseSession(await fetchApi(`/sessions/${id}`, json("PATCH", serializeSession(data)))),
   deleteSession: (id) => fetchApi(`/sessions/${id}`, { method: "DELETE" }),
 
   /** Start the timer on a project or a task; on a project, `todoId` names the to-do being timed. */
@@ -187,6 +198,14 @@ function serialize(data) {
   const out = { ...data, ...("project_id" in data ? subjectFields(data.project_id, data.todo_id ?? null) : {}) };
   if (out.start instanceof Date) out.start = out.start.toISOString();
   if (out.end instanceof Date) out.end = out.end.toISOString();
+  return out;
+}
+
+/** A session's fields: naming its subject also says its label (a chore's, else none), so a session can move
+ *  between a project and a chore. */
+function serializeSession(data) {
+  const out = serialize(data);
+  if ("project_id" in data) out.label = isChoreKey(data.project_id) ? choreLabelOf(data.project_id) : "";
   return out;
 }
 

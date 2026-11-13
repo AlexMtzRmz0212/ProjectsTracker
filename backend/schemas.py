@@ -131,9 +131,11 @@ class TodoOut(BaseModel):
 # ── Sessions ────────────────────────────────────────────────────────────────
 
 class SessionCreate(BaseModel):
-    # A project, a task (a to-do with no project), or a project and one of its to-dos
+    # A project, a task (a to-do with no project), a project and one of its to-dos, or a chore:
+    # just a free-text label with no project or task
     project_id: Optional[str] = None
     todo_id: Optional[str] = None
+    label: Annotated[str, StringConstraints(strip_whitespace=True, max_length=120)] = ""
     start: UTCDateTime
     end: UTCDateTime
     note: Annotated[str, Field(max_length=280)] = ""
@@ -142,6 +144,7 @@ class SessionCreate(BaseModel):
 class SessionUpdate(BaseModel):
     project_id: Optional[str] = None
     todo_id: Optional[str] = None
+    label: Optional[Annotated[str, StringConstraints(strip_whitespace=True, max_length=120)]] = None
     start: Optional[UTCDateTime] = None
     end: Optional[UTCDateTime] = None
     note: Optional[Annotated[str, Field(max_length=280)]] = None
@@ -153,6 +156,7 @@ class SessionOut(BaseModel):
     id: str
     project_id: Optional[str] = None
     todo_id: Optional[str] = None
+    label: str = ""
     start: UTCDateTime
     end: Optional[UTCDateTime]
     note: str
