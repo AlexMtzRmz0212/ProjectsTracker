@@ -1,5 +1,5 @@
 from datetime import date, datetime, timezone
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, PlainSerializer, StringConstraints
 
@@ -26,6 +26,72 @@ UTCDateTime = Annotated[
 HexColor = Annotated[str, Field(pattern=r"^#[0-9a-fA-F]{6}$")]
 NOTES_MAX = 20_000
 Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)]
+
+
+# ── Accounts ────────────────────────────────────────────────────────────────
+
+# Deliberately loose: the point is a login name that can receive mail, and an invite already vouches for the person
+Email = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, to_lower=True, min_length=3, max_length=254, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$"),
+]
+NewPassword = Annotated[str, Field(min_length=8, max_length=200)]
+
+
+Language = Literal["en", "es"]
+
+
+class LoginBody(BaseModel):
+    email: Email
+    password: Annotated[str, Field(max_length=200)]
+
+
+class LanguageBody(BaseModel):
+    language: Language
+
+
+class RegisterBody(BaseModel):
+    code: Annotated[str, Field(min_length=1, max_length=100)]
+    email: Email
+    password: NewPassword
+    language: Language = "en"  # what the person was reading when they signed up: names their starting statuses
+
+
+class PasswordBody(BaseModel):
+    current_password: Annotated[str, Field(max_length=200)]
+    new_password: NewPassword
+
+
+class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    email: str
+    is_admin: bool = False
+    language: str = "en"
+
+
+class SessionInfo(BaseModel):
+    authenticated: bool
+    user: Optional[UserOut] = None
+
+
+class InviteCreate(BaseModel):
+    days: Annotated[int, Field(ge=1, le=30)] = 7  # how long the code works
+
+
+class InviteCreated(BaseModel):
+    id: str
+    code: str  # shown once: only its hash is stored
+    expires_at: UTCDateTime
+
+
+class InviteOut(BaseModel):
+    id: str
+    created_at: UTCDateTime
+    expires_at: UTCDateTime
+    used_at: Optional[UTCDateTime] = None
+    used_by_email: Optional[str] = None
 
 
 # ── Statuses ────────────────────────────────────────────────────────────────

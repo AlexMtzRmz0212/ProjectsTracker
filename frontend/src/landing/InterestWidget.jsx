@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Check, Hand, Send } from "lucide-react";
 import { Button } from "../components/Modal";
+import { __, useT } from "../i18n";
 
 // Same loose shape the server accepts: the point is a reply address, nothing stricter.
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -9,19 +10,21 @@ const fieldClass =
   "h-10 w-full min-w-0 border-0 border-b border-line-strong bg-transparent px-0 outline-none transition-colors focus:border-b-2 focus:border-accent-2 focus-visible:outline-none";
 
 function Tally({ count, counted }) {
+  useT();
   if (count == null) {
-    return counted ? <span className="text-[13px] text-muted">You're in the count.</span> : null;
+    return counted ? <span className="text-[13px] text-muted">{__("You're in the count.")}</span> : null;
   }
-  if (count === 0) return <span className="text-[13px] text-muted">No one yet. Be the first.</span>;
+  if (count === 0) return <span className="text-[13px] text-muted">{__("No one yet. Be the first.")}</span>;
   return (
     <span className="text-[13px] text-muted">
-      {count === 1 ? "person would use this" : "people would use this"}
+      {count === 1 ? __("person would use this") : __("people would use this")}
     </span>
   );
 }
 
 /** Optional follow-up: an email to reply to, a note, or both. Either one is enough. */
 function NoteForm({ interest }) {
+  useT();
   const { noteSending, noteError, sendNote } = interest;
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
@@ -32,7 +35,7 @@ function NoteForm({ interest }) {
     e.preventDefault();
     if (empty || noteSending) return;
     if (email.trim() && !EMAIL.test(email.trim())) {
-      setFormError("That email doesn't look right.");
+      setFormError(__("That email doesn't look right."));
       return;
     }
     setFormError(null);
@@ -44,14 +47,12 @@ function NoteForm({ interest }) {
   return (
     <form onSubmit={submit} noValidate className="space-y-4 border-t border-line pt-4">
       <div>
-        <h3 className="font-serif text-[15px] font-semibold">Want to say more?</h3>
-        <p className="mt-1 text-[13px] text-muted">
-          Leave an email for a reply, a note about how you'd use it, or both.
-        </p>
+        <h3 className="font-serif text-[15px] font-semibold">{__("Want to say more?")}</h3>
+        <p className="mt-1 text-[13px] text-muted">{__("Leave an email for a reply, a note about how you'd use it, or both.")}</p>
       </div>
 
       <label className="block">
-        <span className="mb-1 block text-xs font-semibold text-muted">Email</span>
+        <span className="mb-1 block text-xs font-semibold text-muted">{__("Email")}</span>
         <input
           type="email"
           inputMode="email"
@@ -65,7 +66,7 @@ function NoteForm({ interest }) {
       </label>
 
       <label className="block">
-        <span className="mb-1 block text-xs font-semibold text-muted">Note</span>
+        <span className="mb-1 block text-xs font-semibold text-muted">{__("Note")}</span>
         <textarea
           rows={3}
           maxLength={1000}
@@ -83,9 +84,9 @@ function NoteForm({ interest }) {
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <Button variant="primary" type="submit" disabled={empty || noteSending}>
-          <Send size={15} /> {noteSending ? "Sending..." : "Send"}
+          <Send size={15} /> {noteSending ? __("Sending...") : __("Send")}
         </Button>
-        <p className="min-w-0 flex-1 text-xs text-muted">Only I can read this, and I'll only use it to reply.</p>
+        <p className="min-w-0 flex-1 text-xs text-muted">{__("Only I can read this, and I'll only use it to reply.")}</p>
       </div>
     </form>
   );
@@ -98,6 +99,7 @@ function NoteForm({ interest }) {
  * people who come back.
  */
 export default function InterestWidget({ interest, compact = false }) {
+  useT();
   const { count, counted, justCounted, sending, error, add, noteSent } = interest;
   const [noteOpen, setNoteOpen] = useState(false);
   const showForm = counted && !noteSent && (justCounted || noteOpen);
@@ -107,11 +109,10 @@ export default function InterestWidget({ interest, compact = false }) {
       role="status"
       className="inline-flex h-11 items-center justify-center gap-2 border border-line-strong px-5 text-[13px] font-semibold"
     >
-      <Check size={16} strokeWidth={2.5} /> You're counted
-    </span>
+      <Check size={16} strokeWidth={2.5} />{" "}{__("You're counted")}</span>
   ) : (
     <Button variant="primary" onClick={add} disabled={sending} className="h-11 px-5">
-      <Hand size={16} /> {sending ? "Counting..." : "I'd use this"}
+      <Hand size={16} /> {sending ? __("Counting...") : __("I'd use this")}
     </Button>
   );
 
@@ -154,17 +155,14 @@ export default function InterestWidget({ interest, compact = false }) {
 
       {counted && noteSent && (
         <p role="status" className="flex items-center gap-2 text-[13px] text-muted">
-          <Check size={15} strokeWidth={2.5} className="shrink-0" /> Your note is in. Thank you.
-        </p>
+          <Check size={15} strokeWidth={2.5} className="shrink-0" />{" "}{__("Your note is in. Thank you.")}</p>
       )}
 
       {counted && !noteSent && !showForm && (
         <button
           onClick={() => setNoteOpen(true)}
           className="text-[13px] font-semibold text-muted underline underline-offset-2 transition-colors hover:text-text"
-        >
-          Leave a note
-        </button>
+        >{__("Leave a note")}</button>
       )}
 
       {showForm && <NoteForm interest={interest} />}

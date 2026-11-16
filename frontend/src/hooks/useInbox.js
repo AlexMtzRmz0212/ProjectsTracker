@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { interest } from "../api";
+import { scopedKey } from "../lib/storage";
 
 const SEEN_KEY = "pt-inbox-seen";
 
 function readSeen() {
   try {
-    return Number(localStorage.getItem(SEEN_KEY)) || 0;
+    return Number(localStorage.getItem(scopedKey(SEEN_KEY))) || 0;
   } catch {
     return 0;
   }
@@ -44,7 +45,7 @@ export function useInbox(enabled) {
     if (!newest) return;
     setSeen(newest);
     try {
-      localStorage.setItem(SEEN_KEY, String(newest));
+      localStorage.setItem(scopedKey(SEEN_KEY), String(newest));
     } catch {
       // storage blocked: the badge just comes back next visit
     }

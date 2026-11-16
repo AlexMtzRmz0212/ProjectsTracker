@@ -1,3 +1,5 @@
+import { __, _n, useT } from "../i18n";
+import { format } from "../lib/dates";
 import { completedPomodoros, daySeconds, dayKey, fmtHM, pomodorosOnDay } from "../lib/time";
 
 // Tile dividers: two columns when the page area is narrow (a phone, or the side peek taking half the window),
@@ -41,6 +43,7 @@ export function SplitBar({ byProject, projectsById, className = "h-1.5" }) {
 }
 
 export default function StatsStrip({ byDay, pomodoros, today, weekStart, streakDays, projectsById }) {
+  useT();
   const todayEntry = byDay.get(dayKey(today));
   const week = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + i);
@@ -58,11 +61,11 @@ export default function StatsStrip({ byDay, pomodoros, today, weekStart, streakD
 
   return (
     <section className="grid grid-cols-2 border-b border-line @3xl:grid-cols-4">
-      <Tile index={0} label="Today" value={fmtHM(todayEntry?.total ?? 0)}>
+      <Tile index={0} label={__("Today")} value={fmtHM(todayEntry?.total ?? 0)}>
         <SplitBar byProject={todayEntry?.byProject} projectsById={projectsById} />
       </Tile>
 
-      <Tile index={1} label="This week" value={fmtHM(weekTotal)}>
+      <Tile index={1} label={__("This week")} value={fmtHM(weekTotal)}>
         <div className="flex h-full w-full items-end gap-1">
           {week.map(({ date, secs, isToday, future }) => (
             <div
@@ -78,7 +81,7 @@ export default function StatsStrip({ byDay, pomodoros, today, weekStart, streakD
         </div>
       </Tile>
 
-      <Tile index={2} label="Pomodoros" value={pomodorosOnDay(counted, today).length} unit="today">
+      <Tile index={2} label={__("Pomodoros")} value={pomodorosOnDay(counted, today).length} unit={__("today")}>
         {/* Finished focuses this week, one bar a day */}
         <div className="flex h-full w-full items-end gap-1">
           {week.map(({ date, isToday, future }, i) => (
@@ -95,13 +98,13 @@ export default function StatsStrip({ byDay, pomodoros, today, weekStart, streakD
         </div>
       </Tile>
 
-      <Tile index={3} label="Streak" value={streakDays} unit={streakDays === 1 ? "day" : "days"}>
+      <Tile index={3} label={__("Streak")} value={streakDays} unit={_n(streakDays, "day", "days")}>
         {/* Last seven days as a punched time card; today is the right-most hole */}
         <div className="flex items-center gap-1">
           {lastSeven.map(({ date, on }, i) => (
             <span
               key={i}
-              title={`${date.toDateString()}${on ? ", logged" : ""}`}
+              title={`${format(date, "EEE d MMM yyyy")}${on ? `, ${__("logged")}` : ""}`}
               className={`size-2.5 ${on ? (i === 6 ? "bg-accent" : "bg-text") : "border border-line-strong"}`}
             />
           ))}

@@ -1,3 +1,4 @@
+import { __ } from "../i18n";
 // Working on the task list with an AI: the tasks go out as a prompt (copy it, paste it into any chat), the
 // reply comes back as JSON, and what it suggests is shown as changes to review before they're applied.
 // Estimates live in the task's own text, as a trailing "(~45m)" or "(~2h)", so nothing in the data changes.
@@ -34,16 +35,16 @@ export function buildPrompt(tasks, subsOf) {
 /** The JSON object in what an AI answered, which may be wrapped in a fence or in a sentence. */
 function extractJson(raw) {
   const text = String(raw ?? "").trim();
-  if (!text) throw new Error("Paste the AI's reply first.");
+  if (!text) throw new Error(__("Paste the AI's reply first."));
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const body = fenced ? fenced[1] : text;
   const from = body.indexOf("{");
   const to = body.lastIndexOf("}");
-  if (from < 0 || to <= from) throw new Error("Couldn't find any JSON in that reply.");
+  if (from < 0 || to <= from) throw new Error(__("Couldn't find any JSON in that reply."));
   try {
     return JSON.parse(body.slice(from, to + 1));
   } catch {
-    throw new Error("That reply isn't valid JSON. Ask the AI to answer with only the JSON object.");
+    throw new Error(__("That reply isn't valid JSON. Ask the AI to answer with only the JSON object."));
   }
 }
 
@@ -57,7 +58,7 @@ function extractJson(raw) {
 export function planChanges(raw, tasks, subsOf) {
   const data = extractJson(raw);
   const rows = Array.isArray(data) ? data : data?.tasks;
-  if (!Array.isArray(rows)) throw new Error('The JSON needs a "tasks" list.');
+  if (!Array.isArray(rows)) throw new Error(__("The JSON needs a \"tasks\" list."));
   const byId = new Map(tasks.map((t) => [String(t.id), t]));
   const changes = [];
   let matched = 0;
@@ -86,6 +87,6 @@ export function planChanges(raw, tasks, subsOf) {
     const newText = text && text !== task.text ? text : null;
     if (newText || addSubs.length || editSubs.length) changes.push({ task, text: newText, addSubs, editSubs });
   }
-  if (matched === 0) throw new Error("None of the ids in that reply match your tasks. Copy the list again and ask the AI to keep the ids.");
+  if (matched === 0) throw new Error(__("None of the ids in that reply match your tasks. Copy the list again and ask the AI to keep the ids."));
   return changes;
 }

@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { DEFAULT_ORDER, FEED_MODES } from "../lib/feedOrder";
+import { scopedKey } from "../lib/storage";
 
 const modes = new Set(FEED_MODES.map((m) => m.id));
 const ids = (value) => (Array.isArray(value) ? value.filter((x) => typeof x === "string") : []);
@@ -22,7 +23,7 @@ function load(key) {
  * "My order", and the pinned cards (the first of them is the top card). `scope` keeps the demo apart from the app.
  */
 export function useFeedOrder(scope) {
-  const key = `pt-feed-order-${scope}`;
+  const key = scopedKey(`pt-feed-order-${scope}`);
   const [order, setOrder] = useState(() => load(key));
 
   const change = useCallback(

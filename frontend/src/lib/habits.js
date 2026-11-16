@@ -1,3 +1,4 @@
+import { N_, __ } from "../i18n";
 // Reading the habits that come from the My Habits backup (see backend/habits.py). A habit has `entries`, one per day:
 // { entry_date: "yyyy-MM-dd", status: yes | no | skip | unknown | value, value }. A numerical habit's value is the
 // number, a time habit's is the minutes since midnight.
@@ -10,6 +11,9 @@ export const dayKey = (d) =>
 /** The key of the day `ago` days before `from` (a Date). */
 export const keyDaysAgo = (from, ago) => dayKey(new Date(from.getFullYear(), from.getMonth(), from.getDate() - ago));
 
+// What a day without a number says (the keys are what the My Habits backup stores)
+const STATUS_WORDS = { yes: N_("yes"), no: N_("no"), skip: N_("skip") };
+
 export const isActive = (habit) => !habit.archived && !habit.removed_at;
 
 /** A time habit's minutes since midnight as "23:15". */
@@ -17,8 +21,8 @@ export const fmtMinutes = (minutes) => `${String(Math.floor(minutes / 60) % 24).
 
 /** What an entry says, in words: "yes", "6 glasses", "23:15". */
 export function fmtEntry(habit, entry) {
-  if (!entry) return "nothing logged";
-  if (entry.status !== "value") return entry.status === "unknown" ? "nothing logged" : entry.status;
+  if (!entry) return __("nothing logged");
+  if (entry.status !== "value") return entry.status === "unknown" ? __("nothing logged") : __(STATUS_WORDS[entry.status] ?? entry.status);
   if (habit.value_type === "time") return fmtMinutes(entry.value);
   const n = Number.isInteger(entry.value) ? entry.value : Math.round(entry.value * 100) / 100;
   return habit.unit ? `${n} ${habit.unit}` : String(n);
@@ -28,7 +32,7 @@ export function fmtEntry(habit, entry) {
 export function fmtTarget(habit) {
   if (habit.target_value == null || !habit.target_type) return null;
   const goal = habit.value_type === "time" ? fmtMinutes(habit.target_value) : fmtEntry(habit, { status: "value", value: habit.target_value });
-  return `${habit.target_type === "at_most" ? "at most" : "at least"} ${goal}`;
+  return `${habit.target_type === "at_most" ? __("at most") : __("at least")} ${goal}`;
 }
 
 /** How one day went: done, missed, skip (a day off that doesn't break a streak) or none (nothing logged). */

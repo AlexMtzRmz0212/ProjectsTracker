@@ -2,6 +2,8 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { Check, Tag, X } from "lucide-react";
 import { useClickOutside } from "../hooks/useClickOutside";
 import { iconFor, inkText } from "../lib/palette";
+import { __, __r, useT } from "../i18n";
+
 
 const WIDTH = 288; // px
 const EDGE = 8;
@@ -15,6 +17,7 @@ const EDGE = 8;
  * header chip or on the full screen. Esc, a press outside, or a pick closes it.
  */
 export default function FocusTag({ value, onChange, choices, up = false, children }) {
+  useT();
   const [open, setOpen] = useState(false);
   const [place, setPlace] = useState(null);
   const root = useRef(null);
@@ -40,7 +43,7 @@ export default function FocusTag({ value, onChange, choices, up = false, childre
       {open && place && (
         <div
           role="dialog"
-          aria-label="What is this pomodoro for?"
+          aria-label={__("What is this pomodoro for?")}
           className="fade-in fixed z-[60] border border-line-strong bg-surface p-2"
           style={{ width: WIDTH, ...place }}
           onKeyDown={(e) => {
@@ -62,6 +65,7 @@ export default function FocusTag({ value, onChange, choices, up = false, childre
  * `onDone` is called after a pick.
  */
 export function FocusPicker({ value, onChange, choices, onDone }) {
+  useT();
   const [text, setText] = useState("");
 
   const q = text.trim().toLowerCase();
@@ -80,7 +84,7 @@ export function FocusPicker({ value, onChange, choices, onDone }) {
 
   return (
     <>
-      <p className="mb-1.5 px-1 text-xs font-semibold text-muted">What is this pomodoro for?</p>
+      <p className="mb-1.5 px-1 text-xs font-semibold text-muted">{__("What is this pomodoro for?")}</p>
       <input
         autoFocus
         value={text}
@@ -93,8 +97,8 @@ export function FocusPicker({ value, onChange, choices, onDone }) {
           else pickChore();
         }}
         maxLength={120}
-        placeholder="A project, a task, or any chore"
-        aria-label="What is this pomodoro for?"
+        placeholder={__("A project, a task, or any chore")}
+        aria-label={__("What is this pomodoro for?")}
         className="h-9 w-full border border-line-strong bg-transparent px-2 text-[13px] outline-none focus:border-text"
       />
       <ul className="mt-1.5 max-h-60 overflow-y-auto">
@@ -115,20 +119,19 @@ export function FocusPicker({ value, onChange, choices, onDone }) {
             <button onClick={pickChore} className={row}>
               <Tag size={14} className="shrink-0 text-muted" aria-hidden="true" />
               <span className="min-w-0 flex-1 truncate">
-                Use "<b>{text.trim()}</b>" as a chore
+                {__r("Use “{name}” as a chore", { name: <b>{text.trim()}</b> })}
               </span>
             </button>
           </li>
         )}
       </ul>
-      <p className="mt-1.5 px-1 font-serif text-xs italic text-faint">A chore is only for this focus; a project or task stays for the set.</p>
+      <p className="mt-1.5 px-1 font-serif text-xs italic text-faint">{__("A chore is only for this focus; a project or task stays for the set.")}</p>
       {value && (
         <button
           onClick={() => pick(null)}
           className="mt-1 flex h-8 w-full items-center gap-2 border-t border-rule px-1 text-left text-xs text-muted transition-colors hover:text-text"
         >
-          <X size={13} aria-hidden="true" /> Clear: follow the project being timed
-        </button>
+          <X size={13} aria-hidden="true" />{" "}{__("Clear: follow the project being timed")}</button>
       )}
     </>
   );

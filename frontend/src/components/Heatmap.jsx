@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { format } from "date-fns";
+import { format } from "../lib/dates";
 import FilterTab from "./FilterTab";
 import { iconFor, inkText } from "../lib/palette";
 import { HEATMAP_WEEKS, dayKey, daySeconds, fmtHM, heatmapStart, weekMonday } from "../lib/time";
+import { N_, __, _n, useT } from "../i18n";
+
 
 // Intensity buckets (seconds). Level 0 = nothing logged.
 const LEVELS = [30 * 60, 90 * 60, 3 * 3600];
@@ -27,6 +29,7 @@ const LABEL_COLUMN = 26;
 
 /** `since` is the first day anything was logged (null if nothing yet): the heatmap starts at its week, not a year back. */
 export default function Heatmap({ byDay, projects, projectsById, today, selected, since, onSelect }) {
+  useT();
   const [filter, setFilter] = useState("all");
   const [tip, setTip] = useState(null);
   const scroller = useRef(null);
@@ -103,24 +106,22 @@ export default function Heatmap({ byDay, projects, projectsById, today, selected
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2 className="font-hand text-[26px] font-semibold leading-none">
           {shownWeeks < span
-            ? `The last ${shownWeeks} weeks`
+            ? __("The last {shownWeeks} weeks", { shownWeeks })
             : span === HEATMAP_WEEKS
-              ? "The past year"
+              ? __("The past year")
               : since && weekMonday(since) > heatmapStart(today)
-                ? `Since ${format(since, "d MMMM")}`
-                : `The last ${span} weeks`}
+                ? __("Since {format}", { format: format(since, "d MMMM") })
+                : __("The last {span} weeks", { span })}
         </h2>
         <p className="font-serif text-[13px] italic text-muted">
-          {fmtHM(stats.total)} logged. {stats.active} active {stats.active === 1 ? "day" : "days"}.
-          {stats.best.date && ` Best day ${fmtHM(stats.best.secs)} on ${format(stats.best.date, "d MMMM")}.`}
+          {__("{time} logged. {days}.", { time: fmtHM(stats.total), days: _n(stats.active, "{n} active day", "{n} active days") })}
+          {stats.best.date && ` ${__("Best day {time} on {date}.", { time: fmtHM(stats.best.secs), date: format(stats.best.date, "d MMMM") })}`}
         </p>
       </div>
 
       {projects.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1" role="radiogroup" aria-label="Filter by project">
-          <FilterTab active={!filterProject} onClick={() => setFilter("all")} color="var(--text)">
-            All
-          </FilterTab>
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1" role="radiogroup" aria-label={__("Filter by project")}>
+          <FilterTab active={!filterProject} onClick={() => setFilter("all")} color="var(--text)">{__("All")}</FilterTab>
           {projects.map((p) => {
             const Icon = iconFor(p.icon);
             const ink = inkText(p.color);
@@ -145,9 +146,9 @@ export default function Heatmap({ byDay, projects, projectsById, today, selected
         >
           {/* weekday labels column */}
           <span />
-          {["Mon", "", "Wed", "", "Fri", "", ""].map((l, i) => (
+          {[N_("Mon"), "", N_("Wed"), "", N_("Fri"), "", ""].map((l, i) => (
             <span key={i} className="self-center text-[10px] leading-none text-faint">
-              {l}
+              {l ? __(l) : ""}
             </span>
           ))}
 
@@ -187,11 +188,11 @@ export default function Heatmap({ byDay, projects, projectsById, today, selected
       </div>
 
       <div className="mt-2 flex items-center justify-end gap-1 text-[11px] text-faint">
-        <span className="mr-0.5">Less</span>
+        <span className="mr-0.5">{__("Less")}</span>
         {MIX.map((_, level) => (
           <span key={level} className="size-2.5 rounded-[35%]" style={{ background: shade(level, color) }} />
         ))}
-        <span className="ml-0.5">More</span>
+        <span className="ml-0.5">{__("More")}</span>
       </div>
 
       {tip && (

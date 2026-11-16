@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Check } from "lucide-react";
 import Modal, { Button } from "./Modal";
 import { ON_INK, PROJECT_COLORS, PROJECT_ICONS, iconFor, inkFor, inkText, tint } from "../lib/palette";
+import { __, useT } from "../i18n";
+
 
 /** A random item from `preferred`, or from `fallback` when `preferred` is empty. */
 function pickRandom(preferred, fallback = preferred) {
@@ -12,6 +14,7 @@ function pickRandom(preferred, fallback = preferred) {
 /** Create or edit a project: name, ink, icon and status, with a live preview of its ledger line.
  *  `defaultStatusId` pre-selects a status for a new project (the one the page is filtered to). */
 export default function ProjectModal({ project, statuses, defaultStatusId = null, usedColors, onClose, onSave }) {
+  useT();
   const editing = Boolean(project);
   const [name, setName] = useState(project?.name ?? "");
   const [color, setColor] = useState(
@@ -36,22 +39,20 @@ export default function ProjectModal({ project, statuses, defaultStatusId = null
 
   return (
     <Modal
-      title={editing ? "Edit project" : "New project"}
+      title={editing ? __("Edit project") : __("New project")}
       onClose={onClose}
       footer={
         <>
-          <Button className="ml-auto" onClick={onClose}>
-            Cancel
-          </Button>
+          <Button className="ml-auto" onClick={onClose}>{__("Cancel")}</Button>
           <Button variant="primary" onClick={submit} disabled={!valid || saving}>
-            <Check size={16} /> {editing ? "Save" : "Create"}
+            <Check size={16} /> {editing ? __("Save") : __("Create")}
           </Button>
         </>
       }
     >
       <form onSubmit={submit} className="space-y-6">
         <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold text-muted">Name</span>
+          <span className="mb-1.5 block text-xs font-semibold text-muted">{__("Name")}</span>
           <div className="flex items-center gap-3 border-b-2 pb-1.5" style={{ borderColor: color }}>
             <span className="grid size-10 shrink-0 place-items-center" style={{ background: color, color: ON_INK }}>
               <Icon size={20} />
@@ -61,23 +62,23 @@ export default function ProjectModal({ project, statuses, defaultStatusId = null
               value={name}
               onChange={(e) => setName(e.target.value)}
               maxLength={80}
-              placeholder="Thesis chapter 3"
+              placeholder={__("Thesis chapter 3")}
               className="min-w-0 flex-1 bg-transparent font-serif text-xl font-semibold outline-none placeholder:font-normal placeholder:text-faint"
             />
           </div>
         </label>
 
-        <Choice label="Status" value={statusId} onChange={setStatusId} options={statuses} />
+        <Choice label={__("Status")} value={statusId} onChange={setStatusId} options={statuses} />
 
         <fieldset>
-          <legend className="mb-2 text-xs font-semibold text-muted">Color</legend>
+          <legend className="mb-2 text-xs font-semibold text-muted">{__("Color")}</legend>
           <div className="flex flex-wrap gap-2">
             {PROJECT_COLORS.map((c) => (
               <button
                 key={c}
                 type="button"
                 onClick={() => setColor(c)}
-                aria-label={`Color ${c}`}
+                aria-label={__("Color {c}", { c })}
                 aria-pressed={c === color}
                 className={`grid size-8 place-items-center transition-transform hover:scale-110 ${
                   c === color ? "outline-2 outline-offset-2" : ""
@@ -91,7 +92,7 @@ export default function ProjectModal({ project, statuses, defaultStatusId = null
         </fieldset>
 
         <fieldset>
-          <legend className="mb-2 text-xs font-semibold text-muted">Icon</legend>
+          <legend className="mb-2 text-xs font-semibold text-muted">{__("Icon")}</legend>
           <div className="grid grid-cols-6 border-t border-l border-rule sm:grid-cols-8">
             {Object.entries(PROJECT_ICONS).map(([key, I]) => {
               const selected = key === icon;
@@ -100,7 +101,7 @@ export default function ProjectModal({ project, statuses, defaultStatusId = null
                   key={key}
                   type="button"
                   onClick={() => setIcon(key)}
-                  aria-label={`Icon ${key}`}
+                  aria-label={__("Icon {key}", { key })}
                   aria-pressed={selected}
                   className={`grid aspect-square place-items-center border-r border-b border-rule transition-colors ${
                     selected ? "" : "text-muted hover:bg-surface-2 hover:text-text"

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api as realApi } from "../api";
+import { __ } from "../i18n";
 
 const EMPTY = { habits: [], configured: false, synced_at: null, source_file: "" };
 
@@ -43,10 +44,10 @@ export function useHabits(api = realApi) {
         await load();
         return {
           ok: true,
-          message: result.changed ? `Copied ${result.habits} habits from ${result.file_name}` : "Already up to date with the newest backup",
+          message: result.changed ? __("Copied {habits} habits from {file_name}", { habits: result.habits, file_name: result.file_name }) : __("Already up to date with the newest backup"),
         };
       } catch (error) {
-        return { ok: false, message: error.message || "The sync failed" };
+        return { ok: false, message: error.message || __("The sync failed") };
       } finally {
         if (alive.current) setSyncing(false);
       }

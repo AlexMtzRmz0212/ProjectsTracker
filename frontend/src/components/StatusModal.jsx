@@ -3,16 +3,18 @@ import { Check, Flag, GripVertical, Pin, Plus, Trash2 } from "lucide-react";
 import Modal, { Button } from "./Modal";
 import { ON_INK, PROJECT_COLORS, inkFor } from "../lib/palette";
 import { useReorder } from "../hooks/useReorder";
+import { __, _n, useT } from "../i18n";
 
 /** Edit the list of statuses projects can have. Changes save as you make them;
  *  there is no Save button. */
 export default function StatusModal({ projects, statuses, ops, onClose }) {
+  useT();
   const [pickingFor, setPickingFor] = useState(null);
   const [draft, setDraft] = useState("");
   const [adding, setAdding] = useState(false);
   const openCount = statuses.filter((s) => !s.is_done).length;
   const usedBy = (id) => projects.filter((p) => p.status_id === id).length;
-  const lastOpen = "Keep at least one status that isn't finished.";
+  const lastOpen = __("Keep at least one status that isn't finished.");
 
   const reorder = useReorder(statuses.map((s) => s.id), ops.reorder);
 
@@ -32,19 +34,14 @@ export default function StatusModal({ projects, statuses, ops, onClose }) {
 
   return (
     <Modal
-      title="Statuses"
+      title={__("Statuses")}
       onClose={onClose}
       footer={
         <Button variant="primary" className="ml-auto" onClick={onClose}>
-          <Check size={16} /> Done
-        </Button>
+          <Check size={16} />{" "}{__("Done")}</Button>
       }
     >
-      <p className="text-xs text-muted">
-        Where a project stands. The project list is grouped by these, in this order: drag a handle to rearrange them.
-        Flag the ones that mean it's over: those projects lose their timer and fold away. Pin one to keep its column on
-        the board when you Hide all.
-      </p>
+      <p className="text-xs text-muted">{__("Where a project stands. The project list is grouped by these, in this order: drag a handle to rearrange them. Flag the ones that mean it's over: those projects lose their timer and fold away. Pin one to keep its column on the board when you Hide all.")}</p>
 
       <ul className={`mt-3 border-t border-rule ${reorder.held ? "select-none" : ""}`}>
         {statuses.map((item, i) => {
@@ -52,7 +49,7 @@ export default function StatusModal({ projects, statuses, ops, onClose }) {
           const sortRow = reorder.rowProps(i);
           const finishBlock = !item.is_done && openCount === 1 ? lastOpen : null;
           const deleteBlock = used
-            ? `${used} ${used === 1 ? "project uses" : "projects use"} this status. Move ${used === 1 ? "it" : "them"} first.`
+            ? _n(used, "{n} project uses this status. Move it first.", "{n} projects use this status. Move them first.")
             : finishBlock;
           return (
             <li
@@ -63,8 +60,8 @@ export default function StatusModal({ projects, statuses, ops, onClose }) {
               <div className="flex items-center gap-1.5 py-1">
                 <button
                   {...reorder.gripProps(item.id, i)}
-                  aria-label={`Move ${item.name}: drag, or use the up and down arrow keys`}
-                  title="Drag to reorder"
+                  aria-label={__("Move {name}: drag, or use the up and down arrow keys", { name: item.name })}
+                  title={__("Drag to reorder")}
                   className={`-ml-1 grid h-8 w-5 shrink-0 touch-none place-items-center text-faint transition-colors hover:text-text ${
                     reorder.held === item.id ? "cursor-grabbing text-text" : "cursor-grab"
                   }`}
@@ -74,7 +71,7 @@ export default function StatusModal({ projects, statuses, ops, onClose }) {
                 <button
                   onClick={() => setPickingFor(pickingFor === item.id ? null : item.id)}
                   className="grid size-8 shrink-0 place-items-center transition-colors hover:bg-surface-2"
-                  aria-label={`Color of ${item.name}`}
+                  aria-label={__("Color of {name}", { name: item.name })}
                   aria-expanded={pickingFor === item.id}
                 >
                   <span className="size-4" style={{ background: inkFor(item.color) }} />
@@ -86,12 +83,12 @@ export default function StatusModal({ projects, statuses, ops, onClose }) {
                   onClick={() => ops.update(item.id, { is_done: !item.is_done })}
                   disabled={Boolean(finishBlock)}
                   aria-pressed={item.is_done}
-                  aria-label={`Mark ${item.name} as finished`}
+                  aria-label={__("Mark {name} as finished", { name: item.name })}
                   title={
                     finishBlock ??
                     (item.is_done
-                      ? "Finished: projects here have no timer and are folded away. Click to undo"
-                      : "Flag as finished: projects here lose their timer and fold away")
+                      ? __("Finished: projects here have no timer and are folded away. Click to undo")
+                      : __("Flag as finished: projects here lose their timer and fold away"))
                   }
                   className={`grid size-8 shrink-0 place-items-center transition-colors enabled:hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-30 ${
                     item.is_done ? "text-text" : "text-faint enabled:hover:text-text"
@@ -103,11 +100,11 @@ export default function StatusModal({ projects, statuses, ops, onClose }) {
                 <button
                   onClick={() => ops.update(item.id, { is_pinned: !item.is_pinned })}
                   aria-pressed={Boolean(item.is_pinned)}
-                  aria-label={`Keep ${item.name} on the board when hiding all columns`}
+                  aria-label={__("Keep {name} on the board when hiding all columns", { name: item.name })}
                   title={
                     item.is_pinned
-                      ? "Stays on the board when you Hide all. Click to unpin"
-                      : "Pin: keep this column on the board when you Hide all"
+                      ? __("Stays on the board when you Hide all. Click to unpin")
+                      : __("Pin: keep this column on the board when you Hide all")
                   }
                   className={`grid size-8 shrink-0 place-items-center transition-colors hover:bg-surface-2 ${
                     item.is_pinned ? "text-text" : "text-faint hover:text-text"
@@ -116,13 +113,13 @@ export default function StatusModal({ projects, statuses, ops, onClose }) {
                   <Pin size={14} fill={item.is_pinned ? "currentColor" : "none"} />
                 </button>
 
-                <span className="figures w-6 shrink-0 text-right text-xs text-faint" title={`${used} in use`}>
+                <span className="figures w-6 shrink-0 text-right text-xs text-faint" title={__("{used} in use", { used })}>
                   {used}
                 </span>
 
                 <IconButton
-                  label={`Delete ${item.name}`}
-                  title={deleteBlock ?? `Delete ${item.name}`}
+                  label={__("Delete {name}", { name: item.name })}
+                  title={deleteBlock ?? __("Delete {name}", { name: item.name })}
                   disabled={Boolean(deleteBlock)}
                   danger
                   onClick={() => ops.remove(item.id)}
@@ -140,7 +137,7 @@ export default function StatusModal({ projects, statuses, ops, onClose }) {
                         ops.update(item.id, { color: c });
                         setPickingFor(null);
                       }}
-                      aria-label={`Color ${c}`}
+                      aria-label={__("Color {c}", { c })}
                       aria-pressed={c === inkFor(item.color)}
                       className="grid size-7 place-items-center transition-transform hover:scale-110"
                       style={{ background: c, color: ON_INK }}
@@ -160,13 +157,12 @@ export default function StatusModal({ projects, statuses, ops, onClose }) {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           maxLength={40}
-          placeholder="New status"
-          aria-label="New status name"
+          placeholder={__("New status")}
+          aria-label={__("New status name")}
           className="h-9 min-w-0 flex-1 border-b border-line-strong bg-transparent px-1.5 text-[13px] outline-none placeholder:text-faint focus:border-text"
         />
         <Button type="submit" variant="outline" disabled={!draft.trim() || adding}>
-          <Plus size={15} /> Add
-        </Button>
+          <Plus size={15} />{" "}{__("Add")}</Button>
       </form>
     </Modal>
   );
@@ -175,6 +171,7 @@ export default function StatusModal({ projects, statuses, ops, onClose }) {
 /** Edits in place and saves when you leave the field or press Enter. A name the server
  *  refuses (an empty one, or a duplicate) goes back to what it was. */
 function NameInput({ value, onCommit }) {
+  useT();
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
 
@@ -191,7 +188,7 @@ function NameInput({ value, onCommit }) {
       onBlur={commit}
       onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
       maxLength={40}
-      aria-label="Status name"
+      aria-label={__("Status name")}
       className="h-8 min-w-0 flex-1 bg-transparent px-1.5 text-[13px] outline-none focus:bg-surface-2"
     />
   );

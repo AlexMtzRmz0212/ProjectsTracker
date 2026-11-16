@@ -1,12 +1,15 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { format } from "date-fns";
+import { format } from "../lib/dates";
 import { CircleDot, GripHorizontal, MoveDiagonal2, Search, Tag, X } from "lucide-react";
 import { FocusPicker } from "./FocusTag";
 import { ActionButton, controlsFor, phaseView } from "./PomodoroScreen";
 import { TASKS_TAB, TodoNote, searchResults, withTasksTab } from "./ProjectSearch";
 import { iconFor, inkText, tint } from "../lib/palette";
 import { fmtClock, fmtCountdown } from "../lib/time";
+import { scopedKey } from "../lib/storage";
+import { __, useT } from "../i18n";
+
 
 const POS_KEY = "pt-mini-pos";
 const SIZE_KEY = "pt-mini-size";
@@ -18,7 +21,7 @@ const MAX = { w: 640, h: 720 };
 
 function readSaved(key, fallback, fields) {
   try {
-    const saved = JSON.parse(localStorage.getItem(key));
+    const saved = JSON.parse(localStorage.getItem(scopedKey(key)));
     if (fields.every((f) => Number.isFinite(saved?.[f]))) return saved;
   } catch {
     // nothing saved, or storage blocked
@@ -28,7 +31,7 @@ function readSaved(key, fallback, fields) {
 
 function save(key, value) {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    localStorage.setItem(scopedKey(key), JSON.stringify(value));
   } catch {
     // storage blocked: it just won't survive a reload
   }
@@ -160,6 +163,7 @@ function MiniClock(props) {
  *   the to-dos fill the rest.
  */
 function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSeconds, todos = [], todoOps, timedTodoId = null, onStopFocus, onStopTimer, onSearch, onTag }) {
+  useT();
   const view = phaseView(pomodoro);
   const idle = view.tone === "idle";
   const flowing = pomodoro.phase === "focus" || pomodoro.phase === "break";
@@ -174,10 +178,10 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
   const big = {
     text: projectClock ? fmtClock(clock) : fmtCountdown(view.remaining),
     em: projectClock ? CLOCK_EM : COUNTDOWN_EM,
-    label: projectClock ? `Time on ${runningProject.name}` : view.timerLabel,
+    label: projectClock ? __("Time on {name}", { name: runningProject.name }) : view.timerLabel,
     color: projectClock ? "var(--text)" : idle ? "var(--muted)" : view.color,
   };
-  const label = projectClock ? "Timer running" : view.label;
+  const label = projectClock ? __("Timer running") : view.label;
   const tag = pomodoro.tag ?? ""; // what this focus is for, while it has a tag
   const projectTime = project && !projectClock ? fmtClock(runningProject ? clock : heldSeconds) : null;
   const controls = controlsFor(pomodoro, pomodoro.startFocus, onStopFocus, Boolean(runningProject), onStopTimer);
@@ -300,7 +304,7 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
             {project ? (
               <ProjectLine project={project} time={projectTime} running={Boolean(runningProject)} className="flex-1" />
             ) : (
-              <span className="font-serif text-xs italic text-faint">No project timer</span>
+              <span className="font-serif text-xs italic text-faint">{__("No project timer")}</span>
             )}
           </div>
           <ProgressBar progress={view.progress} color={view.color} />
@@ -334,7 +338,7 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
           {project ? (
             <ProjectLine project={project} time={projectTime} running={Boolean(runningProject)} className="flex-1" />
           ) : (
-            <span className="font-serif text-xs italic text-faint">No project timer</span>
+            <span className="font-serif text-xs italic text-faint">{__("No project timer")}</span>
           )}
         </div>
         <ProgressBar progress={view.progress} color={view.color} className="absolute inset-x-0 bottom-0" />
@@ -352,8 +356,9 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
 
 /** The phase and the set position ruled off along the countdown's line: ── Focus ── 2/4 */
 function PhaseRule({ label, tag, pomodoro, color }) {
+  useT();
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2" aria-label={pomodoro.continuous ? label : `${label}, focus ${pomodoro.position} of ${pomodoro.settings.longEvery}`}>
+    <div className="flex min-w-0 flex-1 items-center gap-2" aria-label={pomodoro.continuous ? label : __("{label}, focus {position} of {longEvery}", { label, position: pomodoro.position, longEvery: pomodoro.settings.longEvery })}>
       <span className="h-px min-w-3 flex-1 bg-line-strong" aria-hidden="true" />
       <span className="min-w-0 truncate font-serif text-sm font-semibold italic" style={{ color }}>
         {label}
@@ -361,7 +366,7 @@ function PhaseRule({ label, tag, pomodoro, color }) {
       </span>
       <span className="h-px min-w-3 flex-1 bg-line-strong" aria-hidden="true" />
       {!pomodoro.continuous && (
-        <span className="figures shrink-0 text-xs text-muted" title="Focus periods in this set">
+        <span className="figures shrink-0 text-xs text-muted" title={__("Focus periods in this set")}>
           {pomodoro.position}/{pomodoro.settings.longEvery}
         </span>
       )}
@@ -370,6 +375,7 @@ function PhaseRule({ label, tag, pomodoro, color }) {
 }
 
 function PhaseLabel({ label, tag, pomodoro, color }) {
+  useT();
   return (
     <div className="flex h-[18px] shrink-0 items-baseline justify-between gap-2">
       <span className="min-w-0 truncate font-serif text-sm font-semibold italic" style={{ color }}>
@@ -377,7 +383,7 @@ function PhaseLabel({ label, tag, pomodoro, color }) {
         {tag && <span className="font-normal text-muted"> · {tag}</span>}
       </span>
       {!pomodoro.continuous && (
-        <span className="figures shrink-0 text-xs text-muted" title="Focus periods in this set">
+        <span className="figures shrink-0 text-xs text-muted" title={__("Focus periods in this set")}>
           {pomodoro.position}/{pomodoro.settings.longEvery}
         </span>
       )}
@@ -396,7 +402,7 @@ function ProjectLine({ project, time, running, className = "" }) {
         <span
           className={`figures shrink-0 font-semibold ${running ? "" : "text-muted"}`}
           role="timer"
-          aria-label={`Time on ${project.name}${running ? "" : ", paused"}`}
+          aria-label={(running ? __("Time on {name}", { name: project.name }) : __("Time on {name}, paused", { name: project.name }))}
         >
           {time}
         </span>
@@ -414,6 +420,7 @@ function ProgressBar({ progress, color, className = "" }) {
 }
 
 function Controls({ controls, onSearch, onTag, tagged = false }) {
+  useT();
   return (
     <div className="flex shrink-0 items-center gap-1">
       {controls.map((c) => (
@@ -423,8 +430,8 @@ function Controls({ controls, onSearch, onTag, tagged = false }) {
         <button
           onClick={onTag}
           className={`grid size-9 place-items-center transition-colors hover:bg-surface-2 hover:text-text ${tagged ? "text-accent" : "text-muted"}`}
-          aria-label={tagged ? "What this pomodoro is for. Change it" : "What is this pomodoro for?"}
-          title="What is this pomodoro for?"
+          aria-label={tagged ? __("What this pomodoro is for. Change it") : __("What is this pomodoro for?")}
+          title={__("What is this pomodoro for?")}
         >
           <Tag size={14} />
         </button>
@@ -433,8 +440,8 @@ function Controls({ controls, onSearch, onTag, tagged = false }) {
         <button
           onClick={onSearch}
           className="grid size-9 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
-          aria-label="Find a project, task or to-do"
-          title="Find a project, task or to-do (Ctrl F)"
+          aria-label={__("Find a project, task or to-do")}
+          title={__("Find a project, task or to-do (Ctrl F)")}
         >
           <Search size={14} />
         </button>
@@ -458,15 +465,16 @@ function HoverLayer({ shown, className, children }) {
 }
 
 function TodoList({ project, open, todoOps, timedTodoId, onStopTimer }) {
+  useT();
   return (
-    <section className="flex min-h-0 flex-1 flex-col border-t border-line pt-2" aria-label="To-dos">
+    <section className="flex min-h-0 flex-1 flex-col border-t border-line pt-2" aria-label={__("To-dos")}>
       <h2 className="flex shrink-0 items-baseline gap-1.5 font-serif text-xs italic text-muted">
-        To-dos {open.length > 0 && <span className="figures not-italic">{open.length}</span>}
+        {__("To-dos")} {open.length > 0 && <span className="figures not-italic">{open.length}</span>}
       </h2>
       {!project ? (
-        <p className="mt-1 text-xs text-faint">Start a project to see its to-dos here.</p>
+        <p className="mt-1 text-xs text-faint">{__("Start a project to see its to-dos here.")}</p>
       ) : open.length === 0 ? (
-        <p className="mt-1 text-xs text-faint">Nothing left to do on {project.name}.</p>
+        <p className="mt-1 text-xs text-faint">{__("Nothing left to do on {name}.", { name: project.name })}</p>
       ) : (
         <ul className="mt-1 min-h-0 flex-1 overflow-y-auto">
           {open.map((x) => (
@@ -475,7 +483,7 @@ function TodoList({ project, open, todoOps, timedTodoId, onStopTimer }) {
                 type="checkbox"
                 checked={false}
                 onChange={() => todoOps?.update(x.id, { done: true })}
-                aria-label={`Mark "${x.text}" done`}
+                aria-label={__("Mark \"{text}\" done", { text: x.text })}
                 className="size-4 shrink-0 cursor-pointer accent-(--text)"
               />
               <span className={`min-w-0 flex-1 truncate ${x.parent_id ? "pl-3 text-muted" : ""}`} title={x.text}>
@@ -486,12 +494,10 @@ function TodoList({ project, open, todoOps, timedTodoId, onStopTimer }) {
                   onClick={onStopTimer}
                   disabled={!onStopTimer}
                   className="flex h-7 shrink-0 items-center gap-1 px-1 text-[11px] font-semibold text-accent transition-colors hover:bg-surface-2 disabled:pointer-events-none"
-                  title="The timer is on this. Click to stop it (the pomodoro keeps going)"
-                  aria-label={`Stop the timer on "${x.text}"`}
+                  title={__("The timer is on this. Click to stop it (the pomodoro keeps going)")}
+                  aria-label={__("Stop the timer on \"{text}\"", { text: x.text })}
                 >
-                  <span className="blink-dot size-1.5 rounded-full bg-accent" aria-hidden="true" />
-                  Timing
-                </button>
+                  <span className="blink-dot size-1.5 rounded-full bg-accent" aria-hidden="true" />{__("Timing")}</button>
               ) : (
                 <WorkingToggle todo={x} todoOps={todoOps} />
               )}
@@ -506,19 +512,20 @@ function TodoList({ project, open, todoOps, timedTodoId, onStopTimer }) {
 /** Marks a to-do as being worked on, or lets go of it, as the dot beside a to-do in the project does. It is
  *  always shown, not only on hover: the floating window doesn't always apply :hover (see ClockFace). */
 function WorkingToggle({ todo, todoOps }) {
+  useT();
   const working = Boolean(todo.working_since);
   return (
     <button
       onClick={() => todoOps?.update(todo.id, { working: !working })}
       aria-pressed={working}
-      aria-label={working ? `Stop marking "${todo.text}" as being worked on` : `Mark "${todo.text}" as being worked on`}
-      title={working ? `Working on this since ${format(new Date(todo.working_since), "EEE d MMM, HH:mm")}. Click to unmark` : "Currently working on this"}
+      aria-label={working ? __("Stop marking \"{text}\" as being worked on", { text: todo.text }) : __("Mark \"{text}\" as being worked on", { text: todo.text })}
+      title={working ? __("Working on this since {format}. Click to unmark", { format: format(new Date(todo.working_since), "EEE d MMM, HH:mm") }) : __("Currently working on this")}
       className={`flex h-7 shrink-0 items-center gap-1 px-1 text-[11px] font-semibold transition-colors hover:bg-surface-2 ${
         working ? "text-accent" : "text-faint hover:text-text"
       }`}
     >
       <CircleDot size={13} className={working ? "blink-dot" : ""} aria-hidden="true" />
-      {working && "Working on"}
+      {working && __("Working on")}
     </button>
   );
 }
@@ -526,11 +533,12 @@ function WorkingToggle({ todo, todoOps }) {
 /** What the pomodoro is for, said inside the mini clock: the same picker as the header's, laid over the clock
  *  (a popover would sit on the page, not in the floating window). Esc, or a pick, goes back. */
 function MiniTag({ value, choices, onChange, onClose }) {
+  useT();
   return (
     <div
       className="fade-in absolute inset-0 z-20 flex flex-col bg-bg"
       role="dialog"
-      aria-label="What is this pomodoro for?"
+      aria-label={__("What is this pomodoro for?")}
       onKeyDown={(e) => {
         if (e.key !== "Escape") return;
         e.preventDefault();
@@ -540,11 +548,11 @@ function MiniTag({ value, choices, onChange, onClose }) {
     >
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line-strong pl-2.5">
         <Tag size={14} className="shrink-0 text-muted" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">For</span>
+        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{__("For")}</span>
         <button
           onClick={onClose}
           className="grid h-full w-9 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
-          aria-label="Close"
+          aria-label={__("Close")}
         >
           <X size={14} />
         </button>
@@ -560,6 +568,7 @@ function MiniTag({ value, choices, onChange, onClose }) {
  *  typed: type, arrows, Enter starts it (`onPick` gets the result); Esc goes back. With `onTasks`, the Tasks
  *  tab is one of the results. */
 function MiniSearch({ projects, todos = [], runningId, onTasks, onPick, onClose }) {
+  useT();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const listRef = useRef(null);
@@ -589,7 +598,7 @@ function MiniSearch({ projects, todos = [], runningId, onTasks, onPick, onClose 
   };
 
   return (
-    <div className="fade-in absolute inset-0 z-20 flex flex-col bg-bg" role="dialog" aria-label="Find a project, task or to-do">
+    <div className="fade-in absolute inset-0 z-20 flex flex-col bg-bg" role="dialog" aria-label={__("Find a project, task or to-do")}>
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line-strong pl-2.5">
         <Search size={14} className="shrink-0 text-muted" aria-hidden="true" />
         <input
@@ -602,8 +611,8 @@ function MiniSearch({ projects, todos = [], runningId, onTasks, onPick, onClose 
           onKeyDown={onKeyDown}
           role="combobox"
           aria-expanded="true"
-          aria-label="Project, task or to-do"
-          placeholder="Find a project, task or to-do"
+          aria-label={__("Project, task or to-do")}
+          placeholder={__("Find a project, task or to-do")}
           autoComplete="off"
           spellCheck={false}
           className="h-full min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-faint"
@@ -611,13 +620,13 @@ function MiniSearch({ projects, todos = [], runningId, onTasks, onPick, onClose 
         <button
           onClick={onClose}
           className="grid h-full w-9 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
-          aria-label="Close the search"
+          aria-label={__("Close the search")}
         >
           <X size={14} />
         </button>
       </div>
       {results.length === 0 ? (
-        <p className="p-3 font-serif text-xs italic text-muted">Nothing matches “{query.trim()}”.</p>
+        <p className="p-3 font-serif text-xs italic text-muted">{__("Nothing matches “{query}”.", { query: query.trim() })}</p>
       ) : (
         <ul ref={listRef} role="listbox" className="min-h-0 flex-1 overflow-y-auto">
           {results.map((p, i) => {
@@ -637,7 +646,7 @@ function MiniSearch({ projects, todos = [], runningId, onTasks, onPick, onClose 
                   <TodoNote entry={p} className="text-[11px]" />
                 ) : (
                   (p.kind === "tab" || p.kind === "task") && (
-                    <span className="shrink-0 font-serif text-[11px] italic text-muted">{p.kind === "tab" ? "Tab" : "Task"}</span>
+                    <span className="shrink-0 font-serif text-[11px] italic text-muted">{p.kind === "tab" ? __("Tab") : __("Task")}</span>
                   )
                 )}
                 {p.id === runningId && <span className="blink-dot size-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />}
@@ -684,6 +693,7 @@ export function Hourglass({ height, progress, color, flowing }) {
 /** The in-page widget: fixed to the window, pinned by its right and bottom edges so it stays put when
  *  the window is resized, dragged by the bar along its top and resized from the grip at its top-left. */
 function Floating({ onClose, children }) {
+  useT();
   const [pos, setPos] = useState(() => readSaved(POS_KEY, { right: 16, bottom: 16 }, ["right", "bottom"]));
   const [size, setSize] = useState(() => readSaved(SIZE_KEY, SIZE, ["w", "h"]));
   const drag = useRef(null);
@@ -744,7 +754,7 @@ function Floating({ onClose, children }) {
 
   return (
     <aside
-      aria-label="Mini clock"
+      aria-label={__("Mini clock")}
       className="fixed z-[41] flex flex-col border border-line-strong bg-bg shadow-[0_6px_24px_rgb(0_0_0/0.25)]"
       style={{
         right: shown.right,
@@ -757,24 +767,24 @@ function Floating({ onClose, children }) {
         <button
           {...resizeHandle}
           className="grid h-full w-7 cursor-nwse-resize touch-none place-items-center text-faint transition-colors hover:text-text"
-          aria-label="Resize the mini clock"
-          title="Drag to resize"
+          aria-label={__("Resize the mini clock")}
+          title={__("Drag to resize")}
         >
           <MoveDiagonal2 size={12} aria-hidden="true" />
         </button>
         <button
           {...moveHandle}
           className="grid h-full flex-1 cursor-grab touch-none place-items-center text-faint active:cursor-grabbing"
-          aria-label="Drag the mini clock"
-          title="Drag to move"
+          aria-label={__("Drag the mini clock")}
+          title={__("Drag to move")}
         >
           <GripHorizontal size={14} aria-hidden="true" />
         </button>
         <button
           onClick={onClose}
           className="grid h-full w-7 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
-          aria-label="Close the mini clock"
-          title="Close"
+          aria-label={__("Close the mini clock")}
+          title={__("Close")}
         >
           <X size={13} />
         </button>

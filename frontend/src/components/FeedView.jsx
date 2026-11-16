@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { formatDistanceToNowStrict } from "date-fns";
+import { formatDistanceToNowStrict } from "../lib/dates";
 import { ArrowDownToLine, ArrowUpToLine, Layers, Pin, PinOff, Play, Plus, SkipForward, Square } from "lucide-react";
 import { ON_INK, iconFor, inkFor, inkText, tint } from "../lib/palette";
 import { fmtClock } from "../lib/time";
@@ -7,6 +7,8 @@ import { Button } from "./Modal";
 import ParentTag from "./ParentTag";
 import FeedSwipe from "./FeedSwipe";
 import { FEED_MODES } from "../lib/feedOrder";
+import { __, _n, useT } from "../i18n";
+
 
 const SHOWN_TODOS = 5; // more than this and the rest are behind "+N more", which opens the project
 
@@ -24,13 +26,14 @@ const SHOWN_TODOS = 5; // more than this and the rest are behind "+N more", whic
 export default function FeedView({
   queue, todosByProject, todosById, todoOps, statusesById, runningId, elapsed, feedOrder, onOrder, onOpen, onStart, onStartTask, onStop, onSkip,
 }) {
+  useT();
   const [sorting, setSorting] = useState(false);
   if (queue.length === 0) {
     return (
       <div className="mx-auto grid min-h-[16rem] max-w-3xl place-items-center border border-dashed border-line-strong p-6 text-center">
         <div>
-          <p className="font-serif text-lg font-semibold">Nothing to work on</p>
-          <p className="mt-1 text-[13px] text-muted">Finished and archived projects don't show up here.</p>
+          <p className="font-serif text-lg font-semibold">{__("Nothing to work on")}</p>
+          <p className="mt-1 text-[13px] text-muted">{__("Finished and archived projects don't show up here.")}</p>
         </div>
       </div>
     );
@@ -58,9 +61,9 @@ export default function FeedView({
   return (
     <div className="pb-4">
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-        <p className="min-w-0 flex-1 basis-56 font-serif text-[13px] italic text-muted">{mode.note} Pinned cards stay on top.</p>
+        <p className="min-w-0 flex-1 basis-56 font-serif text-[13px] italic text-muted">{__(mode.note)} {__("Pinned cards stay on top.")}</p>
         <label className="flex items-center gap-1.5 text-xs text-muted">
-          Order
+          {__("Order")}
           <select
             value={feedOrder.mode}
             onChange={(e) => feedOrder.setMode(e.target.value)}
@@ -68,7 +71,7 @@ export default function FeedView({
           >
             {FEED_MODES.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.label}
+                {__(m.label)}
               </option>
             ))}
           </select>
@@ -77,10 +80,9 @@ export default function FeedView({
           <button
             onClick={() => setSorting(true)}
             className="inline-flex h-8 items-center gap-1.5 border border-line-strong px-2.5 text-xs font-semibold transition-colors hover:border-text hover:bg-surface-2"
-            title="Swipe through your projects and tasks to put them in order"
+            title={__("Swipe through your projects and tasks to put them in order")}
           >
-            <Layers size={13} aria-hidden="true" /> Sort
-          </button>
+            <Layers size={13} aria-hidden="true" />{" "}{__("Sort")}</button>
         )}
       </div>
       {sorting && (
@@ -124,6 +126,7 @@ export default function FeedView({
 function FeedCard({
   position, project, lastWorked, status, todos, todosById, todoOps, isRunning, isNext, pinned, onPin, canSkip, elapsed, onOpen, onStart, onStartTask, onStop, onSkip,
 }) {
+  useT();
   const { color, name } = project;
   // The tasks, as one card: each is timed on its own (not the card), and a new line adds a task
   const isTasks = project.kind === "tasks";
@@ -155,21 +158,19 @@ function FeedCard({
             <button
               onClick={onOpen}
               title={name}
-              aria-label={isTasks ? "Open the Tasks tab" : `Open ${name}: to-dos and sessions`}
+              aria-label={isTasks ? __("Open the Tasks tab") : __("Open {name}: to-dos and sessions", { name })}
               className="min-w-0 text-left font-serif text-[16px] font-medium leading-snug underline-offset-4 hover:underline focus-visible:underline"
             >
               <span className="line-clamp-2 break-words">{name}</span>
             </button>
             {isNext && (
-              <span className="mt-0.5 shrink-0 border border-line-strong px-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
-                Up next
-              </span>
+              <span className="mt-0.5 shrink-0 border border-line-strong px-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">{__("Up next")}</span>
             )}
             <button
               onClick={onPin}
               aria-pressed={pinned}
-              aria-label={pinned ? `Unpin ${name}` : `Pin ${name} to the top of the Feed`}
-              title={pinned ? "Pinned to the top. Click to unpin" : "Pin to the top of the Feed"}
+              aria-label={pinned ? __("Unpin {name}", { name }) : __("Pin {name} to the top of the Feed", { name })}
+              title={pinned ? __("Pinned to the top. Click to unpin") : __("Pin to the top of the Feed")}
               className={`ml-auto grid size-6 shrink-0 place-items-center transition-colors hover:bg-surface-2 hover:text-text ${
                 pinned ? "text-accent" : "text-faint"
               }`}
@@ -186,10 +187,10 @@ function FeedCard({
             )}
             <span className="font-serif italic">
               {isRunning
-                ? "Working on it now"
+                ? __("Working on it now")
                 : lastWorked
-                  ? `Last worked ${formatDistanceToNowStrict(lastWorked, { addSuffix: true })}`
-                  : "Never worked"}
+                  ? __("Last worked {formatDistanceToNowStrict}", { formatDistanceToNowStrict: formatDistanceToNowStrict(lastWorked, { addSuffix: true }) })
+                  : __("Never worked")}
             </span>
           </p>
         </div>
@@ -224,13 +225,13 @@ function FeedCard({
                 aria-expanded={expanded}
                 className="text-[13px] text-muted underline underline-offset-2 transition-colors hover:text-text"
               >
-                {expanded ? "Show fewer" : `+${more} more to-do${more === 1 ? "" : "s"}`}
+                {expanded ? __("Show fewer") : _n(more, "+{n} more to-do", "+{n} more to-dos")}
               </button>
             </li>
           )}
         </ul>
       ) : (
-        <p className="px-3 py-2 font-serif text-xs italic text-faint sm:pl-[2.125rem]">No open to-dos</p>
+        <p className="px-3 py-2 font-serif text-xs italic text-faint sm:pl-[2.125rem]">{__("No open to-dos")}</p>
       )}
 
       <AddTodo projectId={isTasks ? null : project.id} name={name} noun={isTasks ? "task" : "to-do"} ops={todoOps} />
@@ -241,16 +242,15 @@ function FeedCard({
             variant="outline"
             className="h-8 text-xs"
             onClick={onSkip}
-            aria-label={`Skip ${name} to the back of the queue`}
-            title="Move to the back of the queue"
+            aria-label={__("Skip {name} to the back of the queue", { name })}
+            title={__("Move to the back of the queue")}
           >
-            <SkipForward size={13} /> Skip
-          </Button>
+            <SkipForward size={13} />{" "}{__("Skip")}</Button>
         )}
         {(!isTasks || isRunning) && (
         <button
           onClick={isRunning ? onStop : onStart}
-          aria-label={isRunning ? `Stop ${name}` : `Start ${name}`}
+          aria-label={isRunning ? __("Stop {name}", { name }) : __("Start {name}", { name })}
           className={`flex h-8 min-w-[6.5rem] items-center justify-center gap-1.5 border px-3 text-xs font-semibold transition-colors ${
             isRunning ? "" : "border-line-strong hover:border-text hover:bg-surface-2"
           }`}
@@ -263,8 +263,7 @@ function FeedCard({
             </>
           ) : (
             <>
-              <Play size={11} fill="currentColor" /> Start
-            </>
+              <Play size={11} fill="currentColor" />{" "}{__("Start")}</>
           )}
         </button>
         )}
@@ -276,6 +275,7 @@ function FeedCard({
 /** One open to-do: tick it, rename it (saved on blur or Enter; an emptied line goes back to what it was)
  *  or start the project's timer from it. */
 function TodoLine({ todo, todosById, ops, canStart, canSkip, onTop, onStart }) {
+  useT();
   const [draft, setDraft] = useState(todo.text);
   useEffect(() => setDraft(todo.text), [todo.text]);
 
@@ -291,7 +291,7 @@ function TodoLine({ todo, todosById, ops, canStart, canSkip, onTop, onStart }) {
         type="checkbox"
         checked={false}
         onChange={() => ops.update(todo.id, { done: true })}
-        aria-label={`Mark "${todo.text}" done`}
+        aria-label={__("Mark \"{text}\" done", { text: todo.text })}
         className="size-4 shrink-0 cursor-pointer accent-(--text)"
       />
       <ParentTag todo={todo} todosById={todosById} className="max-sm:max-w-[6rem]" />
@@ -307,14 +307,14 @@ function TodoLine({ todo, todosById, ops, canStart, canSkip, onTop, onStart }) {
           }
         }}
         maxLength={200}
-        aria-label="To-do"
+        aria-label={__("To-do")}
         className="h-9 min-w-0 flex-1 bg-transparent text-[14px] outline-none focus:bg-surface-2"
       />
       {onTop && (
         <button
           onClick={onTop}
-          aria-label={`Put "${todo.text}" first`}
-          title="Put first: top of the list, and the Tasks card on top of the Feed"
+          aria-label={__("Put \"{text}\" first", { text: todo.text })}
+          title={__("Put first: top of the list, and the Tasks card on top of the Feed")}
           className="grid size-8 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
         >
           <ArrowUpToLine size={13} />
@@ -323,8 +323,8 @@ function TodoLine({ todo, todosById, ops, canStart, canSkip, onTop, onStart }) {
       {canSkip && (
         <button
           onClick={() => ops.moveToBottom(todo.id)}
-          aria-label={`Skip "${todo.text}" to the bottom of the list`}
-          title="Skip to the bottom of the list"
+          aria-label={__("Skip \"{text}\" to the bottom of the list", { text: todo.text })}
+          title={__("Skip to the bottom of the list")}
           className="grid size-8 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
         >
           <ArrowDownToLine size={13} />
@@ -333,8 +333,8 @@ function TodoLine({ todo, todosById, ops, canStart, canSkip, onTop, onStart }) {
       {canStart && (
         <button
           onClick={onStart}
-          aria-label={`Work on "${todo.text}"`}
-          title="Work on this"
+          aria-label={__("Work on \"{text}\"", { text: todo.text })}
+          title={__("Work on this")}
           className="grid size-8 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
         >
           <Play size={12} fill="currentColor" />
@@ -346,6 +346,7 @@ function TodoLine({ todo, todosById, ops, canStart, canSkip, onTop, onStart }) {
 
 /** The line under a card's to-dos for a new one. */
 function AddTodo({ projectId, name, noun = "to-do", ops }) {
+  useT();
   const [draft, setDraft] = useState("");
 
   const add = async (e) => {
@@ -363,8 +364,8 @@ function AddTodo({ projectId, name, noun = "to-do", ops }) {
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         maxLength={200}
-        placeholder={`Add a ${noun} and press Enter`}
-        aria-label={projectId === null ? "New task" : `New to-do for ${name}`}
+        placeholder={noun === "task" ? __("Add a task and press Enter") : __("Add a to-do and press Enter")}
+        aria-label={projectId === null ? __("New task") : __("New to-do for {name}", { name })}
         className="h-9 min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-faint"
       />
     </form>

@@ -1,6 +1,8 @@
 // Thin client for the FastAPI backend. Every route is under /api; in dev Vite
 // proxies that to the Python server (see vite.config.js).
 
+import { __, translateError, getLanguage } from "./i18n";
+
 const BASE = "/api";
 export const UNAUTHORIZED_EVENT = "pt-unauthorized";
 
@@ -38,14 +40,14 @@ export async function fetchApi(path, options = {}) {
       await wait(500 * 2 ** (attempt - 1) + Math.random() * 250);
       continue;
     }
-    // "Owner login is not configured" is a 503 that waiting won't fix
+    // "Sign-in is not configured" is a 503 that waiting won't fix
     const transient = RETRY_STATUSES.has(response.status) && !path.startsWith("/auth/") && !(await isConfigError(response));
     if (!transient || attempt >= retries) break;
     await wait(500 * 2 ** (attempt - 1) + Math.random() * 250);
   }
 
   if (!response.ok) {
-    // An expired owner session: let the app drop back to the public page. Login
+    // An expired session: let the app drop back to the public page. Login
     // itself answers 401 for a wrong password, which is not a session problem.
     if (response.status === 401 && !path.startsWith("/auth/")) {
       window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
@@ -58,7 +60,7 @@ export async function fetchApi(path, options = {}) {
     } catch {
       // not JSON; keep the raw text
     }
-    const error = new Error(message || `Request failed (${response.status})`);
+    const error = new Error(translateError(message) || __("Request failed ({status})", { status: response.status }));
     error.status = response.status;
     throw error;
   }
@@ -209,15 +211,40 @@ function serializeSession(data) {
   return out;
 }
 
-/** Owner login. The session lives in an HttpOnly cookie, so JS never sees a token. */
+/** Accounts. The session lives in an HttpOnly cookie, so JS never sees a token. `me` says who is signed in
+ *  ({ authenticated, user }); login and register answer with the user. */
 export const auth = {
   me: () => fetchApi("/auth/me"),
-  login: (password) => fetchApi("/auth/login", json("POST", { password })),
+  login: (email, password) => fetchApi("/auth/login", json("POST", { email, password })),
+  /** Make an account with an invite code; signs in too. */
+  register: ({ code, email, password }) => fetchApi("/auth/register", json("POST", { code, email, password, language: getLanguage() })),
   logout: () => fetchApi("/auth/logout", { method: "POST" }),
+  /** The language this account reads the app in (it follows the person to any device). */
+  saveLanguage: (language) => fetchApi("/auth/language", json("POST", { language })),
+  /** This account's password. Every other session of it is signed out; this one stays in. */
+  changePassword: (currentPassword, newPassword) =>
+    fetchApi("/auth/password", json("POST", { current_password: currentPassword, new_password: newPassword })),
 };
 
-/** The public "I'd use this" counter on the landing page, plus the owner's inbox
- *  of what visitors wrote (inbox and removeMessage need the owner session). */
+const parseInvite = (i) => ({
+  ...i,
+  created_at: new Date(i.created_at),
+  expires_at: new Date(i.expires_at),
+  used_at: i.used_at ? new Date(i.used_at) : null,
+});
+
+/** Admin only: the one-time codes that let someone register. A code is shown once, when it is made. */
+export const admin = {
+  listInvites: async () => (await fetchApi("/admin/invites")).map(parseInvite),
+  createInvite: async (days = 7) => {
+    const made = await fetchApi("/admin/invites", json("POST", { days }));
+    return { ...made, expires_at: new Date(made.expires_at) };
+  },
+  deleteInvite: (id) => fetchApi(`/admin/invites/${encodeURIComponent(id)}`, { method: "DELETE" }),
+};
+
+/** The public "I'd use this" counter on the landing page, plus the admin's inbox
+ *  of what visitors wrote (inbox and removeMessage need an admin session). */
 export const interest = {
   get: () => fetchApi("/interest"),
   add: (visitorId) => fetchApi("/interest", json("POST", { visitor_id: visitorId })),

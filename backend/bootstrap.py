@@ -7,19 +7,35 @@ so changes to an existing table (projects, todos) are applied by hand below, and
 checks whether it is already done. Running this twice is harmless.
 """
 
+import logging
+import os
 import re
 
-from sqlalchemy import Engine, Table, inspect, select, text
+from sqlalchemy import Engine, Table, inspect, select, text, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.schema import CreateTable
 from sqlalchemy.orm import Session as DbSession
 
 from . import models
-from .models import Status
+from .models import Status, User
+from .passwords import hash_password
 
-# What a fresh database starts with. The owner can rename, recolor or add to these.
+log = logging.getLogger(__name__)
+
+# What a fresh database starts with. Every account gets its own copy to rename, recolor or add to.
 DEFAULT_STATUSES = [
     ("Active", "#3a744b", False),
     ("Done", "#56606b", True),
+]
+
+# The names above in the languages the app speaks. They are only the starting point: the person renames them freely.
+STATUS_NAMES = {"es": {"Active": "Activo", "Done": "Hecho"}}
+
+# The tables whose rows belong to one account. Rows made before accounts existed have no user_id until the
+# admin adopts them (_adopt_orphans).
+OWNED_MODELS = [
+    models.Status, models.Project, models.Todo, models.Session,
+    models.OpenItem, models.Pomodoro, models.Habit,
 ]
 
 
@@ -30,14 +46,118 @@ def init_db(engine: Engine) -> None:
     _add_status_columns(engine)
     _add_pomodoro_columns(engine)
     _add_session_columns(engine)
+    _add_user_columns(engine)
+    _add_language_column(engine)
     # Tasks of their own are to-dos with no project, and their time is sessions with no project
     _make_nullable(engine, models.Todo.__table__, "project_id")
     _make_nullable(engine, models.Session.__table__, "project_id")
     with DbSession(engine) as db:
         _seed_statuses(db)
         _backfill_status_ids(db)
+        _ensure_admin(db)
+        _adopt_orphans(db)
         db.commit()
+    _migrate_habit_sync(engine)
     _drop_legacy_status_column(engine)
+    _ensure_one_running_timer(engine)
+
+
+def normalize_email(email: str) -> str:
+    return email.strip().lower()
+
+
+def seed_user_statuses(db: DbSession, user_id: str, language: str = "en") -> None:
+    """Give a new account the default statuses, named in its language (nothing if it already has some)."""
+    if db.scalar(select(Status.id).where(Status.user_id == user_id).limit(1)) is not None:
+        return
+    names = STATUS_NAMES.get(language, {})
+    for order, (name, color, is_done) in enumerate(DEFAULT_STATUSES, start=1):
+        db.add(Status(user_id=user_id, name=names.get(name, name), color=color, is_done=is_done, sort_order=order))
+    db.flush()
+
+
+def _first_admin_id(db: DbSession) -> str | None:
+    return db.scalar(select(User.id).where(User.is_admin.is_(True)).order_by(User.created_at).limit(1))
+
+
+def _ensure_admin(db: DbSession) -> None:
+    """With no accounts yet, make the first one, the admin, from ADMIN_EMAIL and OWNER_PASSWORD. That is how the
+    person who ran the single-owner version keeps their data: they sign in with the password they already had.
+    After that the variables are ignored (the password is changed in the app)."""
+    if db.scalar(select(User.id).limit(1)) is not None:
+        return
+    email, password = normalize_email(os.getenv("ADMIN_EMAIL", "")), os.getenv("OWNER_PASSWORD", "")
+    if not email or not password:
+        log.warning("No accounts yet: set ADMIN_EMAIL and OWNER_PASSWORD to create the admin")
+        return
+    db.add(User(email=email, password_hash=hash_password(password), is_admin=True))
+    db.flush()
+
+
+def _adopt_orphans(db: DbSession) -> None:
+    """Everything made before accounts existed (no user_id) becomes the admin's, and the admin has statuses."""
+    admin_id = _first_admin_id(db)
+    if admin_id is None:
+        return
+    for model in OWNED_MODELS:
+        db.execute(update(model).where(model.user_id.is_(None)).values(user_id=admin_id))
+    seed_user_statuses(db, admin_id)
+
+
+def _add_user_columns(engine: Engine) -> None:
+    """Add `user_id` to a table made before accounts existed (nullable; the admin adopts the rows). A habit's
+    uuid used to be unique on its own: it is now unique per account."""
+    existing = set(inspect(engine).get_table_names())
+    with engine.begin() as conn:
+        for model in OWNED_MODELS:
+            table = model.__tablename__
+            if table not in existing:
+                continue
+            if "user_id" not in {c["name"] for c in inspect(conn).get_columns(table)}:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN user_id VARCHAR REFERENCES users(id) ON DELETE CASCADE"))
+            conn.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{table}_user_id ON {table} (user_id)"))
+        legacy = [i for i in inspect(conn).get_indexes("habits") if i["name"] == "ix_habits_loop_uuid" and i["unique"]]
+        if legacy:
+            conn.execute(text("DROP INDEX ix_habits_loop_uuid"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_habits_loop_uuid ON habits (loop_uuid)"))
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_habits_user_loop ON habits (user_id, loop_uuid)"))
+
+
+def _add_language_column(engine: Engine) -> None:
+    """Accounts made before the app had a second language speak English."""
+    if "language" not in {c["name"] for c in inspect(engine).get_columns("users")}:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN language VARCHAR(5) NOT NULL DEFAULT 'en'"))
+
+
+def _migrate_habit_sync(engine: Engine) -> None:
+    """habit_sync used to be one row (id = 1); it is now one row per account. It only remembers which backup was
+    copied last, so the table is made again and the old row goes to the admin."""
+    if "user_id" in {c["name"] for c in inspect(engine).get_columns("habit_sync")}:
+        return
+    with engine.begin() as conn:
+        old = conn.execute(text("SELECT file_name, md5, synced_at FROM habit_sync LIMIT 1")).first()
+        conn.execute(text("DROP TABLE habit_sync"))
+    models.HabitSync.__table__.create(bind=engine)
+    with DbSession(engine) as db:
+        admin_id = _first_admin_id(db)
+        if old is not None and admin_id is not None:
+            # Raw SQL: the value is handed back exactly as the old table held it (SQLite returns text here)
+            db.execute(
+                text("INSERT INTO habit_sync (user_id, file_name, md5, synced_at) VALUES (:u, :f, :m, :s)"),
+                {"u": admin_id, "f": old.file_name, "m": old.md5, "s": old.synced_at},
+            )
+            db.commit()
+
+
+def _ensure_one_running_timer(engine: Engine) -> None:
+    """A safety net under the timer routes: the database itself refuses a second running session for one account.
+    If old data already breaks that, the index is skipped (and logged) rather than stopping the app."""
+    try:
+        with engine.begin() as conn:
+            conn.execute(text('CREATE UNIQUE INDEX IF NOT EXISTS uq_sessions_one_running ON sessions (user_id) WHERE "end" IS NULL'))
+    except SQLAlchemyError:
+        log.warning("Could not enforce one running timer per account: some account has several running sessions")
 
 
 def _project_columns(engine: Engine) -> set[str]:

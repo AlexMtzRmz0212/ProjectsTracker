@@ -1,9 +1,11 @@
 import { Trash2 } from "lucide-react";
 import Modal, { Button } from "./Modal";
 import { iconFor, inkText } from "../lib/palette";
+import { __, useT } from "../i18n";
 
 /** "Are you sure?" for destructive actions, with the ledger entry that goes away. */
 export default function ConfirmDialog({ title, project, primary, secondary, note, onCancel, onConfirm }) {
+  useT();
   const Icon = iconFor(project.icon);
   return (
     <Modal
@@ -11,12 +13,9 @@ export default function ConfirmDialog({ title, project, primary, secondary, note
       onClose={onCancel}
       footer={
         <>
-          <Button className="ml-auto" onClick={onCancel}>
-            Cancel
-          </Button>
+          <Button className="ml-auto" onClick={onCancel}>{__("Cancel")}</Button>
           <Button variant="solidDanger" onClick={onConfirm} autoFocus>
-            <Trash2 size={15} /> Delete
-          </Button>
+            <Trash2 size={15} />{" "}{__("Delete")}</Button>
         </>
       }
     >

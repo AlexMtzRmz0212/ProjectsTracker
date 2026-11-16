@@ -8,44 +8,48 @@ import TabBar from "../components/TabBar";
 import { useTheme } from "../hooks/useTheme";
 import { createDemoApi } from "../demo/demoApi";
 import InterestWidget from "./InterestWidget";
+import LanguageToggle from "../components/LanguageToggle";
+import { N_, __, useT } from "../i18n";
+
 
 const FEATURES = [
   {
     icon: Play,
-    name: "Timers",
-    text: "Press play on a project. One timer runs at a time, and in the real app it keeps counting after you close the tab.",
+    name: N_("Timers"),
+    text: N_("Press play on a project. One timer runs at a time, and in the real app it keeps counting after you close the tab."),
   },
   {
     icon: LayoutGrid,
-    name: "Status board",
-    text: "Every status is a column. Drag a project from Idea to Active to Done, or up to the trash to delete it, and add to-dos to each one.",
+    name: N_("Status board"),
+    text: N_("Every status is a column. Drag a project from Idea to Active to Done, or up to the trash to delete it, and add to-dos to each one."),
   },
   {
     icon: CalendarPlus,
-    name: "Manual time",
-    text: "Forgot to start the clock? Log time afterwards by typing a duration, including sessions that ran past midnight.",
+    name: N_("Manual time"),
+    text: N_("Forgot to start the clock? Log time afterwards by typing a duration, including sessions that ran past midnight."),
   },
   {
     icon: CalendarDays,
-    name: "Calendar",
-    text: "Each day fills with the colors of the projects you worked on, in proportion to the time. Click a day to see its sessions.",
+    name: N_("Calendar"),
+    text: N_("Each day fills with the colors of the projects you worked on, in proportion to the time. Click a day to see its sessions."),
   },
   {
     icon: Grid3x3,
-    name: "Heatmap",
-    text: "Weeks of work in one strip. Filter it by project, and click a square to jump the calendar there.",
+    name: N_("Heatmap"),
+    text: N_("Weeks of work in one strip. Filter it by project, and click a square to jump the calendar there."),
   },
 ];
 
 const TABS = [
-  { id: "demo", label: "Try it", icon: Presentation },
-  { id: "how", label: "How it works", short: "How", icon: LayoutGrid },
+  { id: "demo", label: N_("Try it"), icon: Presentation },
+  { id: "how", label: N_("How it works"), short: N_("How"), icon: LayoutGrid },
 ];
 
 /** One screen with two tabs, the live demo and what it does, plus a button in the header
  *  that asks for access in a dialog.
  *  Nothing here is taller than the window unless the window is very small. */
 export default function Landing({ interest, onOwner }) {
+  useT();
   const [theme, toggleTheme] = useTheme();
   const [tab, setTab] = useState("demo");
   const [askOpen, setAskOpen] = useState(false);
@@ -59,21 +63,22 @@ export default function Landing({ interest, onOwner }) {
         <div className="mx-auto flex h-12 w-full max-w-7xl items-center gap-2 px-3 sm:gap-4 sm:px-6">
           <div className="flex shrink-0 items-center gap-2">
             <Timer size={20} aria-hidden="true" />
-            <span className="hidden font-serif text-lg font-semibold tracking-tight md:block">ProjectsTracker</span>
+            <span className="hidden font-serif text-lg font-semibold tracking-tight md:block">{__("ProjectsTracker")}</span>
           </div>
-          <TabBar tabs={TABS} value={tab} onChange={setTab} label="Sections" bare className="min-w-0 flex-1 justify-center sm:justify-start" />
+          <TabBar tabs={TABS.map((t) => ({ ...t, label: __(t.label), short: t.short && __(t.short) }))} value={tab} onChange={setTab} label={__("Sections")} bare className="min-w-0 flex-1 justify-center sm:justify-start" />
           <div className="flex shrink-0 items-center gap-1">
             <Button onClick={() => setAskOpen(true)} variant="outline" className="h-8 px-2.5 text-xs">
               <Hand size={14} aria-hidden="true" />
-              <span className="sm:hidden">Ask</span>
-              <span className="max-sm:hidden">Ask for your own</span>
+              <span className="sm:hidden">{__("Ask")}</span>
+              <span className="max-sm:hidden">{__("Ask for your own")}</span>
             </Button>
-            <Button onClick={toggleTheme} className="w-9 px-0" aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}>
+            <LanguageToggle />
+            <Button onClick={toggleTheme} className="w-9 px-0" aria-label={theme === "dark" ? __("Switch to light theme") : __("Switch to dark theme")}>
               {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
             </Button>
             <button
               onClick={onOwner}
-              aria-label="Owner sign in"
+              aria-label={__("Sign in")}
               className="grid size-8 shrink-0 place-items-center text-faint transition-colors hover:bg-surface-2 hover:text-text"
             >
               <LockKeyhole size={14} />
@@ -93,28 +98,20 @@ export default function Landing({ interest, onOwner }) {
         >
           <div className="flex shrink-0 items-end gap-4 max-sm:px-3">
             <div className="min-w-0 flex-1 border-l-[3px] border-double border-margin pl-3 sm:pl-5">
-              <h1 className="font-hand text-balance text-3xl font-semibold leading-none sm:text-[2.75rem]">
-                Know where your hours go.
-              </h1>
-              <p className="mt-1 hidden max-w-2xl text-[13px] text-muted sm:block [@media(max-height:820px)]:hidden">
-                One-click timers for each project, a board for where each one stands, a calendar that fills as you work,
-                and a year of effort at a glance.
-              </p>
+              <h1 className="font-hand text-balance text-3xl font-semibold leading-none sm:text-[2.75rem]">{__("Know where your hours go.")}</h1>
+              <p className="mt-1 hidden max-w-2xl text-[13px] text-muted sm:block [@media(max-height:820px)]:hidden">{__("One-click timers for each project, a board for where each one stands, a calendar that fills as you work, and a year of effort at a glance.")}</p>
               {/* Narrower screens: just how to move things around, in the words of the hand in use */}
               <p className="mt-1 text-xs text-muted lg:hidden">
-                <span className="pointer-fine:hidden">Hold a card to drag it to a status, or up to the trash.</span>
-                <span className="hidden pointer-fine:inline">Drag a card to another status, or up to the trash.</span>
+                <span className="pointer-fine:hidden">{__("Hold a card to drag it to a status, or up to the trash.")}</span>
+                <span className="hidden pointer-fine:inline">{__("Drag a card to another status, or up to the trash.")}</span>
               </p>
             </div>
-            <p className="hidden max-w-[17rem] text-right text-xs text-muted lg:block">
-              Live demo on sample data. Drag a card to another status, or up to the trash to delete it. Nothing is saved.
-            </p>
+            <p className="hidden max-w-[17rem] text-right text-xs text-muted lg:block">{__("Live demo on sample data. Drag a card to another status, or up to the trash to delete it. Nothing is saved.")}</p>
             <Button onClick={() => setRun((n) => n + 1)} className="h-8 shrink-0 px-2.5 text-xs">
-              <RotateCcw size={13} /> Reset demo
-            </Button>
+              <RotateCcw size={13} />{" "}{__("Reset demo")}</Button>
           </div>
 
-          <div className="min-h-0 flex-1 border-y border-line-strong bg-bg sm:border" aria-label="Live demo">
+          <div className="min-h-0 flex-1 border-y border-line-strong bg-bg sm:border" aria-label={__("Live demo")}>
             <Tracker key={run} api={demoApi} demo />
           </div>
         </section>
@@ -127,13 +124,9 @@ export default function Landing({ interest, onOwner }) {
             className="mx-auto w-full max-w-7xl flex-1 overflow-y-auto px-4 py-8 sm:px-6 lg:grid lg:grid-cols-[17rem_minmax(0,1fr)] lg:gap-14 lg:py-12"
           >
             <div className="mb-6 lg:mb-0">
-              <h2 className="font-serif text-2xl font-semibold tracking-tight sm:text-3xl">How it works</h2>
-              <p className="mt-3 max-w-sm text-[13px] text-muted">
-                Everything in the demo is the real interface. Only the data is made up.
-              </p>
-              <p className="mt-6 hidden text-[13px] text-faint lg:block">
-                Built with React, Vite, Tailwind, FastAPI and PostgreSQL.
-              </p>
+              <h2 className="font-serif text-2xl font-semibold tracking-tight sm:text-3xl">{__("How it works")}</h2>
+              <p className="mt-3 max-w-sm text-[13px] text-muted">{__("Everything in the demo is the real interface. Only the data is made up.")}</p>
+              <p className="mt-6 hidden text-[13px] text-faint lg:block">{__("Built with React, Vite, Tailwind, FastAPI and PostgreSQL.")}</p>
             </div>
             <ul className="border-t border-rule">
               {FEATURES.map(({ icon: Icon, name, text }) => (
@@ -144,24 +137,20 @@ export default function Landing({ interest, onOwner }) {
                   <span className="row-span-2 flex items-center justify-center self-stretch border-r-[3px] border-double border-margin sm:row-span-1">
                     <Icon size={16} strokeWidth={2.25} aria-hidden="true" />
                   </span>
-                  <h3 className="pt-3 font-serif text-[15px] font-medium sm:py-3">{name}</h3>
-                  <p className="pb-3 text-[13px] text-muted sm:py-3.5">{text}</p>
+                  <h3 className="pt-3 font-serif text-[15px] font-medium sm:py-3">{__(name)}</h3>
+                  <p className="pb-3 text-[13px] text-muted sm:py-3.5">{__(text)}</p>
                 </li>
               ))}
             </ul>
-            <p className="mt-6 text-[13px] text-faint lg:hidden">Built with React, Vite, Tailwind, FastAPI and PostgreSQL.</p>
-            <p className="mt-10 font-serif text-[13px] italic text-faint lg:col-span-2 lg:mt-12">
-              With this app you can count your days, but more importantly, you can make your days count.
-            </p>
+            <p className="mt-6 text-[13px] text-faint lg:hidden">{__("Built with React, Vite, Tailwind, FastAPI and PostgreSQL.")}</p>
+            <p className="mt-10 font-serif text-[13px] italic text-faint lg:col-span-2 lg:mt-12">{__("With this app you can count your days, but more importantly, you can make your days count.")}</p>
           </section>
         )}
       </main>
 
       {askOpen && (
-        <Modal title="Ask for your own" onClose={() => setAskOpen(false)}>
-          <p className="mb-6 text-[15px] text-muted">
-            The real tracker is private for now. If you'd use it, press the button. Every press shows it's worth opening up.
-          </p>
+        <Modal title={__("Ask for your own")} onClose={() => setAskOpen(false)}>
+          <p className="mb-6 text-[15px] text-muted">{__("The real tracker is private for now. If you'd use it, press the button. Every press shows it's worth opening up.")}</p>
           <InterestWidget interest={interest} />
         </Modal>
       )}

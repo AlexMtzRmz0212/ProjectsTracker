@@ -1,10 +1,12 @@
 import { useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
-import { format, isThisYear } from "date-fns";
+import { format, isThisYear } from "../lib/dates";
 import { Archive, ArchiveRestore, ChevronUp, X } from "lucide-react";
 import { iconFor, inkFor, inkText } from "../lib/palette";
 import { fmtHM } from "../lib/time";
 import { Button } from "./Modal";
+import { __, _n, useT } from "../i18n";
+
 
 /**
  * The archive, in a drawer that lives off the bottom edge of the screen: projects put away,
@@ -15,6 +17,7 @@ import { Button } from "./Modal";
  * and shut it.
  */
 export default function ArchiveDrawer({ projects, statusesById, dragging, over, onOpen, onRestore }) {
+  useT();
   const [open, setOpen] = useState(false);
   const id = useId();
 
@@ -25,13 +28,13 @@ export default function ArchiveDrawer({ projects, statusesById, dragging, over, 
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  const count = `${projects.length} ${projects.length === 1 ? "project" : "projects"}`;
+  const count = _n(projects.length, "{n} project", "{n} projects");
   const edge = over ? "border-text" : "border-line-strong";
 
   return createPortal(
     <section
       data-drop="archive"
-      aria-label={`Archive, ${count}`}
+      aria-label={__("Archive, {count}", { count })}
       className={`fixed inset-x-0 bottom-[var(--bottom-bar,0px)] z-30 mx-auto w-[min(44rem,calc(100vw-2rem))] border-x border-t bg-surface transition-[transform,border-color] duration-200 ease-out ${edge}`}
       style={{ transform: open ? "translateY(0)" : "translateY(100%)" }}
     >
@@ -40,15 +43,15 @@ export default function ArchiveDrawer({ projects, statusesById, dragging, over, 
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-controls={`${id}-list`}
-        aria-label={open ? "Close the archive" : `Open the archive, ${count}`}
-        title="Drag a project here to archive it"
+        aria-label={open ? __("Close the archive") : __("Open the archive, {count}", { count })}
+        title={__("Drag a project here to archive it")}
         className={`absolute bottom-full left-1/2 flex -translate-x-1/2 items-center gap-1.5 border-x border-t transition-[height,padding,color,background-color,border-color] duration-150 ${edge} ${
           dragging ? "h-10 px-5" : "h-7 px-3"
         } ${over ? "bg-surface-2 text-text" : "bg-surface text-muted hover:text-text"}`}
       >
         <Archive size={14} aria-hidden="true" />
         {dragging ? (
-          <span className="whitespace-nowrap font-serif text-xs italic">Drop to archive</span>
+          <span className="whitespace-nowrap font-serif text-xs italic">{__("Drop to archive")}</span>
         ) : (
           <span className="figures text-xs">{projects.length}</span>
         )}
@@ -57,12 +60,12 @@ export default function ArchiveDrawer({ projects, statusesById, dragging, over, 
 
       <div className="flex items-center gap-2 border-b-[3px] border-double border-line-strong py-1.5 pl-3 pr-1.5">
         <Archive size={15} className="shrink-0 text-muted" aria-hidden="true" />
-        <h2 className="font-serif text-[15px] font-semibold">Archive</h2>
+        <h2 className="font-serif text-[15px] font-semibold">{__("Archive")}</h2>
         <span className="figures text-xs text-muted">{projects.length}</span>
         <button
           onClick={() => setOpen(false)}
           className="ml-auto grid size-8 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
-          aria-label="Close"
+          aria-label={__("Close")}
         >
           <X size={16} />
         </button>
@@ -79,14 +82,14 @@ export default function ArchiveDrawer({ projects, statusesById, dragging, over, 
               <button
                 onClick={() => onOpen(p.id)}
                 title={p.name}
-                aria-label={`Open ${p.name}: to-dos and sessions`}
+                aria-label={__("Open {name}: to-dos and sessions", { name: p.name })}
                 className={`min-w-0 flex-1 truncate text-left font-serif text-[14px] underline-offset-4 hover:underline focus-visible:underline ${
                   p.cancelled_at ? "text-muted line-through" : ""
                 }`}
               >
                 {p.name}
               </button>
-              {p.cancelled_at && <span className="shrink-0 font-serif text-xs italic text-muted">Cancelled</span>}
+              {p.cancelled_at && <span className="shrink-0 font-serif text-xs italic text-muted">{__("Cancelled")}</span>}
               {status && (
                 <span className="hidden shrink-0 items-center gap-1.5 text-xs text-muted sm:inline-flex">
                   <span className="size-2" style={{ background: inkFor(status.color) }} aria-hidden="true" />
@@ -97,14 +100,13 @@ export default function ArchiveDrawer({ projects, statusesById, dragging, over, 
               <span className="shrink-0 font-serif text-xs italic text-faint max-sm:hidden">
                 {format(archivedAt, isThisYear(archivedAt) ? "MMM d" : "MMM d, yyyy")}
               </span>
-              <Button variant="ghost" className="h-7 shrink-0 px-2 text-xs" onClick={() => onRestore(p.id)} aria-label={`Restore ${p.name}`}>
-                <ArchiveRestore size={14} aria-hidden="true" /> Restore
-              </Button>
+              <Button variant="ghost" className="h-7 shrink-0 px-2 text-xs" onClick={() => onRestore(p.id)} aria-label={__("Restore {name}", { name: p.name })}>
+                <ArchiveRestore size={14} aria-hidden="true" />{" "}{__("Restore")}</Button>
             </li>
           );
         })}
         {projects.length === 0 && (
-          <li className="px-3 py-4 text-center text-[13px] text-faint">Drag a project here to archive it</li>
+          <li className="px-3 py-4 text-center text-[13px] text-faint">{__("Drag a project here to archive it")}</li>
         )}
       </ul>
     </section>,

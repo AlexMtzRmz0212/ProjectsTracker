@@ -1,9 +1,12 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
+import { __, useT } from "../i18n";
+
 
 /** Bottom sheet on phones, centered paper slip on larger screens. Esc / backdrop close it. */
 export default function Modal({ title, onClose, children, footer }) {
+  useT();
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && onClose();
     document.addEventListener("keydown", onKey);
@@ -29,7 +32,7 @@ export default function Modal({ title, onClose, children, footer }) {
           <button
             onClick={onClose}
             className="grid size-9 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
-            aria-label="Close"
+            aria-label={__("Close")}
           >
             <X size={18} />
           </button>

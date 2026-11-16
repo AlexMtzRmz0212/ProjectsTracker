@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNow } from "./useNow";
 import { MIN_TIMER_SECONDS, sessionSeconds } from "../lib/time";
+import { scopedKey } from "../lib/storage";
 
 export const DEFAULTS = {
   focus: 25, shortBreak: 5, longBreak: 15, longEvery: 4, breaks: true, autoBreak: false, autoStart: false, sound: true,
@@ -19,7 +20,7 @@ const clamp = (n, [lo, hi]) => Math.min(hi, Math.max(lo, Math.round(n)));
 
 function read(key) {
   try {
-    return JSON.parse(localStorage.getItem(key)) ?? {};
+    return JSON.parse(localStorage.getItem(scopedKey(key))) ?? {};
   } catch {
     return {};
   }
@@ -27,7 +28,7 @@ function read(key) {
 
 function write(key, value) {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    localStorage.setItem(scopedKey(key), JSON.stringify(value));
   } catch {
     // storage blocked: it just won't survive a reload
   }

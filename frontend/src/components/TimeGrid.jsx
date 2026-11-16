@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { addDays, format } from "date-fns";
+import { addDays, format } from "../lib/dates";
 import { Check, ChevronLeft, ChevronRight, Hourglass, Minus, Plus } from "lucide-react";
 import { iconFor, inkText, tint } from "../lib/palette";
 import { dayKey, fmtHM, fmtTime, sessionSeconds } from "../lib/time";
 import { todoSubject } from "../api";
+import { scopedKey } from "../lib/storage";
+import { __, useT } from "../i18n";
+
 
 const DEFAULT_HOUR = 48; // px per hour, before any zooming
 const MIN_HOUR = 20; // zoomed right out: a whole day fits a screen
@@ -14,7 +17,7 @@ const clampHour = (h) => Math.min(MAX_HOUR, Math.max(MIN_HOUR, Math.round(h)));
 /** The zoom this browser last used. */
 function readHour() {
   try {
-    const saved = Number(localStorage.getItem(HOUR_KEY));
+    const saved = Number(localStorage.getItem(scopedKey(HOUR_KEY)));
     if (saved) return clampHour(saved);
   } catch {
     // storage blocked: it just starts unzoomed
@@ -107,6 +110,7 @@ const LONG_PRESS = 380; // ms a finger rests on a block (or an empty spot) befor
 export default function TimeGrid({
   mode, date, today, now, sessions, pomodoros, todos, projectsById, onNavigate, onOpenDay, onEditSession, onAddSpan, onMoveSession, viewSwitch,
 }) {
+  useT();
   const days = useMemo(() => {
     if (mode === "day") return [new Date(date.getFullYear(), date.getMonth(), date.getDate())];
     const monday = new Date(date.getFullYear(), date.getMonth(), date.getDate() - ((date.getDay() + 6) % 7));
@@ -137,7 +141,7 @@ export default function TimeGrid({
     hourRef.current = next;
     setHour(next);
     try {
-      localStorage.setItem(HOUR_KEY, String(next));
+      localStorage.setItem(scopedKey(HOUR_KEY), String(next));
     } catch {
       // storage blocked: it just won't survive a reload
     }
@@ -439,46 +443,42 @@ export default function TimeGrid({
           {title} <span className="figures font-normal text-muted">{format(last, "yyyy")}</span>
         </h2>
         <div className="ml-auto flex shrink-0 items-center">
-          <div className="mr-2 flex items-center border-r border-line pr-2" role="group" aria-label="Zoom the hours">
-            <NavButton label="Zoom out" onClick={() => zoomBy(1 / 1.25)}>
+          <div className="mr-2 flex items-center border-r border-line pr-2" role="group" aria-label={__("Zoom the hours")}>
+            <NavButton label={__("Zoom out")} onClick={() => zoomBy(1 / 1.25)}>
               <Minus size={15} />
             </NavButton>
             <button
               onClick={() => applyHour(DEFAULT_HOUR)}
               className="figures h-8 min-w-11 px-1 text-[12px] text-muted transition-colors hover:bg-surface-2 hover:text-text"
-              title="Back to the usual zoom (0)"
-              aria-label={`Zoom ${Math.round((hour / DEFAULT_HOUR) * 100)} percent. Reset`}
+              title={__("Back to the usual zoom (0)")}
+              aria-label={__("Zoom {round} percent. Reset", { round: Math.round((hour / DEFAULT_HOUR) * 100) })}
             >
               {Math.round((hour / DEFAULT_HOUR) * 100)}%
             </button>
-            <NavButton label="Zoom in" onClick={() => zoomBy(1.25)}>
+            <NavButton label={__("Zoom in")} onClick={() => zoomBy(1.25)}>
               <Plus size={15} />
             </NavButton>
             <button
               onClick={fit}
               className="h-8 px-2 text-[13px] font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-text"
-              title="Stretch the hours that have something in them over the screen"
-            >
-              Fit
-            </button>
+              title={__("Stretch the hours that have something in them over the screen")}
+            >{__("Fit")}</button>
           </div>
-          <NavButton label={mode === "day" ? "Previous day" : "Previous week"} onClick={() => onNavigate(addDays(date, -step))}>
+          <NavButton label={mode === "day" ? __("Previous day") : __("Previous week")} onClick={() => onNavigate(addDays(date, -step))}>
             <ChevronLeft size={17} />
           </NavButton>
           <button
             onClick={() => (showsToday ? scrollToNow() : onNavigate(today))}
             className="h-8 px-2.5 text-[13px] font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-text"
-          >
-            Today
-          </button>
-          <NavButton label={mode === "day" ? "Next day" : "Next week"} onClick={() => onNavigate(addDays(date, step))}>
+          >{__("Today")}</button>
+          <NavButton label={mode === "day" ? __("Next day") : __("Next week")} onClick={() => onNavigate(addDays(date, step))}>
             <ChevronRight size={17} />
           </NavButton>
         </div>
       </div>
       <p className="shrink-0 font-serif text-xs italic text-muted">
-        {fmtHM(rangeTotal)} {mode === "day" ? "logged" : "this week"}
-        <span className="max-sm:hidden"> · drag a block to move it, its edges to change its times, Ctrl + scroll to zoom</span>
+        {fmtHM(rangeTotal)} {mode === "day" ? __("logged") : __("this week")}
+        <span className="max-sm:hidden">{__(" · drag a block to move it, its edges to change its times, Ctrl + scroll to zoom")}</span>
       </p>
 
       <div className="mt-2 flex min-h-0 flex-1 flex-col border border-line">
@@ -493,7 +493,7 @@ export default function TimeGrid({
                 onClick={() => onOpenDay(c.day)}
                 disabled={mode === "day"}
                 className="flex min-w-0 flex-col items-center border-l border-line py-1.5 transition-colors enabled:hover:bg-surface-2"
-                aria-label={`${format(c.day, "EEEE, MMMM d")}: ${fmtHM(c.total)}${mode === "day" ? "" : ". Open this day"}`}
+                aria-label={`${format(c.day, "EEEE, MMMM d")}: ${fmtHM(c.total)}${mode === "day" ? "" : `. ${__("Open this day")}`}`}
               >
                 <span className="text-[11px] text-faint">
                   <span className="sm:hidden">{format(c.day, "EEEEE")}</span>
@@ -560,6 +560,7 @@ export default function TimeGrid({
 }
 
 function DayColumn({ index, column, mode, chip, hour, now, isToday, projectsById, todoText, dragId, suppressClick, onGrab, onEditSession, onAddSpan }) {
+  useT();
   const { dayStart, blocks, ticked, pomos, draft } = column;
   const wide = mode === "day";
   // A single day gives the to-dos ticked off a lane of their own down the right; in a week the columns are
@@ -590,7 +591,7 @@ function DayColumn({ index, column, mode, chip, hour, now, isToday, projectsById
         onPointerDown={(e) => e.target === e.currentTarget && onGrab(e, "create", index)}
         onClick={addAt}
         onContextMenu={noMenu}
-        title="Click to log time from here, or drag over the time to log"
+        title={__("Click to log time from here, or drag over the time to log")}
       />
 
       {/* Pomodoros: a strip down the left edge */}
@@ -599,7 +600,7 @@ function DayColumn({ index, column, mode, chip, hour, now, isToday, projectsById
           key={p.id}
           className="pointer-events-auto absolute left-0 w-[3px]"
           style={{ top, height, background: p.completed ? "var(--accent)" : "var(--line-strong)" }}
-          title={`Pomodoro ${fmtTime(p.start)}–${fmtTime(p.end)}${p.label ? `, ${p.label}` : ""}${p.completed ? "" : ", cut short"}`}
+          title={`${__("Pomodoro")} ${fmtTime(p.start)}–${fmtTime(p.end)}${p.label ? `, ${p.label}` : ""}${p.completed ? "" : `, ${__("cut short")}`}`}
         />
       ))}
 
@@ -633,8 +634,8 @@ function DayColumn({ index, column, mode, chip, hour, now, isToday, projectsById
                 borderColor: project.color,
                 background: lifted ? `color-mix(in srgb, ${project.color} 40%, var(--bg))` : tint(project.color, 26),
               }}
-              title={`${project.name}${onTodo ? `: ${onTodo}` : ""}, ${fmtTime(s.start)}–${running ? "now" : fmtTime(s.end)} (${fmtHM(sessionSeconds(s, now))})${s.note ? `\n${s.note}` : ""}`}
-              aria-label={`${project.name}, ${fmtTime(s.start)} to ${open ? "now, open" : running ? "now" : fmtTime(s.end)}${running && !open ? "" : ". Edit"}`}
+              title={`${project.name}${onTodo ? `: ${onTodo}` : ""}, ${fmtTime(s.start)}–${running ? __("now") : fmtTime(s.end)} (${fmtHM(sessionSeconds(s, now))})${s.note ? `\n${s.note}` : ""}`}
+              aria-label={`${project.name}, ${__("{from} to {to}", { from: fmtTime(s.start), to: open ? __("now, open") : running ? __("now") : fmtTime(s.end) })}${running && !open ? "" : `. ${__("Edit")}`}`}
             >
               {height >= 16 && (
                 <span className="flex min-w-0 items-center gap-1 text-[11px] leading-tight font-semibold">
@@ -649,7 +650,7 @@ function DayColumn({ index, column, mode, chip, hour, now, isToday, projectsById
               )}
               {roomy && (
                 <span className={`figures truncate text-[10px] leading-tight ${lifted ? "font-semibold text-text" : "text-muted"}`}>
-                  {fmtTime(s.start)}–{running ? "now" : fmtTime(s.end)}
+                  {fmtTime(s.start)}–{running ? __("now") : fmtTime(s.end)}
                   {lifted && ` · ${fmtHM(sessionSeconds(s, now))}`}
                 </span>
               )}
@@ -708,7 +709,7 @@ function DayColumn({ index, column, mode, chip, hour, now, isToday, projectsById
               key={todo.id}
               className="pointer-events-auto absolute inset-x-1 flex items-center gap-1.5 border px-1.5 text-[11px]"
               style={{ top, height: chip, borderColor: tint(project.color, 45), background: "var(--surface)" }}
-              title={`${todo.text}, ${project.name}, done ${fmtTime(at)}`}
+              title={__("{text}, {name}, done {fmtTime}", { text: todo.text, name: project.name, fmtTime: fmtTime(at) })}
             >
               <Check size={11} className="shrink-0" style={{ color: inkText(project.color) }} aria-hidden="true" />
               <span className="figures shrink-0 text-muted">{fmtTime(at)}</span>
@@ -719,9 +720,9 @@ function DayColumn({ index, column, mode, chip, hour, now, isToday, projectsById
               key={todo.id}
               className="pointer-events-auto absolute right-0.5 grid place-items-center"
               style={{ top, width: chip - 2, height: chip - 2, background: project.color, color: "var(--bg)" }}
-              title={`${todo.text}, ${project.name}, done ${fmtTime(at)}`}
+              title={__("{text}, {name}, done {fmtTime}", { text: todo.text, name: project.name, fmtTime: fmtTime(at) })}
               role="img"
-              aria-label={`Done at ${fmtTime(at)}: ${todo.text}`}
+              aria-label={__("Done at {fmtTime}: {text}", { fmtTime: fmtTime(at), text: todo.text })}
             >
               <Check size={9} strokeWidth={3} aria-hidden="true" />
             </div>

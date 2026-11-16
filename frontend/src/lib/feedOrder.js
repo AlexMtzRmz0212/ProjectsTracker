@@ -1,12 +1,13 @@
+import { N_ } from "../i18n";
 // How the Feed is ordered. The queue from `feedQueue` (least recently worked first) is the base; a mode
 // re-sorts it, pinned cards go on top, and the project whose timer is running stays first of all.
 
 export const FEED_MODES = [
-  { id: "rotation", label: "Rotation", note: "Least recently worked first. Skip sends a card to the back." },
-  { id: "manual", label: "My order", note: "Your own order. Use Sort to swipe through it; Skip sends a card to the back." },
-  { id: "edited", label: "Recently edited", note: "Whatever was touched last comes first." },
-  { id: "tasks", label: "Tasks first", note: "The Tasks card on top, then the projects by rotation." },
-  { id: "projects", label: "Projects first", note: "The projects by rotation, then the Tasks card." },
+  { id: "rotation", label: N_("Rotation"), note: N_("Least recently worked first. Skip sends a card to the back.") },
+  { id: "manual", label: N_("My order"), note: N_("Your own order. Use Sort to swipe through it; Skip sends a card to the back.") },
+  { id: "edited", label: N_("Recently edited"), note: N_("Whatever was touched last comes first.") },
+  { id: "tasks", label: N_("Tasks first"), note: N_("The Tasks card on top, then the projects by rotation.") },
+  { id: "projects", label: N_("Projects first"), note: N_("The projects by rotation, then the Tasks card.") },
 ];
 
 export const DEFAULT_ORDER = { mode: "rotation", manual: [], pinned: [] };

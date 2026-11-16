@@ -7,6 +7,7 @@ import { CHORE_ICON, CHORE_INK, iconFor, inkText, tint } from "../lib/palette";
 import {
   dayKey, fmtDurationInput, fmtHM, parseClock, parseDuration, toDateInput, toTimeInput,
 } from "../lib/time";
+import { __, __r, useT } from "../i18n";
 
 const QUICK_MINUTES = [15, 30, 45, 60, 90, 120, 180, 240];
 const MINUTE = 60_000;
@@ -51,6 +52,7 @@ function initialSpan(session, openItem, date, span) {
 export default function SessionModal({
   session, openItem, projectId, date, span, startOpen = false, projects, todos = [], chores = [], onClose, onSave, onDelete, onSaveOpen, onCloseOpen,
 }) {
+  useT();
   const first = initialSpan(session, openItem, date, span);
   const [pid, setPid] = useState(session?.project_id ?? openItem?.project_id ?? projectId ?? projects[0]?.id);
   const [start, setStart] = useState(startOpen ? flooredMinute(new Date()) : first.start);
@@ -192,27 +194,25 @@ export default function SessionModal({
 
   return (
     <Modal
-      title={openItem ? "Open item" : session ? "Edit session" : open ? "Start something open" : "Add time"}
+      title={openItem ? __("Open item") : session ? __("Edit session") : open ? __("Start something open") : __("Add time")}
       onClose={onClose}
       footer={
         <>
           {(session || openItem) && (
             <Button variant="danger" onClick={() => onDelete(session ?? openItem)}>
-              <Trash2 size={15} /> <span className="hidden sm:inline">{openItem ? "Discard" : "Delete"}</span>
+              <Trash2 size={15} /> <span className="hidden sm:inline">{openItem ? __("Discard") : __("Delete")}</span>
             </Button>
           )}
-          <Button className="ml-auto" onClick={onClose}>
-            Cancel
-          </Button>
+          <Button className="ml-auto" onClick={onClose}>{__("Cancel")}</Button>
           <Button variant="primary" onClick={submit} disabled={!valid || saving}>
-            <Check size={16} /> {openItem && !open ? "Close it" : open && !openItem ? "Start" : "Save"}
+            <Check size={16} /> {openItem && !open ? __("Close it") : open && !openItem ? __("Start") : __("Save")}
           </Button>
         </>
       }
     >
       <form onSubmit={submit} className="space-y-5">
         <fieldset>
-          <legend className={labelClass}>Project or task</legend>
+          <legend className={labelClass}>{__("Project or task")}</legend>
           <div className="mb-2 flex items-center gap-2 border-b border-line-strong focus-within:border-text">
             <Search size={15} className="shrink-0 text-muted" aria-hidden="true" />
             <input
@@ -224,14 +224,14 @@ export default function SessionModal({
                 e.preventDefault(); // Enter picks the best match (or the words as a chore) instead of saving
                 if (firstHit) setPid(firstHit);
               }}
-              aria-label="Search projects and tasks, or name a chore"
-              placeholder={open ? "Search (Ctrl+F), Enter picks the first" : "Search (Ctrl+F), or type a chore"}
+              aria-label={__("Search projects and tasks, or name a chore")}
+              placeholder={open ? __("Search (Ctrl+F), Enter picks the first") : __("Search (Ctrl+F), or type a chore")}
               autoComplete="off"
               spellCheck={false}
               className="h-9 min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-faint"
             />
           </div>
-          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Project or task">
+          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={__("Project or task")}>
             {chips.map((p) => {
               const Icon = iconFor(p.icon);
               const active = p.id === pid;
@@ -245,7 +245,7 @@ export default function SessionModal({
                   className={`inline-flex h-9 max-w-full items-center gap-2 border px-3 text-[13px] font-medium transition-colors ${
                     active ? "" : "border-line text-muted hover:border-line-strong hover:text-text"
                   } ${p.kind === "task" ? "border-dashed" : p.kind === "chore" ? "border-dotted" : ""}`}
-                  title={p.kind === "chore" ? "Chore: time with no project" : undefined}
+                  title={p.kind === "chore" ? __("Chore: time with no project") : undefined}
                   style={active ? { borderColor: p.color, background: tint(p.color, 14) } : undefined}
                 >
                   <Icon size={15} style={{ color: inkText(p.color) }} className="shrink-0" />
@@ -253,7 +253,7 @@ export default function SessionModal({
                 </button>
               );
             })}
-            {projects.length === 0 && <p className="text-[13px] text-muted">No open projects or tasks.</p>}
+            {projects.length === 0 && <p className="text-[13px] text-muted">{__("No open projects or tasks.")}</p>}
             {todoHits.map((x) => {
               const Icon = iconFor(x.icon);
               const active = x.subjectId === pid;
@@ -264,7 +264,7 @@ export default function SessionModal({
                   role="radio"
                   aria-checked={active}
                   onClick={() => setPid(x.subjectId)}
-                  title={`To-do in ${x.in}`}
+                  title={__("To-do in {in}", { in: x.in })}
                   className={`inline-flex h-9 max-w-full items-center gap-2 border border-dotted px-3 text-[13px] font-medium transition-colors ${
                     active ? "" : "border-line text-muted hover:border-line-strong hover:text-text"
                   }`}
@@ -272,7 +272,7 @@ export default function SessionModal({
                 >
                   <Icon size={15} style={{ color: inkText(x.color) }} className="shrink-0" />
                   <span className="truncate">
-                    {x.name} <span className="font-normal text-faint">in {x.in}</span>
+                    {x.name} <span className="font-normal text-faint">{__("in {name}", { name: x.in })}</span>
                   </span>
                 </button>
               );
@@ -285,12 +285,12 @@ export default function SessionModal({
               >
                 <Tag size={15} className="shrink-0 text-muted" aria-hidden="true" />
                 <span className="truncate">
-                  Use “<b>{q}</b>” as a chore
+                  {__r("Use “{name}” as a chore", { name: <b>{q}</b> })}
                 </span>
               </button>
             )}
             {q && chips.length === 0 && todoHits.length === 0 && !newChore && (
-              <p className="text-[13px] text-muted">Nothing matches “{q}”.</p>
+              <p className="text-[13px] text-muted">{__("Nothing matches “{query}”.", { query: q })}</p>
             )}
           </div>
         </fieldset>
@@ -304,34 +304,29 @@ export default function SessionModal({
             <>
               <Hourglass size={20} className="text-muted" aria-hidden="true" />
               <span className="figures text-4xl font-semibold tracking-tight">{fmtHM(soFar)}</span>
-              <span className="font-serif text-xs italic text-muted">so far, open</span>
+              <span className="font-serif text-xs italic text-muted">{__("so far, open")}</span>
             </>
           ) : (
             <>
               <span className="figures text-4xl font-semibold tracking-tight">{fmtHM(Math.max(minutes * 60, 0))}</span>
               {crossesMidnight && minutes > 0 && (
                 <span className="inline-flex items-center gap-1 font-serif text-xs italic text-muted">
-                  <Moon size={12} /> started the day before
-                </span>
+                  <Moon size={12} />{" "}{__("started the day before")}</span>
               )}
             </>
           )}
         </div>
 
         <fieldset>
-          <legend className={labelClass}>{open ? "Day it started" : "Day it ended"}</legend>
+          <legend className={labelClass}>{open ? __("Day it started") : __("Day it ended")}</legend>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <DayChip active={isToday} onClick={() => setDay(today)}>
-              Today
-            </DayChip>
+            <DayChip active={isToday} onClick={() => setDay(today)}>{__("Today")}</DayChip>
             <DayChip
               active={isYesterday}
               onClick={() => setDay(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1))}
-            >
-              Yesterday
-            </DayChip>
+            >{__("Yesterday")}</DayChip>
             <label className="flex items-center gap-2">
-              <span className="sr-only">Pick another day</span>
+              <span className="sr-only">{__("Pick another day")}</span>
               <input
                 type="date"
                 value={toDateInput(open ? start : end)}
@@ -348,16 +343,14 @@ export default function SessionModal({
         <div className={`grid gap-x-4 ${open ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-3"}`}>
           <label>
             <span className={labelClass}>
-              Start{" "}
+              {__("Start")}{" "}
               {canOpen && (
                 <button
                   type="button"
                   onClick={startNow}
                   className="ml-1 font-normal text-accent-2 underline underline-offset-2 hover:text-text"
-                  title="Start it now and leave it open"
-                >
-                  now
-                </button>
+                  title={__("Start it now and leave it open")}
+                >{__("now")}</button>
               )}
             </span>
             <input {...field("start")} inputMode="text" autoComplete="off" placeholder="9:00" className={timeFieldClass} />
@@ -366,25 +359,23 @@ export default function SessionModal({
             <>
               <label>
                 <span className={labelClass}>
-                  End{" "}
+                  {__("End")}{" "}
                   <button
                     type="button"
                     onClick={endNow}
                     className="ml-1 font-normal text-accent-2 underline underline-offset-2 hover:text-text"
-                  >
-                    now
-                  </button>
+                  >{__("now")}</button>
                 </span>
                 <input {...field("end")} inputMode="text" autoComplete="off" placeholder="10:30" className={timeFieldClass} />
               </label>
               <label>
-                <span className={labelClass}>Duration</span>
-                <input {...field("duration")} inputMode="text" autoComplete="off" placeholder="1h 30m" className={timeFieldClass} />
+                <span className={labelClass}>{__("Duration")}</span>
+                <input {...field("duration")} inputMode="text" autoComplete="off" placeholder={__("1h 30m")} className={timeFieldClass} />
               </label>
             </>
           )}
         </div>
-        {!open && <p className="-mt-2 text-xs text-faint">Type times like 9, 9:30 or 5pm, and durations like 90, 1h30 or 1.5h.</p>}
+        {!open && <p className="-mt-2 text-xs text-faint">{__("Type times like 9, 9:30 or 5pm, and durations like 90, 1h30 or 1.5h.")}</p>}
 
         {canOpen && (
           <label className="flex cursor-pointer items-start gap-2.5 border border-dashed border-line-strong px-3 py-2.5">
@@ -395,11 +386,11 @@ export default function SessionModal({
               className="mt-0.5 size-4 shrink-0 cursor-pointer accent-(--text)"
             />
             <span className="text-[13px]">
-              <span className="font-semibold">{openItem ? "Still going: keep it open" : "Still going: leave it open"}</span>
+              <span className="font-semibold">{openItem ? __("Still going: keep it open") : __("Still going: leave it open")}</span>
               <span className="block text-xs text-muted">
                 {openItem
-                  ? "Switch this off to close it at the end below; it becomes a session."
-                  : "For long work: it counts up from the start, alongside the timer, until you close it."}
+                  ? __("Switch this off to close it at the end below; it becomes a session.")
+                  : __("For long work: it counts up from the start, alongside the timer, until you close it.")}
               </span>
             </span>
           </label>
@@ -407,7 +398,7 @@ export default function SessionModal({
 
         {!open && (
           <div>
-            <span className={labelClass}>Quick duration</span>
+            <span className={labelClass}>{__("Quick duration")}</span>
             <div className="grid grid-cols-4 border-t border-l border-rule sm:grid-cols-8">
               {QUICK_MINUTES.map((m) => {
                 const active = minutes === m;
@@ -430,19 +421,19 @@ export default function SessionModal({
         )}
 
         <label className="block">
-          <span className={labelClass}>Note (optional)</span>
+          <span className={labelClass}>{__("Note (optional)")}</span>
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}
             maxLength={280}
-            placeholder={open ? "Rendering the final cut" : "Outlined the methods section"}
+            placeholder={open ? __("Rendering the final cut") : __("Outlined the methods section")}
             className={`${fieldClass} text-[14px]`}
           />
         </label>
 
         {inFuture && (
           <p className="flex items-center gap-2 text-[13px] text-danger">
-            <TriangleAlert size={15} /> {open ? "That starts in the future" : "That ends in the future"}
+            <TriangleAlert size={15} /> {open ? __("That starts in the future") : __("That ends in the future")}
           </p>
         )}
         <button type="submit" hidden />

@@ -4,8 +4,9 @@ ProjectsTracker — FastAPI backend
 Run:  uvicorn backend.main:app --reload --port 8001
 Every route lives under /api so the Vite dev proxy and the Vercel deploy share
 the same paths. Only /api/health, /api/auth/*, /api/interest and
-/api/interest/message are public; everything else, including reading what
-visitors wrote (/api/interest/messages), needs the owner's session (see auth.py).
+/api/interest/message are public; everything else needs a signed-in user (see auth.py), and every
+query is scoped to that user: nobody can read or change anyone else's rows. Reading what visitors
+wrote (/api/interest/messages), the habits sync and /api/admin/* are for the admin only.
 """
 
 from collections import defaultdict
@@ -20,13 +21,15 @@ from sqlalchemy.orm import Session as DbSession, selectinload
 from . import auth, habits as habits_sync, schemas
 from .bootstrap import init_db
 from .database import engine, get_db
-from .models import Habit, HabitSync, InterestMessage, InterestVote, OpenItem, Pomodoro, Project, Session, Status, Todo, utcnow
+from .models import (
+    Habit, HabitSync, InterestMessage, InterestVote, OpenItem, Pomodoro, Project, Session, Status, Todo, User, utcnow,
+)
 
 init_db(engine)
 
 app = FastAPI(title="ProjectsTracker", version="1.0.0")
 public = APIRouter(prefix="/api")
-api = APIRouter(prefix="/api", dependencies=[Depends(auth.require_owner)])
+api = APIRouter(prefix="/api", dependencies=[Depends(auth.current_user)])
 
 # Manual entries may not end in the future; a little slack absorbs clock skew
 # between the browser and the server.
@@ -45,36 +48,38 @@ INTEREST_MESSAGES_MAX_PER_WINDOW = 20
 # ─────────────────────────────────────────────────────────────────────────────
 #region Helpers
 
-def _get_project(db: DbSession, project_id: str) -> Project:
-    project = db.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    return project
-
-
-def _get_session(db: DbSession, session_id: str) -> Session:
-    session = db.get(Session, session_id)
-    if session is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
-    return session
-
-
-def _get_status(db: DbSession, status_id: str) -> Status:
-    found = db.get(Status, status_id)
-    if found is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Status not found")
+def _get_owned(db: DbSession, model, item_id: str, user: User, label: str):
+    """A row by id, if it is the user's. Someone else's row answers 404, the same as one that doesn't
+    exist, so ids can't be probed."""
+    found = db.get(model, item_id)
+    if found is None or found.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"{label} not found")
     return found
 
 
-def _first_open_status(db: DbSession) -> Status:
-    found = db.scalars(select(Status).where(Status.is_done.is_(False)).order_by(Status.sort_order)).first()
+def _get_project(db: DbSession, user: User, project_id: str) -> Project:
+    return _get_owned(db, Project, project_id, user, "Project")
+
+
+def _get_session(db: DbSession, user: User, session_id: str) -> Session:
+    return _get_owned(db, Session, session_id, user, "Session")
+
+
+def _get_status(db: DbSession, user: User, status_id: str) -> Status:
+    return _get_owned(db, Status, status_id, user, "Status")
+
+
+def _first_open_status(db: DbSession, user: User) -> Status:
+    found = db.scalars(
+        select(Status).where(Status.user_id == user.id, Status.is_done.is_(False)).order_by(Status.sort_order)
+    ).first()
     if found is None:  # the status routes never allow this
         raise HTTPException(status.HTTP_409_CONFLICT, "Add a status that isn't marked done first")
     return found
 
 
-def _next_order(db: DbSession, model) -> int:
-    return (db.scalar(select(func.max(model.sort_order))) or 0) + 1
+def _next_order(db: DbSession, model, user: User) -> int:
+    return (db.scalar(select(func.max(model.sort_order)).where(model.user_id == user.id)) or 0) + 1
 
 
 def _touch_project(db: DbSession, project_id: Optional[str]) -> None:
@@ -83,9 +88,9 @@ def _touch_project(db: DbSession, project_id: Optional[str]) -> None:
         db.execute(update(Project).where(Project.id == project_id).values(updated_at=utcnow()))
 
 
-def _ensure_unique_name(db: DbSession, model, name: str, label: str, except_id: Optional[str] = None) -> None:
-    """Two statuses with the same name can't be told apart in the UI."""
-    query = select(model.id).where(func.lower(model.name) == name.lower())
+def _ensure_unique_name(db: DbSession, user: User, model, name: str, label: str, except_id: Optional[str] = None) -> None:
+    """Two of a user's statuses with the same name can't be told apart in the UI."""
+    query = select(model.id).where(model.user_id == user.id, func.lower(model.name) == name.lower())
     if except_id is not None:
         query = query.where(model.id != except_id)
     if db.scalar(query) is not None:
@@ -103,17 +108,18 @@ def _end_timer(db: DbSession, current: Session, now: datetime, keep: bool = Fals
     return current
 
 
-def _stop_timers(db: DbSession, condition) -> None:
-    """A finished project has no timer: stop the running one if it belongs to a project matching `condition`."""
-    current = _running(db)
+def _stop_timers(db: DbSession, user: User, condition) -> None:
+    """A finished project has no timer: stop the user's running one if it belongs to a project matching `condition`."""
+    current = _running(db, user)
     if current is not None and db.scalar(
         select(Project.id).where(Project.id == current.project_id).where(condition)
     ) is not None:
         _end_timer(db, current, utcnow())
 
 
-def _running(db: DbSession) -> Optional[Session]:
-    return db.scalars(select(Session).where(Session.end.is_(None))).first()
+def _running(db: DbSession, user: User) -> Optional[Session]:
+    """The user's running timer: each person has their own."""
+    return db.scalars(select(Session).where(Session.user_id == user.id, Session.end.is_(None))).first()
 
 
 def _validate_span(start: datetime, end: Optional[datetime]) -> None:
@@ -125,13 +131,13 @@ def _validate_span(start: datetime, end: Optional[datetime]) -> None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "End can't be in the future")
 
 
-def _totals(db: DbSession) -> dict[str, int]:
+def _totals(db: DbSession, user: User) -> dict[str, int]:
     """Closed-session seconds per project. Summed in Python to stay portable
     between SQLite and Postgres date arithmetic."""
     totals: dict[str, float] = defaultdict(float)
     rows = db.execute(
         select(Session.project_id, Session.start, Session.end).where(
-            Session.end.is_not(None), Session.project_id.is_not(None)
+            Session.user_id == user.id, Session.end.is_not(None), Session.project_id.is_not(None)
         )
     )
     for project_id, start, end in rows:
@@ -139,12 +145,15 @@ def _totals(db: DbSession) -> dict[str, int]:
     return {pid: int(seconds) for pid, seconds in totals.items()}
 
 
-def _task_totals(db: DbSession) -> dict[str, int]:
+def _task_totals(db: DbSession, user: User) -> dict[str, int]:
     """Closed-session seconds per task (a to-do with no project)."""
     totals: dict[str, float] = defaultdict(float)
     rows = db.execute(
         select(Session.todo_id, Session.start, Session.end).where(
-            Session.end.is_not(None), Session.project_id.is_(None), Session.todo_id.is_not(None)
+            Session.user_id == user.id,
+            Session.end.is_not(None),
+            Session.project_id.is_(None),
+            Session.todo_id.is_not(None),
         )
     )
     for todo_id, start, end in rows:
@@ -152,11 +161,14 @@ def _task_totals(db: DbSession) -> dict[str, int]:
     return {tid: int(seconds) for tid, seconds in totals.items()}
 
 
-def _subject(db: DbSession, project_id: Optional[str], todo_id: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+def _subject(
+    db: DbSession, user: User, project_id: Optional[str], todo_id: Optional[str]
+) -> tuple[Optional[str], Optional[str]]:
     """What time is logged on: a project, a task (a to-do with no project), or a project and one of
-    its to-dos (the project is filled in from the to-do when left out). Returns (project_id, todo_id)."""
+    its to-dos (the project is filled in from the to-do when left out). Both must be the user's.
+    Returns (project_id, todo_id)."""
     if todo_id is not None:
-        todo = _get_todo(db, todo_id)
+        todo = _get_todo(db, user, todo_id)
         if todo.project_id is None:
             if project_id is not None:
                 raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A task isn't part of a project")
@@ -167,19 +179,19 @@ def _subject(db: DbSession, project_id: Optional[str], todo_id: Optional[str]) -
     elif project_id is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Pick a project or a task")
     else:
-        _get_project(db, project_id)
+        _get_project(db, user, project_id)
     return project_id, todo_id
 
 
 def _session_subject(
-    db: DbSession, project_id: Optional[str], todo_id: Optional[str], label: str = ""
+    db: DbSession, user: User, project_id: Optional[str], todo_id: Optional[str], label: str = ""
 ) -> tuple[Optional[str], Optional[str], str]:
     """Like _subject, and a session can also be a chore: no project or task, only a label. A session
     on a project or task keeps no label. Returns (project_id, todo_id, label)."""
     label = (label or "").strip()[:120]
     if project_id is None and todo_id is None and label:
         return None, None, label
-    project_id, todo_id = _subject(db, project_id, todo_id)
+    project_id, todo_id = _subject(db, user, project_id, todo_id)
     return project_id, todo_id, ""
 
 
@@ -198,17 +210,19 @@ def health():
 
 
 @api.get("/projects", response_model=list[schemas.ProjectOut])
-def list_projects(db: DbSession = Depends(get_db)):
-    projects = db.scalars(select(Project).order_by(Project.sort_order, Project.created_at)).all()
-    totals = _totals(db)
+def list_projects(user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    projects = db.scalars(
+        select(Project).where(Project.user_id == user.id).order_by(Project.sort_order, Project.created_at)
+    ).all()
+    totals = _totals(db, user)
     return [_project_out(p, totals.get(p.id, 0)) for p in projects]
 
 
 @api.post("/projects", response_model=schemas.ProjectOut, status_code=status.HTTP_201_CREATED)
-def create_project(body: schemas.ProjectCreate, db: DbSession = Depends(get_db)):
+def create_project(body: schemas.ProjectCreate, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
     data = body.model_dump()
-    data["status_id"] = _get_status(db, data["status_id"]).id if data["status_id"] else _first_open_status(db).id
-    project = Project(**data, sort_order=_next_order(db, Project))
+    data["status_id"] = _get_status(db, user, data["status_id"]).id if data["status_id"] else _first_open_status(db, user).id
+    project = Project(**data, user_id=user.id, sort_order=_next_order(db, Project, user))
     db.add(project)
     db.commit()
     db.refresh(project)
@@ -216,76 +230,78 @@ def create_project(body: schemas.ProjectCreate, db: DbSession = Depends(get_db))
 
 
 @api.patch("/projects/{project_id}", response_model=schemas.ProjectOut)
-def update_project(project_id: str, body: schemas.ProjectUpdate, db: DbSession = Depends(get_db)):
-    project = _get_project(db, project_id)
+def update_project(
+    project_id: str, body: schemas.ProjectUpdate, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)
+):
+    project = _get_project(db, user, project_id)
     changes = body.model_dump(exclude_unset=True)
     if changes.get("notes", "") is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Notes can't be null")
     if "status_id" in changes:
         if changes["status_id"] is None:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A project always has a status")
-        if _get_status(db, changes["status_id"]).is_done:
-            _stop_timers(db, Project.id == project.id)
+        if _get_status(db, user, changes["status_id"]).is_done:
+            _stop_timers(db, user, Project.id == project.id)
     for field, value in changes.items():
         setattr(project, field, value)
     project.updated_at = utcnow()
     db.commit()
     db.refresh(project)
-    return _project_out(project, _totals(db).get(project.id, 0))
+    return _project_out(project, _totals(db, user).get(project.id, 0))
 
 
 @api.post("/projects/{project_id}/skip", response_model=schemas.ProjectOut)
-def skip_project(project_id: str, db: DbSession = Depends(get_db)):
+def skip_project(project_id: str, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
     """Send a project to the back of the Feed's queue. The client ranks projects by the later of
     their last session and this stamp, so it stays back until the others have had their turn."""
-    project = _get_project(db, project_id)
+    project = _get_project(db, user, project_id)
     project.skipped_at = utcnow()
     db.commit()
     db.refresh(project)
-    return _project_out(project, _totals(db).get(project.id, 0))
+    return _project_out(project, _totals(db, user).get(project.id, 0))
 
 
 @api.post("/projects/{project_id}/archive", response_model=schemas.ProjectOut)
-def archive_project(project_id: str, db: DbSession = Depends(get_db)):
+def archive_project(project_id: str, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
     """Put a project away: off the board, out of the Feed and the open stats, its history kept.
     Its status is left alone, so restoring puts it back in the same column. An archived project
     has no timer, so a running one is stopped."""
-    project = _get_project(db, project_id)
-    _stop_timers(db, Project.id == project.id)
+    project = _get_project(db, user, project_id)
+    _stop_timers(db, user, Project.id == project.id)
     project.archived_at = project.archived_at or utcnow()  # archiving twice keeps the first moment
     db.commit()
     db.refresh(project)
-    return _project_out(project, _totals(db).get(project.id, 0))
+    return _project_out(project, _totals(db, user).get(project.id, 0))
 
 
 @api.post("/projects/{project_id}/restore", response_model=schemas.ProjectOut)
-def restore_project(project_id: str, db: DbSession = Depends(get_db)):
+def restore_project(project_id: str, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
     """Bring an archived project back to the board, in the status it left."""
-    project = _get_project(db, project_id)
+    project = _get_project(db, user, project_id)
     project.archived_at = None
     project.cancelled_at = None
     db.commit()
     db.refresh(project)
-    return _project_out(project, _totals(db).get(project.id, 0))
+    return _project_out(project, _totals(db, user).get(project.id, 0))
 
 
 @api.post("/projects/{project_id}/cancel", response_model=schemas.ProjectOut)
-def cancel_project(project_id: str, db: DbSession = Depends(get_db)):
+def cancel_project(project_id: str, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
     """Call a project off. It is archived too, so it leaves the board, the Feed and the open
     stats with its history kept, and restoring it brings it back. Its timer is stopped."""
-    project = _get_project(db, project_id)
-    _stop_timers(db, Project.id == project.id)
+    project = _get_project(db, user, project_id)
+    _stop_timers(db, user, Project.id == project.id)
     now = utcnow()
     project.archived_at = project.archived_at or now
     project.cancelled_at = project.cancelled_at or now
     db.commit()
     db.refresh(project)
-    return _project_out(project, _totals(db).get(project.id, 0))
+    return _project_out(project, _totals(db, user).get(project.id, 0))
 
 
 @api.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_project(project_id: str, db: DbSession = Depends(get_db)):
-    db.delete(_get_project(db, project_id))  # sessions go with it (ORM cascade)
+def delete_project(project_id: str, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    db.delete(_get_project(db, user, project_id))  # sessions go with it (ORM cascade)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -293,21 +309,23 @@ def delete_project(project_id: str, db: DbSession = Depends(get_db)):
 # ─────────────────────────────────────────────────────────────────────────────
 #region Statuses
 
-def _open_statuses_left(db: DbSession, without_id: str) -> int:
+def _open_statuses_left(db: DbSession, user: User, without_id: str) -> int:
     return db.scalar(
-        select(func.count()).select_from(Status).where(Status.is_done.is_(False), Status.id != without_id)
+        select(func.count()).select_from(Status).where(
+            Status.user_id == user.id, Status.is_done.is_(False), Status.id != without_id
+        )
     ) or 0
 
 
 @api.get("/statuses", response_model=list[schemas.StatusOut])
-def list_statuses(db: DbSession = Depends(get_db)):
-    return db.scalars(select(Status).order_by(Status.sort_order, Status.name)).all()
+def list_statuses(user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    return db.scalars(select(Status).where(Status.user_id == user.id).order_by(Status.sort_order, Status.name)).all()
 
 
 @api.post("/statuses", response_model=schemas.StatusOut, status_code=status.HTTP_201_CREATED)
-def create_status(body: schemas.StatusCreate, db: DbSession = Depends(get_db)):
-    _ensure_unique_name(db, Status, body.name, "status")
-    created = Status(**body.model_dump(), sort_order=_next_order(db, Status))
+def create_status(body: schemas.StatusCreate, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    _ensure_unique_name(db, user, Status, body.name, "status")
+    created = Status(**body.model_dump(), user_id=user.id, sort_order=_next_order(db, Status, user))
     db.add(created)
     db.commit()
     db.refresh(created)
@@ -315,18 +333,20 @@ def create_status(body: schemas.StatusCreate, db: DbSession = Depends(get_db)):
 
 
 @api.patch("/statuses/{status_id}", response_model=schemas.StatusOut)
-def update_status(status_id: str, body: schemas.StatusUpdate, db: DbSession = Depends(get_db)):
-    current = _get_status(db, status_id)
+def update_status(
+    status_id: str, body: schemas.StatusUpdate, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)
+):
+    current = _get_status(db, user, status_id)
     changes = body.model_dump(exclude_unset=True)
     if changes.get("name") is not None:
-        _ensure_unique_name(db, Status, changes["name"], "status", except_id=current.id)
+        _ensure_unique_name(db, user, Status, changes["name"], "status", except_id=current.id)
     if changes.get("is_done") and not current.is_done:
         # New projects need somewhere to start, so one open status must always remain
-        if _open_statuses_left(db, current.id) == 0:
+        if _open_statuses_left(db, user, current.id) == 0:
             raise HTTPException(status.HTTP_409_CONFLICT, "Keep at least one status that isn't marked done")
-        _stop_timers(db, Project.status_id == current.id)
+        _stop_timers(db, user, Project.status_id == current.id)
     if changes.get("is_pinned"):  # only one column is the one that stays
-        db.execute(update(Status).where(Status.id != current.id).values(is_pinned=False))
+        db.execute(update(Status).where(Status.user_id == user.id, Status.id != current.id).values(is_pinned=False))
     for field, value in changes.items():
         if value is not None:
             setattr(current, field, value)
@@ -336,8 +356,8 @@ def update_status(status_id: str, body: schemas.StatusUpdate, db: DbSession = De
 
 
 @api.delete("/statuses/{status_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_status(status_id: str, db: DbSession = Depends(get_db)):
-    current = _get_status(db, status_id)
+def delete_status(status_id: str, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    current = _get_status(db, user, status_id)
     in_use = db.scalar(select(func.count()).select_from(Project).where(Project.status_id == current.id)) or 0
     if in_use:
         noun, pronoun = ("projects", "them") if in_use != 1 else ("project", "it")
@@ -345,7 +365,7 @@ def delete_status(status_id: str, db: DbSession = Depends(get_db)):
             status.HTTP_409_CONFLICT,
             f"{in_use} {noun} still use this status. Move {pronoun} to another status first.",
         )
-    if not current.is_done and _open_statuses_left(db, current.id) == 0:
+    if not current.is_done and _open_statuses_left(db, user, current.id) == 0:
         raise HTTPException(status.HTTP_409_CONFLICT, "Keep at least one status that isn't marked done")
     db.delete(current)
     db.commit()
@@ -355,11 +375,8 @@ def delete_status(status_id: str, db: DbSession = Depends(get_db)):
 # ─────────────────────────────────────────────────────────────────────────────
 #region To-dos
 
-def _get_todo(db: DbSession, todo_id: str) -> Todo:
-    todo = db.get(Todo, todo_id)
-    if todo is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "To-do not found")
-    return todo
+def _get_todo(db: DbSession, user: User, todo_id: str) -> Todo:
+    return _get_owned(db, Todo, todo_id, user, "To-do")
 
 
 def _todo_out(todo: Todo, totals: dict[str, int]) -> schemas.TodoOut:
@@ -369,22 +386,23 @@ def _todo_out(todo: Todo, totals: dict[str, int]) -> schemas.TodoOut:
 
 
 @api.get("/todos", response_model=list[schemas.TodoOut])
-def list_todos(db: DbSession = Depends(get_db)):
+def list_todos(user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
     """Every project's to-dos, and the tasks of their own, at once; there are few, and the app
     shows counts on the list. A task carries the time logged on it."""
-    totals = _task_totals(db)
-    return [_todo_out(t, totals) for t in db.scalars(select(Todo).order_by(Todo.sort_order, Todo.created_at)).all()]
+    totals = _task_totals(db, user)
+    todos = db.scalars(select(Todo).where(Todo.user_id == user.id).order_by(Todo.sort_order, Todo.created_at)).all()
+    return [_todo_out(t, totals) for t in todos]
 
 
 @api.post("/todos", response_model=schemas.TodoOut, status_code=status.HTTP_201_CREATED)
-def create_todo(body: schemas.TodoCreate, db: DbSession = Depends(get_db)):
+def create_todo(body: schemas.TodoCreate, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
     if body.project_id is not None:
-        _get_project(db, body.project_id)
+        _get_project(db, user, body.project_id)
     if body.parent_id is not None:
-        parent = _get_todo(db, body.parent_id)
+        parent = _get_todo(db, user, body.parent_id)
         if parent.project_id != body.project_id or parent.parent_id is not None:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A sub-to-do goes under a top-level to-do of the same project")
-    todo = Todo(**body.model_dump(), sort_order=_next_order(db, Todo))
+    todo = Todo(**body.model_dump(), user_id=user.id, sort_order=_next_order(db, Todo, user))
     db.add(todo)
     _touch_project(db, todo.project_id)
     db.commit()
@@ -392,13 +410,13 @@ def create_todo(body: schemas.TodoCreate, db: DbSession = Depends(get_db)):
     return todo
 
 
-def _reparent_todo(db: DbSession, todo: Todo, parent_id: Optional[str]) -> None:
+def _reparent_todo(db: DbSession, user: User, todo: Todo, parent_id: Optional[str]) -> None:
     """Move a to-do under another one (`parent_id`), or back to the top level (None). Sub-to-dos go one level
     deep: the parent is a top-level to-do of the same project, and one that has sub-to-dos of its own can't
     become a sub. It goes to the end of its new list. A task that becomes a sub-to-do of another task is no
     longer a task of its own, so the time and open items on it move to the task it is under."""
     if parent_id is not None:
-        parent = _get_todo(db, parent_id)
+        parent = _get_todo(db, user, parent_id)
         has_subs = db.scalar(select(Todo.id).where(Todo.parent_id == todo.id).limit(1)) is not None
         if parent.id == todo.id or parent.project_id != todo.project_id or parent.parent_id is not None or has_subs:
             raise HTTPException(
@@ -409,12 +427,14 @@ def _reparent_todo(db: DbSession, todo: Todo, parent_id: Optional[str]) -> None:
             db.execute(update(Session).where(Session.todo_id == todo.id).values(todo_id=parent.id))
             db.execute(update(OpenItem).where(OpenItem.todo_id == todo.id).values(todo_id=parent.id))
     todo.parent_id = parent_id
-    todo.sort_order = _next_order(db, Todo)
+    todo.sort_order = _next_order(db, Todo, user)
 
 
 @api.patch("/todos/{todo_id}", response_model=schemas.TodoOut)
-def update_todo(todo_id: str, body: schemas.TodoUpdate, db: DbSession = Depends(get_db)):
-    todo = _get_todo(db, todo_id)
+def update_todo(
+    todo_id: str, body: schemas.TodoUpdate, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)
+):
+    todo = _get_todo(db, user, todo_id)
     was_done = todo.done
     changes = body.model_dump(exclude_unset=True)
     working = changes.pop("working", None)
@@ -422,7 +442,7 @@ def update_todo(todo_id: str, body: schemas.TodoUpdate, db: DbSession = Depends(
     moves = "parent_id" in changes
     new_parent = changes.pop("parent_id", None)
     if moves and new_parent != todo.parent_id:
-        _reparent_todo(db, todo, new_parent)
+        _reparent_todo(db, user, todo, new_parent)
     for field, value in changes.items():
         if value is not None:
             setattr(todo, field, value)
@@ -448,27 +468,28 @@ def update_todo(todo_id: str, body: schemas.TodoUpdate, db: DbSession = Depends(
                 sub.cancelled_at = (sub.cancelled_at or now) if todo.cancelled_at else None
                 sub.completed_at = None if todo.cancelled_at else now
         # A task ticked off is finished: its timer stops, as a finished project's does
-        current = _running(db)
+        current = _running(db, user)
         if todo.project_id is None and current is not None and current.todo_id == todo.id:
             _end_timer(db, current, utcnow())
     _touch_project(db, todo.project_id)
     db.commit()
     db.refresh(todo)
-    return _todo_out(todo, _task_totals(db))
+    return _todo_out(todo, _task_totals(db, user))
 
 
 @api.post("/todos/{todo_id}/to-project", response_model=schemas.ProjectOut, status_code=status.HTTP_201_CREATED)
-def task_to_project(todo_id: str, db: DbSession = Depends(get_db)):
+def task_to_project(todo_id: str, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
     """Turn a task into a project of its own. The project is named after the task and starts in the first
     open status; the task's sub-tasks become its to-dos, and the time and open items on the task (a
     running timer too) become the project's. The task itself goes, as it is now the project."""
-    task = _get_todo(db, todo_id)
+    task = _get_todo(db, user, todo_id)
     if task.project_id is not None or task.parent_id is not None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Only a task can be turned into a project")
     project = Project(
+        user_id=user.id,
         name=task.text[:80],
-        status_id=_first_open_status(db).id,
-        sort_order=_next_order(db, Project),
+        status_id=_first_open_status(db, user).id,
+        sort_order=_next_order(db, Project, user),
     )
     db.add(project)
     db.flush()
@@ -487,12 +508,12 @@ def task_to_project(todo_id: str, db: DbSession = Depends(get_db)):
     db.delete(task)
     db.commit()
     db.refresh(project)
-    return _project_out(project, _totals(db).get(project.id, 0))
+    return _project_out(project, _totals(db, user).get(project.id, 0))
 
 
 @api.delete("/todos/{todo_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_todo(todo_id: str, db: DbSession = Depends(get_db)):
-    todo = _get_todo(db, todo_id)
+def delete_todo(todo_id: str, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    todo = _get_todo(db, user, todo_id)
     subs = db.scalars(select(Todo).where(Todo.parent_id == todo.id)).all()
     ids = [todo.id, *(sub.id for sub in subs)]
     if todo.project_id is None:
@@ -518,10 +539,11 @@ def delete_todo(todo_id: str, db: DbSession = Depends(get_db)):
 def list_sessions(
     start: Optional[schemas.UTCDateTime] = None,
     end: Optional[schemas.UTCDateTime] = None,
+    user: User = Depends(auth.current_user),
     db: DbSession = Depends(get_db),
 ):
     """Sessions overlapping [start, end). A running session counts as ongoing."""
-    query = select(Session).order_by(Session.start)
+    query = select(Session).where(Session.user_id == user.id).order_by(Session.start)
     if end is not None:
         query = query.where(Session.start < end)
     if start is not None:
@@ -530,10 +552,10 @@ def list_sessions(
 
 
 @api.post("/sessions", response_model=schemas.SessionOut, status_code=status.HTTP_201_CREATED)
-def create_session(body: schemas.SessionCreate, db: DbSession = Depends(get_db)):
-    project_id, todo_id, label = _session_subject(db, body.project_id, body.todo_id, body.label)
+def create_session(body: schemas.SessionCreate, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    project_id, todo_id, label = _session_subject(db, user, body.project_id, body.todo_id, body.label)
     _validate_span(body.start, body.end)
-    session = Session(**{**body.model_dump(), "project_id": project_id, "todo_id": todo_id, "label": label})
+    session = Session(**{**body.model_dump(), "user_id": user.id, "project_id": project_id, "todo_id": todo_id, "label": label})
     db.add(session)
     db.commit()
     db.refresh(session)
@@ -541,12 +563,15 @@ def create_session(body: schemas.SessionCreate, db: DbSession = Depends(get_db))
 
 
 @api.patch("/sessions/{session_id}", response_model=schemas.SessionOut)
-def update_session(session_id: str, body: schemas.SessionUpdate, db: DbSession = Depends(get_db)):
-    session = _get_session(db, session_id)
+def update_session(
+    session_id: str, body: schemas.SessionUpdate, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)
+):
+    session = _get_session(db, user, session_id)
     changes = body.model_dump(exclude_unset=True)
     if "project_id" in changes or "todo_id" in changes or "label" in changes:
         changes["project_id"], changes["todo_id"], changes["label"] = _session_subject(
             db,
+            user,
             changes.get("project_id", session.project_id),
             changes.get("todo_id", session.todo_id),
             changes.get("label", session.label),
@@ -554,14 +579,18 @@ def update_session(session_id: str, body: schemas.SessionUpdate, db: DbSession =
     _validate_span(changes.get("start", session.start), changes.get("end", session.end))
     for field, value in changes.items():
         setattr(session, field, value)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:  # reopening it would make a second running timer
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "A timer is already running")
     db.refresh(session)
     return session
 
 
 @api.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_session(session_id: str, db: DbSession = Depends(get_db)):
-    db.delete(_get_session(db, session_id))
+def delete_session(session_id: str, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    db.delete(_get_session(db, user, session_id))
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -570,30 +599,35 @@ def delete_session(session_id: str, db: DbSession = Depends(get_db)):
 #region Timer
 
 @api.get("/timer", response_model=Optional[schemas.SessionOut])
-def get_timer(db: DbSession = Depends(get_db)):
-    return _running(db)
+def get_timer(user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    return _running(db, user)
 
 
 @api.post("/timer/start", response_model=schemas.SessionOut)
-def start_timer(body: schemas.TimerStart, db: DbSession = Depends(get_db)):
-    """Only one timer runs at a time: starting a project (or a task) stops whatever was running."""
-    project_id, todo_id = _subject(db, body.project_id, body.todo_id)
+def start_timer(body: schemas.TimerStart, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    """Only one timer runs at a time per person: starting a project (or a task) stops whatever was running."""
+    project_id, todo_id = _subject(db, user, body.project_id, body.todo_id)
     now = utcnow()
-    current = _running(db)
+    current = _running(db, user)
     if current is not None:
         if current.project_id == project_id and current.todo_id == todo_id:
             return current
         _end_timer(db, current, now)
-    session = Session(project_id=project_id, todo_id=todo_id, start=now, end=None)
+        db.flush()  # the old one is closed or gone before the new one goes in (the database allows one running)
+    session = Session(user_id=user.id, project_id=project_id, todo_id=todo_id, start=now, end=None)
     db.add(session)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:  # two starts raced: the other one won, and its timer is the answer
+        db.rollback()
+        return _running(db, user)
     db.refresh(session)
     return session
 
 
 @api.post("/timer/stop", response_model=Optional[schemas.SessionOut])
-def stop_timer(keep: bool = False, db: DbSession = Depends(get_db)):
-    current = _running(db)
+def stop_timer(keep: bool = False, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    current = _running(db, user)
     if current is None:
         return None
     stopped = _end_timer(db, current, utcnow(), keep=keep)
@@ -607,11 +641,8 @@ def stop_timer(keep: bool = False, db: DbSession = Depends(get_db)):
 # ─────────────────────────────────────────────────────────────────────────────
 #region Open items
 
-def _get_open_item(db: DbSession, item_id: str) -> OpenItem:
-    item = db.get(OpenItem, item_id)
-    if item is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Open item not found")
-    return item
+def _get_open_item(db: DbSession, user: User, item_id: str) -> OpenItem:
+    return _get_owned(db, OpenItem, item_id, user, "Open item")
 
 
 def _validate_open_start(start: datetime) -> None:
@@ -620,17 +651,17 @@ def _validate_open_start(start: datetime) -> None:
 
 
 @api.get("/open-items", response_model=list[schemas.OpenItemOut])
-def list_open_items(db: DbSession = Depends(get_db)):
-    return db.scalars(select(OpenItem).order_by(OpenItem.start)).all()
+def list_open_items(user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    return db.scalars(select(OpenItem).where(OpenItem.user_id == user.id).order_by(OpenItem.start)).all()
 
 
 @api.post("/open-items", response_model=schemas.OpenItemOut, status_code=status.HTTP_201_CREATED)
-def create_open_item(body: schemas.OpenItemCreate, db: DbSession = Depends(get_db)):
+def create_open_item(body: schemas.OpenItemCreate, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
     """Start something to close later. Any number can be open, alongside the timer."""
-    project_id, todo_id = _subject(db, body.project_id, body.todo_id)
+    project_id, todo_id = _subject(db, user, body.project_id, body.todo_id)
     start = body.start or utcnow()
     _validate_open_start(start)
-    item = OpenItem(project_id=project_id, todo_id=todo_id, start=start, note=body.note)
+    item = OpenItem(user_id=user.id, project_id=project_id, todo_id=todo_id, start=start, note=body.note)
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -638,12 +669,14 @@ def create_open_item(body: schemas.OpenItemCreate, db: DbSession = Depends(get_d
 
 
 @api.patch("/open-items/{item_id}", response_model=schemas.OpenItemOut)
-def update_open_item(item_id: str, body: schemas.OpenItemUpdate, db: DbSession = Depends(get_db)):
-    item = _get_open_item(db, item_id)
+def update_open_item(
+    item_id: str, body: schemas.OpenItemUpdate, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)
+):
+    item = _get_open_item(db, user, item_id)
     changes = body.model_dump(exclude_unset=True)
     if "project_id" in changes or "todo_id" in changes:
         changes["project_id"], changes["todo_id"] = _subject(
-            db, changes.get("project_id", item.project_id), changes.get("todo_id", item.todo_id)
+            db, user, changes.get("project_id", item.project_id), changes.get("todo_id", item.todo_id)
         )
     if changes.get("start") is not None:
         _validate_open_start(changes["start"])
@@ -656,12 +689,16 @@ def update_open_item(item_id: str, body: schemas.OpenItemUpdate, db: DbSession =
 
 
 @api.post("/open-items/{item_id}/close", response_model=schemas.SessionOut)
-def close_open_item(item_id: str, body: schemas.OpenItemClose, db: DbSession = Depends(get_db)):
+def close_open_item(
+    item_id: str, body: schemas.OpenItemClose, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)
+):
     """Close it: it becomes a session from its start to `end` (now if not given)."""
-    item = _get_open_item(db, item_id)
+    item = _get_open_item(db, user, item_id)
     end = body.end or utcnow()
     _validate_span(item.start, end)
-    session = Session(project_id=item.project_id, todo_id=item.todo_id, start=item.start, end=end, note=item.note)
+    session = Session(
+        user_id=user.id, project_id=item.project_id, todo_id=item.todo_id, start=item.start, end=end, note=item.note
+    )
     db.add(session)
     db.delete(item)
     db.commit()
@@ -670,9 +707,9 @@ def close_open_item(item_id: str, body: schemas.OpenItemClose, db: DbSession = D
 
 
 @api.delete("/open-items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_open_item(item_id: str, db: DbSession = Depends(get_db)):
+def delete_open_item(item_id: str, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
     """Throw it away: nothing is logged."""
-    db.delete(_get_open_item(db, item_id))
+    db.delete(_get_open_item(db, user, item_id))
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -684,10 +721,11 @@ def delete_open_item(item_id: str, db: DbSession = Depends(get_db)):
 def list_pomodoros(
     start: Optional[schemas.UTCDateTime] = None,
     end: Optional[schemas.UTCDateTime] = None,
+    user: User = Depends(auth.current_user),
     db: DbSession = Depends(get_db),
 ):
     """Pomodoros overlapping [start, end), cut-short ones included."""
-    query = select(Pomodoro).order_by(Pomodoro.start)
+    query = select(Pomodoro).where(Pomodoro.user_id == user.id).order_by(Pomodoro.start)
     if end is not None:
         query = query.where(Pomodoro.start < end)
     if start is not None:
@@ -696,25 +734,26 @@ def list_pomodoros(
 
 
 @api.post("/pomodoros", response_model=schemas.PomodoroOut, status_code=status.HTTP_201_CREATED)
-def create_pomodoro(body: schemas.PomodoroCreate, db: DbSession = Depends(get_db)):
+def create_pomodoro(body: schemas.PomodoroCreate, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
     """Saved by the client when a focus ends: `completed` if its countdown ran out, otherwise it was cut short."""
     _validate_span(body.start, body.end)
     data = body.model_dump()
-    # The link and the label are kept apart: if what it was for is deleted later, the label remains
+    # The link and the label are kept apart: if what it was for is deleted later, the label remains.
+    # An id that isn't the user's is treated like one that no longer exists: the link is dropped.
     if data["todo_id"] is not None:
         todo = db.get(Todo, data["todo_id"])
-        if todo is None:
+        if todo is None or todo.user_id != user.id:
             data["todo_id"] = None
         else:
             data["project_id"] = todo.project_id
             data["label"] = data["label"] or todo.text[:120]
     if data["project_id"] is not None:
         project = db.get(Project, data["project_id"])
-        if project is None:
+        if project is None or project.user_id != user.id:
             data["project_id"] = None
         else:
             data["label"] = data["label"] or project.name
-    pomodoro = Pomodoro(**data)
+    pomodoro = Pomodoro(**data, user_id=user.id)
     db.add(pomodoro)
     db.commit()
     db.refresh(pomodoro)
@@ -725,23 +764,27 @@ def create_pomodoro(body: schemas.PomodoroCreate, db: DbSession = Depends(get_db
 #region Habits
 
 @api.get("/habits", response_model=schemas.HabitsOut)
-def list_habits(db: DbSession = Depends(get_db)):
-    """The habits copied in from the My Habits backup, with their last days (see habits.py)."""
-    found = db.scalars(select(Habit).options(selectinload(Habit.entries)).order_by(Habit.position, Habit.name)).all()
-    synced = db.get(HabitSync, 1)
+def list_habits(user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    """The user's habits copied in from the My Habits backup, with their last days (see habits.py).
+    Only the admin can sync, so `configured` (which shows the sync button) is false for everyone else."""
+    found = db.scalars(
+        select(Habit).where(Habit.user_id == user.id).options(selectinload(Habit.entries)).order_by(Habit.position, Habit.name)
+    ).all()
+    synced = db.get(HabitSync, user.id)
     return {
         "habits": found,
-        "configured": habits_sync.drive_configured(),
+        "configured": user.is_admin and habits_sync.drive_configured(),
         "synced_at": synced.synced_at if synced else None,
         "source_file": synced.file_name if synced else "",
     }
 
 
 @api.post("/habits/sync", response_model=schemas.HabitSyncOut)
-def sync_habits(force: bool = False, db: DbSession = Depends(get_db)):
-    """Copy the newest backup in the Drive folder in, unless it is the one already copied (`force` copies it anyway)."""
+def sync_habits(force: bool = False, user: User = Depends(auth.require_admin), db: DbSession = Depends(get_db)):
+    """Admin only (the Drive folder is the admin's). Copy the newest backup in the folder in, unless it is the one
+    already copied (`force` copies it anyway)."""
     try:
-        return habits_sync.sync(db, force=force)
+        return habits_sync.sync(db, user.id, force=force)
     except habits_sync.HabitsError as error:
         raise HTTPException(error.status, str(error))
 
@@ -807,16 +850,18 @@ def send_interest_message(body: schemas.InterestMessageIn, db: DbSession = Depen
     return {"count": _interest_count(db)}
 
 
-@api.get("/interest/messages", response_model=schemas.InterestInboxOut)
+@api.get("/interest/messages", response_model=schemas.InterestInboxOut, dependencies=[Depends(auth.require_admin)])
 def list_interest_messages(db: DbSession = Depends(get_db)):
-    """Owner only: the vote count and everything visitors have written, newest first."""
+    """Admin only: the vote count and everything visitors have written, newest first."""
     rows = db.scalars(select(InterestMessage).order_by(InterestMessage.created_at.desc())).all()
     return {"count": _interest_count(db), "messages": rows}
 
 
-@api.delete("/interest/messages/{visitor_id}", status_code=status.HTTP_204_NO_CONTENT)
+@api.delete(
+    "/interest/messages/{visitor_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(auth.require_admin)]
+)
 def delete_interest_message(visitor_id: str, db: DbSession = Depends(get_db)):
-    """Owner only: erase one visitor's note and email. Their vote still counts."""
+    """Admin only: erase one visitor's note and email. Their vote still counts."""
     row = db.get(InterestMessage, visitor_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Message not found")
@@ -828,4 +873,5 @@ def delete_interest_message(visitor_id: str, db: DbSession = Depends(get_db)):
 
 app.include_router(public)
 app.include_router(auth.router)
+app.include_router(auth.admin_router)
 app.include_router(api)

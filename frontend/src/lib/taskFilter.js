@@ -1,11 +1,13 @@
 // Filters for the Tasks tab: a text search plus a few toggles, kept between visits.
+import { scopedKey } from "./storage";
+import { N_ } from "../i18n";
 
 export const FILTER_CHIPS = [
-  { id: "working", label: "Working on", hint: "Marked as being worked on" },
-  { id: "active", label: "Running", hint: "Its timer is running, or it is left open" },
-  { id: "timed", label: "Has time", hint: "Time is logged on it" },
-  { id: "subs", label: "Has sub-tasks", hint: "Has sub-tasks still to do" },
-  { id: "recent", label: "Added this week", hint: "Added in the last 7 days" },
+  { id: "working", label: N_("Working on"), hint: N_("Marked as being worked on") },
+  { id: "active", label: N_("Running"), hint: N_("Its timer is running, or it is left open") },
+  { id: "timed", label: N_("Has time"), hint: N_("Time is logged on it") },
+  { id: "subs", label: N_("Has sub-tasks"), hint: N_("Has sub-tasks still to do") },
+  { id: "recent", label: N_("Added this week"), hint: N_("Added in the last 7 days") },
 ];
 
 const KEY = "pt-tasks-filter";
@@ -14,7 +16,7 @@ export const EMPTY_FILTER = { q: "", chips: [] };
 
 export function loadFilter() {
   try {
-    const saved = JSON.parse(localStorage.getItem(KEY));
+    const saved = JSON.parse(localStorage.getItem(scopedKey(KEY)));
     const ids = new Set(FILTER_CHIPS.map((c) => c.id));
     return {
       q: typeof saved?.q === "string" ? saved.q : "",
@@ -27,7 +29,7 @@ export function loadFilter() {
 
 export function saveFilter(filter) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(filter));
+    localStorage.setItem(scopedKey(KEY), JSON.stringify(filter));
   } catch {
     // private window or storage blocked: the filter just isn't remembered
   }

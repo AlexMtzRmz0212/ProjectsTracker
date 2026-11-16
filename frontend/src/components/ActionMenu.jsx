@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Ellipsis } from "lucide-react";
 import { useClickOutside } from "../hooks/useClickOutside";
+import { __, useT } from "../i18n";
 
 const MENU_W = 224; // px, as wide as the menu is
 const EDGE = 8; // px kept clear of the window's edges
@@ -14,7 +15,8 @@ const EDGE = 8; // px kept clear of the window's edges
  * into the page's body: inside a panel that slides in (the side peek is moved with a transform), fixed
  * coordinates would be taken from the panel, not the window, and the menu would land out of sight.
  */
-export default function ActionMenu({ items, label = "More actions", className = "" }) {
+export default function ActionMenu({ items, label = __("More actions"), className = "" }) {
+  useT();
   const [open, setOpen] = useState(false);
   const [place, setPlace] = useState(null); // { left, top?, bottom? }
   const root = useRef(null);

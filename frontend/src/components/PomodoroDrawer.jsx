@@ -3,6 +3,8 @@ import { ChevronDown, Minus, Plus, RotateCcw, SlidersHorizontal, X } from "lucid
 import { DEFAULTS, LIMITS } from "../hooks/usePomodoro";
 import { useEdgeDrag } from "../hooks/useEdgeDrag";
 import { useClickOutside } from "../hooks/useClickOutside";
+import { __, useT } from "../i18n";
+
 
 const WIDTH = 640; // px, at most
 const MARGIN = 12; // px kept clear of the window's sides
@@ -16,6 +18,7 @@ const MARGIN = 12; // px kept clear of the window's sides
  * (or the title) back up, or press ✕ or Esc to put it away.
  */
 export default function PomodoroDrawer({ open, onOpenChange, anchor = "header", settings, onChange, onReset }) {
+  useT();
   const panel = useRef(null);
   const slide = useEdgeDrag(panel, open, onOpenChange, "top");
   const place = useAnchor(anchor);
@@ -34,7 +37,7 @@ export default function PomodoroDrawer({ open, onOpenChange, anchor = "header", 
   return (
     <aside
       ref={panel}
-      aria-label="Pomodoro settings"
+      aria-label={__("Pomodoro settings")}
       className="fixed top-0 z-[46] flex max-h-[calc(100dvh-1.5rem)] flex-col border-x border-b border-line-strong bg-surface transition-transform duration-200 ease-out"
       style={{ left: place.left, width: place.width, ...slide.style }}
     >
@@ -46,9 +49,9 @@ export default function PomodoroDrawer({ open, onOpenChange, anchor = "header", 
         onClick={() => !slide.wasDrag() && onOpenChange(!open)}
         className="group absolute top-full flex h-3 w-14 -translate-x-1/2 cursor-grab touch-none justify-center active:cursor-grabbing sm:h-3.5"
         style={{ left: place.tabX }}
-        aria-label={open ? "Close pomodoro settings" : "Pomodoro settings"}
+        aria-label={open ? __("Close pomodoro settings") : __("Pomodoro settings")}
         aria-expanded={open}
-        title={open ? "Close pomodoro settings" : "Pomodoro settings (click, or pull down)"}
+        title={open ? __("Close pomodoro settings") : __("Pomodoro settings (click, or pull down)")}
       >
         <span
           className={`flex items-center justify-center gap-1 overflow-hidden border-x border-b transition-all duration-150 ${
@@ -68,12 +71,12 @@ export default function PomodoroDrawer({ open, onOpenChange, anchor = "header", 
         {...slide.handlers}
         className="flex shrink-0 cursor-grab touch-none select-none items-center gap-2 border-b border-rule py-2 pl-5 pr-2 active:cursor-grabbing"
       >
-        <h2 className="flex-1 font-serif text-[15px] font-semibold">Pomodoro settings</h2>
+        <h2 className="flex-1 font-serif text-[15px] font-semibold">{__("Pomodoro settings")}</h2>
         <button
           onClick={() => onOpenChange(false)}
           className="grid size-8 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
-          aria-label="Close pomodoro settings"
-          title="Close (Esc)"
+          aria-label={__("Close pomodoro settings")}
+          title={__("Close (Esc)")}
         >
           <X size={16} />
         </button>
@@ -81,38 +84,31 @@ export default function PomodoroDrawer({ open, onOpenChange, anchor = "header", 
 
       <div inert={!open && slide.offset === null} className="grid min-h-0 flex-1 gap-x-8 overflow-y-auto px-5 pb-4 pt-1 sm:grid-cols-2">
         <div className="divide-y divide-rule">
-          <Stepper label="Focus" unit="min" value={settings.focus} limits={LIMITS.focus} onChange={(v) => onChange({ focus: v })} />
-          <Stepper label="Short break" unit="min" value={settings.shortBreak} limits={LIMITS.shortBreak} disabled={!settings.breaks} onChange={(v) => onChange({ shortBreak: v })} />
-          <Stepper label="Long break" unit="min" value={settings.longBreak} limits={LIMITS.longBreak} disabled={!settings.breaks} onChange={(v) => onChange({ longBreak: v })} />
-          <Stepper label="Long break after" unit="focus" value={settings.longEvery} limits={LIMITS.longEvery} disabled={!settings.breaks} onChange={(v) => onChange({ longEvery: v })} />
+          <Stepper label={__("Focus")} unit={__("min")} value={settings.focus} limits={LIMITS.focus} onChange={(v) => onChange({ focus: v })} />
+          <Stepper label={__("Short break")} unit={__("min")} value={settings.shortBreak} limits={LIMITS.shortBreak} disabled={!settings.breaks} onChange={(v) => onChange({ shortBreak: v })} />
+          <Stepper label={__("Long break")} unit={__("min")} value={settings.longBreak} limits={LIMITS.longBreak} disabled={!settings.breaks} onChange={(v) => onChange({ longBreak: v })} />
+          <Stepper label={__("Long break after")} unit={__("focus")} value={settings.longEvery} limits={LIMITS.longEvery} disabled={!settings.breaks} onChange={(v) => onChange({ longEvery: v })} />
         </div>
 
         <div className="flex flex-col gap-2.5 max-sm:mt-2 max-sm:border-t max-sm:border-rule max-sm:pt-3 sm:pt-3.5">
           <Check checked={settings.breaks} onChange={(v) => onChange({ breaks: v })}>
-            Take breaks <span className="text-muted">(off: one focus after another, no breaks)</span>
+            {__("Take breaks")} <span className="text-muted">{__("(off: one focus after another, no breaks)")}</span>
           </Check>
-          <Check checked={settings.autoBreak} disabled={!settings.breaks} onChange={(v) => onChange({ autoBreak: v })}>
-            Start the break when a focus ends
-          </Check>
-          <Check checked={settings.autoStart} disabled={!settings.breaks} onChange={(v) => onChange({ autoStart: v })}>
-            Start the next focus when a break ends
-          </Check>
-          <Check checked={settings.sound} onChange={(v) => onChange({ sound: v })}>
-            Chime when a focus or break ends
-          </Check>
+          <Check checked={settings.autoBreak} disabled={!settings.breaks} onChange={(v) => onChange({ autoBreak: v })}>{__("Start the break when a focus ends")}</Check>
+          <Check checked={settings.autoStart} disabled={!settings.breaks} onChange={(v) => onChange({ autoStart: v })}>{__("Start the next focus when a break ends")}</Check>
+          <Check checked={settings.sound} onChange={(v) => onChange({ sound: v })}>{__("Chime when a focus or break ends")}</Check>
           <p className="mt-1 text-xs text-muted">
-            A focus is saved as a pomodoro (one cut short is kept but not counted).{" "}
+            {__("A focus is saved as a pomodoro (one cut short is kept but not counted).")}{" "}
             {settings.breaks
-              ? "When a break starts, a running project timer is paused for it and picks up again with the next focus."
-              : "With no breaks the next focus starts as soon as one ends, and a running project timer keeps going."}
+              ? __("When a break starts, a running project timer is paused for it and picks up again with the next focus.")
+              : __("With no breaks the next focus starts as soon as one ends, and a running project timer keeps going.")}
           </p>
           <button
             onClick={onReset}
             disabled={Object.keys(DEFAULTS).every((k) => settings[k] === DEFAULTS[k])}
             className="-ml-2 inline-flex h-8 items-center gap-1.5 self-start px-2 text-[13px] text-muted transition-colors hover:bg-surface-2 hover:text-text disabled:pointer-events-none disabled:opacity-40"
           >
-            <RotateCcw size={13} /> Reset to defaults
-          </button>
+            <RotateCcw size={13} />{" "}{__("Reset to defaults")}</button>
         </div>
       </div>
     </aside>
@@ -153,6 +149,7 @@ function useAnchor(anchor) {
 }
 
 function Stepper({ label, unit, value, limits: [min, max], disabled = false, onChange }) {
+  useT();
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
 
@@ -169,7 +166,7 @@ function Stepper({ label, unit, value, limits: [min, max], disabled = false, onC
     <div className={`flex items-center justify-between gap-3 py-2.5 transition-opacity ${disabled ? "opacity-40" : ""}`}>
       <span className="text-[13px] font-semibold">{label}</span>
       <div className="flex items-center gap-1.5">
-        <button onClick={() => set(value - 1)} disabled={disabled || value <= min} className={step} aria-label={`Decrease ${label.toLowerCase()}`}>
+        <button onClick={() => set(value - 1)} disabled={disabled || value <= min} className={step} aria-label={__("Decrease {toLowerCase}", { toLowerCase: label.toLowerCase() })}>
           <Minus size={14} />
         </button>
         <input
@@ -182,7 +179,7 @@ function Stepper({ label, unit, value, limits: [min, max], disabled = false, onC
           aria-label={`${label} (${unit})`}
           className="figures h-8 w-11 border border-line-strong bg-transparent text-center text-[15px] font-semibold outline-none focus:border-text"
         />
-        <button onClick={() => set(value + 1)} disabled={disabled || value >= max} className={step} aria-label={`Increase ${label.toLowerCase()}`}>
+        <button onClick={() => set(value + 1)} disabled={disabled || value >= max} className={step} aria-label={__("Increase {toLowerCase}", { toLowerCase: label.toLowerCase() })}>
           <Plus size={14} />
         </button>
         <span className="w-9 text-xs text-faint">{unit}</span>

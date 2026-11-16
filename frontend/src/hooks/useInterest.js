@@ -1,3 +1,4 @@
+import { __ } from "../i18n";
 import { useCallback, useEffect, useState } from "react";
 import { interest } from "../api";
 
@@ -73,7 +74,7 @@ export function useInterest() {
       setJustCounted(true);
       write(COUNTED_KEY, "1");
     } catch (err) {
-      setError(err.status === 429 ? err.message : "Couldn't save that right now. Try again in a moment.");
+      setError(err.status === 429 ? err.message : __("Couldn't save that right now. Try again in a moment."));
     } finally {
       setSending(false);
     }
@@ -94,7 +95,7 @@ export function useInterest() {
         write(NOTE_KEY, "1");
         return true;
       } catch (err) {
-        setNoteError(err.status === 429 ? err.message : "Couldn't send that right now. Try again in a moment.");
+        setNoteError(err.status === 429 ? err.message : __("Couldn't send that right now. Try again in a moment."));
         return false;
       } finally {
         setNoteSending(false);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api as realApi, taskKey } from "../api";
 import { heatmapStart, tooShort } from "../lib/time";
+import { __ } from "../i18n";
 
 const STALE_MS = 5 * 60 * 1000; // away from the tab this long, what it shows is refreshed when you return
 
@@ -146,7 +147,7 @@ export function useTracker(api = realApi) {
         await fn();
         return true;
       } catch (err) {
-        setNotice({ id: Date.now(), text: err.message || "Something went wrong" });
+        setNotice({ id: Date.now(), text: err.message || __("Something went wrong") });
         load();
         return false;
       }
@@ -170,7 +171,7 @@ export function useTracker(api = realApi) {
       // Fetches can finish out of order when paging quickly; keep the earliest edge
       if (from < loadedFrom.current) loadedFrom.current = from;
     } catch {
-      setNotice({ id: Date.now(), text: "Couldn't load that month" });
+      setNotice({ id: Date.now(), text: __("Couldn't load that month") });
     } finally {
       pendingRange.current = null;
     }
@@ -454,7 +455,7 @@ export function useTracker(api = realApi) {
             id: Date.now(),
             tone: "info",
             text: `"${before.text}" ${cancelled ? "cancelled" : "done"}`,
-            action: { label: "Undo", run: () => todoOps.update(id, cancelled ? { cancelled: false } : { done: false }) },
+            action: { label: __("Undo"), run: () => todoOps.update(id, cancelled ? { cancelled: false } : { done: false }) },
           });
         }
         // The server stamps the real moments; adopt them unless a later click has already moved on
@@ -534,7 +535,7 @@ export function useTracker(api = realApi) {
         const task = todos.find((x) => x.id === id);
         const project = await api.taskToProject(id);
         await load();
-        setNotice({ id: Date.now(), tone: "info", text: `"${task?.text ?? project.name}" is now a project` });
+        setNotice({ id: Date.now(), tone: "info", text: __("\"{value}\" is now a project", { value: task?.text ?? project.name }) });
       }),
   };
 

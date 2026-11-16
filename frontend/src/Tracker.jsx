@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { format, isSameMonth, startOfMonth, startOfWeek } from "date-fns";
+import { format, isSameMonth, startOfMonth, startOfWeek } from "./lib/dates";
 import { Briefcase, CalendarDays, ChartColumn, Columns3, ListChecks, ListTodo, Repeat, RotateCw, ServerOff, SlidersHorizontal } from "lucide-react";
 import { useTracker } from "./hooks/useTracker";
 import { useTheme } from "./hooks/useTheme";
@@ -41,26 +41,33 @@ import WorkingMenu from "./components/WorkingMenu";
 import SessionModal from "./components/SessionModal";
 import ConfirmDialog from "./components/ConfirmDialog";
 import InterestInbox from "./components/InterestInbox";
+import AccountPanel from "./components/AccountPanel";
+import { scopedKey } from "./lib/storage";
 import GuideModal from "./components/GuideModal";
 import Toast from "./components/Toast";
 import { Button } from "./components/Modal";
 import { CHORE_ICON, CHORE_INK, TASK_ICON, TASK_INK, inkFor } from "./lib/palette";
 import { choreKey, isChoreKey, isTaskKey, taskIdOf, taskKey, todoSubject } from "./api";
 import { isActive as isActiveHabit } from "./lib/habits";
+import { N_, __, useT } from "./i18n";
+
 
 const FEED_TASKS = "feed:tasks"; // the id of the Tasks card in the Feed
 const PEEK_PUSH_MIN = 900; // narrower windows never push: the peek goes over the page (it is a phone or a small window)
 
 /**
  * The whole tracker. `api` is where its data lives: the real server for the
- * owner, or the in-memory demo on the landing page. `onSignOut` (the owner's way
+ * signed-in `user`, or the in-memory demo on the landing page. `onSignOut` (the way
  * back to the public page) is never passed to the demo.
  */
-export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) {
+export default function Tracker({ api, demo = false, user, onSignOut, signOutLabel }) {
+  useT();
   const t = useTracker(api);
   const habits = useHabits(api); // from the My Habits backup on Drive; kept apart so it can fail on its own
-  const inbox = useInbox(!demo); // the notes visitors left: only the owner's app asks for them
+  const isAdmin = Boolean(user?.is_admin);
+  const inbox = useInbox(!demo && isAdmin); // the notes visitors left: only the admin's app asks for them
   const [inboxOpen, setInboxOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const now = useNow(Boolean(t.running));
   const todayKey = dayKey(now);
   // Keyed on the date string so "today" only changes identity at midnight, not every tick
@@ -208,7 +215,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           return {
             todo,
             subjectId: todoSubject(todo),
-            context: [owner?.name ?? (todo.project_id ? "" : "Task"), parent && !todo.project_id ? parent.text : ""].filter(Boolean).join(": "),
+            context: [owner?.name ?? (todo.project_id ? "" : __("Task")), parent && !todo.project_id ? parent.text : ""].filter(Boolean).join(": "),
           };
         }),
     [t.todos, projectsById]
@@ -233,7 +240,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   // ranked by when it was last worked on: it stays on top until it is skipped, and then goes behind the projects
   // that have not been worked on since (so it is back on top once they all have). Skipping it is kept in this
   // browser: a project's skip is a field on the project, and the tasks have none.
-  const skipKey = `pt-feed-tasks-skipped-${demo ? "demo" : "app"}`;
+  const skipKey = scopedKey(`pt-feed-tasks-skipped-${demo ? "demo" : "app"}`);
   const [tasksSkippedAt, setTasksSkippedAt] = useState(() => {
     try {
       return localStorage.getItem(skipKey);
@@ -254,7 +261,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     if (!tasks.some((x) => !x.done)) return null;
     // No time and no created date to rank by: only its skip counts, and with none it comes before everything
     return {
-      id: FEED_TASKS, kind: "tasks", name: "Tasks", color: TASK_INK, icon: TASK_ICON, status_id: null, skipped_at: tasksSkippedAt,
+      id: FEED_TASKS, kind: "tasks", name: __("Tasks"), color: TASK_INK, icon: TASK_ICON, status_id: null, skipped_at: tasksSkippedAt,
       created_at: "1970-01-01T00:00:00Z", total_seconds: 0,
     };
   }, [tasks, tasksSkippedAt]);
@@ -365,12 +372,12 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
     if (demo) return;
     const on = runningProject ? ` · ${runningProject.name}` : "";
     document.title =
-      phase === "focus" ? `${fmtCountdown(focusRemaining)} · Focus${on}`
-      : phase === "focusPaused" ? `Paused ${fmtCountdown(focusRemaining)}${on}`
-      : phase === "break" ? `Break ${fmtCountdown(breakRemaining)}`
-      : phase === "breakPaused" ? `Break paused ${fmtCountdown(breakRemaining)}`
-      : phase === "breakWait" ? "Start your break · ProjectsTracker"
-      : phase === "ready" ? "Break over · ProjectsTracker"
+      phase === "focus" ? `${fmtCountdown(focusRemaining)} · ${__("Focus")}${on}`
+      : phase === "focusPaused" ? `${__("Paused")} ${fmtCountdown(focusRemaining)}${on}`
+      : phase === "break" ? `${__("Break")} ${fmtCountdown(breakRemaining)}`
+      : phase === "breakPaused" ? `${__("Break paused")} ${fmtCountdown(breakRemaining)}`
+      : phase === "breakWait" ? `${__("Start your break")} · ProjectsTracker`
+      : phase === "ready" ? `${__("Break over")} · ProjectsTracker`
       : runningProject ? `${fmtClock(clock)}${on}`
       : "ProjectsTracker";
   }, [demo, phase, runningProject, clock, focusRemaining, breakRemaining]);
@@ -590,7 +597,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
       setTimeout(() => card.removeAttribute("data-reveal"), 1800);
       // Where the peek lies over the board instead of pushing it aside, bring the card out from under it
       setTimeout(() => {
-        const peekBox = document.querySelector('aside[aria-label$="side peek"]')?.getBoundingClientRect();
+        const peekBox = document.querySelector("aside[data-side-peek]")?.getBoundingClientRect();
         const box = card.getBoundingClientRect();
         if (!peekBox || peekBox.width === 0 || box.right <= peekBox.left) return;
         let el = card.parentElement;
@@ -614,13 +621,13 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
   if (t.status === "error") return <ServerDown onRetry={t.reload} connecting={t.connecting} failures={t.failures} auto={!demo} />;
 
   const tabs = [
-    { id: "feed", label: "Feed", icon: ListTodo, color: "#bf3a30" },
-    { id: "workspace", label: "Workspace", short: "Work", icon: Briefcase, color: "#2c8a86" },
-    { id: "projects", label: "Projects", icon: Columns3, color: "#2f5d8a" },
-    { id: "tasks", label: "Tasks", icon: ListChecks, color: "#4f7a52" },
-    { id: "habits", label: "Habits", icon: Repeat, color: "#a8512f" },
-    { id: "calendar", label: "Calendar", icon: CalendarDays, color: "#b07d2a" },
-    { id: "stats", label: "Stats", icon: ChartColumn, color: "#7a5a96" },
+    { id: "feed", label: __("Feed"), icon: ListTodo, color: "#bf3a30" },
+    { id: "workspace", label: __("Workspace"), short: __("Work"), icon: Briefcase, color: "#2c8a86" },
+    { id: "projects", label: __("Projects"), icon: Columns3, color: "#2f5d8a" },
+    { id: "tasks", label: __("Tasks"), icon: ListChecks, color: "#4f7a52" },
+    { id: "habits", label: __("Habits"), icon: Repeat, color: "#a8512f" },
+    { id: "calendar", label: __("Calendar"), icon: CalendarDays, color: "#b07d2a" },
+    { id: "stats", label: __("Stats"), icon: ChartColumn, color: "#7a5a96" },
   ];
 
   return (
@@ -646,7 +653,8 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           onToggleTheme={toggleTheme}
           onSignOut={onSignOut}
           signOutLabel={signOutLabel}
-          onInbox={demo ? undefined : () => setInboxOpen(true)}
+          onInbox={demo || !isAdmin ? undefined : () => setInboxOpen(true)}
+          onAccount={demo || !user ? undefined : () => setAccountOpen(true)}
           inboxUnread={inbox.unread}
           onStatuses={!demo && tab === "projects" && t.status === "ready" ? () => setStatusesOpen(true) : undefined}
           onGuide={() => setGuideOpen(true)}
@@ -671,7 +679,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
             <VerticalTabs
               tabs={tabs}
               value={tab}
-              label="Sections"
+              label={__("Sections")}
               onChange={(id) => {
                 setTab(id);
                 setPeekResetKey((k) => k + 1); // the peek goes back to its usual width, and stays open
@@ -684,7 +692,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
             value={tab}
             onChange={setTab}
             compact={compactTabs}
-            label="Sections"
+            label={__("Sections")}
             className={`pg [--cw:80rem] shrink-0 px-2 sm:px-5 ${demo ? "" : "max-sm:hidden"}`}
             right={
               <>
@@ -694,17 +702,16 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                     tab === "projects" ? "@[64rem]:inline" : "@[58rem]:inline"
                   }`}
                 >
-                  Today <span className="font-semibold text-text">{fmtHM(todaySecs)}</span>
+                  {__("Today")} <span className="font-semibold text-text">{fmtHM(todaySecs)}</span>
                   <span className="mx-2 text-faint">·</span>
-                  Week <span className="font-semibold text-text">{fmtHM(weekSecs)}</span>
+                  {__("Week")} <span className="font-semibold text-text">{fmtHM(weekSecs)}</span>
                 </span>
                 {tab === "projects" && t.status === "ready" && (
                   <button
                     onClick={() => setStatusesOpen(true)}
                     className="hidden h-8 items-center gap-1.5 px-2 text-[13px] text-muted transition-colors hover:bg-surface-2 hover:text-text @[52rem]:inline-flex"
                   >
-                    <SlidersHorizontal size={14} /> Statuses
-                  </button>
+                    <SlidersHorizontal size={14} />{" "}{__("Statuses")}</button>
                 )}
               </>
             }
@@ -770,6 +777,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
                 habits={habits.habits}
                 status={habits.status}
                 configured={habits.configured}
+                canSetUp={demo || isAdmin}
                 syncedAt={habits.synced_at}
                 sourceFile={habits.source_file}
                 syncing={habits.syncing}
@@ -913,7 +921,7 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
           )}
         </div>
 
-        {!demo && <BottomTabBar tabs={tabs} value={tab} onChange={setTab} label="Sections" />}
+        {!demo && <BottomTabBar tabs={tabs} value={tab} onChange={setTab} label={__("Sections")} />}
       </div>
 
       {screenOpen && (
@@ -975,6 +983,8 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
       <Toast notice={t.notice} onDismiss={t.dismissNotice} />
 
       {inboxOpen && <InterestInbox inbox={inbox} onClose={() => setInboxOpen(false)} />}
+
+      {accountOpen && user && <AccountPanel user={user} onClose={() => setAccountOpen(false)} />}
 
       {guideOpen && <GuideModal onClose={() => setGuideOpen(false)} />}
 
@@ -1040,9 +1050,9 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
 
       {confirm?.kind === "session" && projectsById.has(confirm.item.project_id) && (
         <ConfirmDialog
-          title="Delete session?"
+          title={__("Delete session?")}
           project={projectsById.get(confirm.item.project_id)}
-          primary={`${format(confirm.item.start, "MMM d")}, ${fmtTime(confirm.item.start)} to ${fmtTime(confirm.item.end)}`}
+          primary={__("{format}, {fmtTime} to {fmtTime2}", { format: format(confirm.item.start, "MMM d"), fmtTime: fmtTime(confirm.item.start), fmtTime2: fmtTime(confirm.item.end) })}
           secondary={`−${fmtHM(sessionSeconds(confirm.item, now))}`}
           onCancel={() => setConfirm(null)}
           onConfirm={() => {
@@ -1057,16 +1067,16 @@ export default function Tracker({ api, demo = false, onSignOut, signOutLabel }) 
 
 const CAL_VIEW_KEY = "pt-cal-view";
 const CAL_VIEWS = [
-  { id: "month", label: "Month" },
-  { id: "week", label: "Week" },
-  { id: "day", label: "Day" },
+  { id: "month", label: N_("Month") },
+  { id: "week", label: N_("Week") },
+  { id: "day", label: N_("Day") },
 ];
 
 /** Which calendar is up: the month of ink washes, or a week or day laid out hour by hour. Remembered in this browser. */
 function useCalendarView() {
   const [view, setView] = useState(() => {
     try {
-      const saved = localStorage.getItem(CAL_VIEW_KEY);
+      const saved = localStorage.getItem(scopedKey(CAL_VIEW_KEY));
       if (CAL_VIEWS.some((v) => v.id === saved)) return saved;
     } catch {
       // storage blocked: it just starts on the month
@@ -1076,7 +1086,7 @@ function useCalendarView() {
   const set = (next) => {
     setView(next);
     try {
-      localStorage.setItem(CAL_VIEW_KEY, next);
+      localStorage.setItem(scopedKey(CAL_VIEW_KEY), next);
     } catch {
       // storage blocked: it just won't survive a reload
     }
@@ -1085,8 +1095,9 @@ function useCalendarView() {
 }
 
 function CalendarViews({ value, onChange, className = "mb-4" }) {
+  useT();
   return (
-    <div role="radiogroup" aria-label="Calendar view" className={`inline-flex border border-line-strong ${className}`}>
+    <div role="radiogroup" aria-label={__("Calendar view")} className={`inline-flex border border-line-strong ${className}`}>
       {CAL_VIEWS.map((v) => (
         <button
           key={v.id}
@@ -1097,7 +1108,7 @@ function CalendarViews({ value, onChange, className = "mb-4" }) {
             v.id === value ? "bg-text text-bg" : "text-muted hover:bg-surface-2 hover:text-text"
           }`}
         >
-          {v.label}
+          {__(v.label)}
         </button>
       ))}
     </div>
@@ -1105,8 +1116,9 @@ function CalendarViews({ value, onChange, className = "mb-4" }) {
 }
 
 function Skeleton() {
+  useT();
   return (
-    <div className="grid animate-pulse gap-3 sm:grid-cols-3" aria-label="Loading">
+    <div className="grid animate-pulse gap-3 sm:grid-cols-3" aria-label={__("Loading")}>
       {[0, 1, 2].map((i) => (
         <div key={i} className="border border-line bg-surface-2/40 p-3">
           <div className="h-5 w-24 bg-surface-2" />
@@ -1120,14 +1132,13 @@ function Skeleton() {
 
 /** Nothing yet: the one thing to do is make the first project. */
 function EmptyBoard({ onCreate }) {
+  useT();
   return (
     <div className="grid h-full min-h-[16rem] place-items-center border border-dashed border-line-strong p-6 text-center">
       <div>
-        <p className="font-serif text-lg font-semibold">No projects yet</p>
-        <p className="mt-1 text-[13px] text-muted">Each project becomes a card you can start a timer on.</p>
-        <Button variant="primary" onClick={onCreate} className="mt-4">
-          Create your first project
-        </Button>
+        <p className="font-serif text-lg font-semibold">{__("No projects yet")}</p>
+        <p className="mt-1 text-[13px] text-muted">{__("Each project becomes a card you can start a timer on.")}</p>
+        <Button variant="primary" onClick={onCreate} className="mt-4">{__("Create your first project")}</Button>
       </div>
     </div>
   );
@@ -1136,25 +1147,24 @@ function EmptyBoard({ onCreate }) {
 /** The server can't be reached. The app keeps trying on its own (and again when the network or the tab comes
  *  back), so the button is only there to skip the wait. */
 function ServerDown({ onRetry, connecting, failures, auto }) {
+  useT();
   return (
     <div className="grid min-h-[100dvh] place-items-center p-4">
       <div className="w-full max-w-md border border-line-strong bg-surface p-7" role="status" aria-live="polite">
         <ServerOff size={26} className="text-danger" />
-        <h1 className="mt-4 font-serif text-2xl font-semibold">Can't reach the server</h1>
+        <h1 className="mt-4 font-serif text-2xl font-semibold">{__("Can't reach the server")}</h1>
         <p className="mt-2 text-[13px] text-muted">
           {auto
             ? connecting
-              ? `Reconnecting… (try ${failures + 1})`
-              : "Trying again in a moment. It starts on its own when the connection is back."
-            : "Start the backend, then retry:"}
+              ? __("Reconnecting… (try {value})", { value: failures + 1 })
+              : __("Trying again in a moment. It starts on its own when the connection is back.")
+            : __("Start the backend, then retry:")}
         </p>
         {!auto && (
-          <code className="mt-3 block border border-line bg-surface-2 px-3 py-2.5 font-mono text-xs">
-            uvicorn backend.main:app --reload --port 8001
-          </code>
+          <code className="mt-3 block border border-line bg-surface-2 px-3 py-2.5 font-mono text-xs">{__("uvicorn backend.main:app --reload --port 8001")}</code>
         )}
         <Button variant="primary" onClick={onRetry} disabled={connecting} className="mt-6">
-          <RotateCw size={15} className={connecting ? "animate-spin" : ""} /> {connecting ? "Trying…" : "Retry now"}
+          <RotateCw size={15} className={connecting ? "animate-spin" : ""} /> {connecting ? __("Trying…") : __("Retry now")}
         </Button>
       </div>
     </div>

@@ -1,6 +1,7 @@
-import { format } from "date-fns";
+import { format } from "../lib/dates";
 import { Check, Hourglass } from "lucide-react";
 import { iconFor, inkText, tint } from "../lib/palette";
+import { __, useT } from "../i18n";
 
 /** "2d 3h", "3h 20m", "12m": how long something has been open, in its two biggest units. */
 export function fmtOpen(seconds) {
@@ -18,13 +19,13 @@ export function fmtOpen(seconds) {
  * change it or close it at another time. Nothing shows while nothing is open.
  */
 export default function OpenItemsBar({ items, subjectsById, now, onOpen, onClose, className = "" }) {
+  useT();
   const shown = items.filter((x) => subjectsById.has(x.project_id));
   if (shown.length === 0) return null;
   return (
-    <div className={`flex items-center gap-2 overflow-x-auto py-1.5 ${className}`} role="region" aria-label="Open items">
+    <div className={`flex items-center gap-2 overflow-x-auto py-1.5 ${className}`} role="region" aria-label={__("Open items")}>
       <span className="inline-flex shrink-0 items-center gap-1 font-serif text-xs italic text-muted">
-        <Hourglass size={12} aria-hidden="true" /> Open
-      </span>
+        <Hourglass size={12} aria-hidden="true" />{" "}{__("Open")}</span>
       {shown.map((item) => {
         const subject = subjectsById.get(item.project_id);
         const Icon = iconFor(subject.icon);
@@ -38,7 +39,7 @@ export default function OpenItemsBar({ items, subjectsById, now, onOpen, onClose
             <button
               onClick={() => onOpen(item)}
               className="flex min-w-0 items-center gap-2 px-2.5 text-[13px] transition-colors hover:bg-surface-2"
-              title={`${label}. Open since ${format(item.start, "EEE d MMM, HH:mm")}. Click to edit or close at another time`}
+              title={__("{label}. Open since {format}. Click to edit or close at another time", { label, format: format(item.start, "EEE d MMM, HH:mm") })}
             >
               <Icon size={13} style={{ color: inkText(subject.color) }} className="shrink-0" aria-hidden="true" />
               <span className="min-w-0 truncate font-medium">{subject.name}</span>
@@ -49,10 +50,10 @@ export default function OpenItemsBar({ items, subjectsById, now, onOpen, onClose
               onClick={() => onClose(item)}
               className="flex items-center gap-1 border-l px-2 text-xs font-semibold transition-colors hover:bg-surface-2"
               style={{ borderColor: tint(subject.color, 50) }}
-              aria-label={`Close ${label} now`}
-              title="Close it now: it becomes a session"
+              aria-label={__("Close {label} now", { label })}
+              title={__("Close it now: it becomes a session")}
             >
-              <Check size={13} aria-hidden="true" /> <span className="max-sm:sr-only">Close</span>
+              <Check size={13} aria-hidden="true" /> <span className="max-sm:sr-only">{__("Close")}</span>
             </button>
           </span>
         );

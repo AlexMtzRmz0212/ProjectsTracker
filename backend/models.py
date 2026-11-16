@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, false, func, true
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, false, func, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -17,6 +17,42 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _owner():
+    """The `user_id` every piece of personal data carries: whose row it is. Nullable only so that rows made
+    before accounts existed can be adopted by the admin (see bootstrap.py); every route sets and filters on it."""
+    return mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+
+
+class User(Base):
+    """An account. `is_admin` can make invites, sync habits and read the landing-page inbox. `token_version` is
+    part of every session token: bumping it (a password change) signs the user out everywhere."""
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    email: Mapped[str] = mapped_column(String(254), unique=True, index=True)  # stored lowercased
+    password_hash: Mapped[str] = mapped_column(String(255))
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    language: Mapped[str] = mapped_column(String(5), default="en", server_default="en")  # the app's language: en | es
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class Invite(Base):
+    """A one-time code that lets one person register. Only its hash is stored, so the code is shown once, when
+    the admin makes it."""
+
+    __tablename__ = "invites"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    used_by: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
 class Status(Base):
     """Where a project stands (Idea, Active, On hold, Done, ...). Every project has one.
     `is_done` marks the statuses that mean "finished": no timer, tucked away at the bottom.
@@ -26,6 +62,7 @@ class Status(Base):
     __tablename__ = "statuses"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    user_id: Mapped[Optional[str]] = _owner()
     name: Mapped[str] = mapped_column(String(40))
     color: Mapped[str] = mapped_column(String(9), default="#56606b")
     is_done: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -43,6 +80,7 @@ class Project(Base):
     __tablename__ = "projects"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    user_id: Mapped[Optional[str]] = _owner()
     name: Mapped[str] = mapped_column(String(80))
     color: Mapped[str] = mapped_column(String(9), default="#8b5cf6")
     icon: Mapped[str] = mapped_column(String(40), default="folder")
@@ -79,6 +117,7 @@ class Todo(Base):
     __tablename__ = "todos"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    user_id: Mapped[Optional[str]] = _owner()
     project_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True
     )
@@ -103,6 +142,7 @@ class Session(Base):
     __tablename__ = "sessions"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    user_id: Mapped[Optional[str]] = _owner()
     project_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True
     )
@@ -125,6 +165,7 @@ class OpenItem(Base):
     __tablename__ = "open_items"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    user_id: Mapped[Optional[str]] = _owner()
     project_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True
     )
@@ -147,6 +188,7 @@ class Pomodoro(Base):
     __tablename__ = "pomodoros"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    user_id: Mapped[Optional[str]] = _owner()
     start: Mapped[datetime] = mapped_column(DateTime, index=True)
     end: Mapped[datetime] = mapped_column(DateTime, index=True)
     completed: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
@@ -184,9 +226,12 @@ class Habit(Base):
     from the newest backup; its days are kept. Read-only here: habits are edited in the other app."""
 
     __tablename__ = "habits"
+    # A habit's uuid is unique per account, not across the whole database
+    __table_args__ = (Index("uq_habits_user_loop", "user_id", "loop_uuid", unique=True),)
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
-    loop_uuid: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    user_id: Mapped[Optional[str]] = _owner()
+    loop_uuid: Mapped[str] = mapped_column(String(64), index=True)
     name: Mapped[str] = mapped_column(String(120))
     question: Mapped[str] = mapped_column(String(300), default="", server_default="")
     unit: Mapped[str] = mapped_column(String(40), default="", server_default="")
@@ -215,11 +260,11 @@ class HabitEntry(Base):
 
 
 class HabitSync(Base):
-    """The one row saying which backup the habits were last copied from, and when."""
+    """Which backup a user's habits were last copied from, and when: one row per user."""
 
     __tablename__ = "habit_sync"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     file_name: Mapped[str] = mapped_column(String(255), default="")
     md5: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     synced_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

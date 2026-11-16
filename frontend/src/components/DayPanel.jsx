@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { format } from "date-fns";
+import { format } from "../lib/dates";
 import { CalendarPlus, Check, Hourglass, Moon, Pencil, Plus, Square, Tag, Trash2 } from "lucide-react";
 import { iconFor, inkText } from "../lib/palette";
 import { completedPomodoros, dayKey, fmtHM, fmtTime, pomodoroProjects, pomodorosOnDay, sessionSeconds } from "../lib/time";
@@ -7,10 +7,13 @@ import { SplitBar } from "./StatsStrip";
 import ParentTag from "./ParentTag";
 import DoneChart from "./DoneChart";
 import { todoSubject } from "../api";
+import { __, useT } from "../i18n";
+
 
 /** The selected day as a time card: In, Out, Project, Hours, then the pomodoros finished and the to-dos ticked off that day.
  *  An open item (`openItem` on a session still going) is listed with the rest, to edit or close (`onStop(session)`). */
 export default function DayPanel({ date, sessions, pomodoros, todos, todoOps, byDay, projectsById, now, onAdd, onEdit, onDelete, onStop }) {
+  useT();
   const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
   const entry = byDay.get(dayKey(date));
@@ -43,8 +46,8 @@ export default function DayPanel({ date, sessions, pomodoros, todos, todoOps, by
         <button
           onClick={onAdd}
           className="grid size-8 shrink-0 place-items-center border border-line-strong text-muted transition-colors hover:border-text hover:text-text"
-          aria-label="Add a session on this day"
-          title="Add time"
+          aria-label={__("Add a session on this day")}
+          title={__("Add time")}
         >
           <Plus size={16} />
         </button>
@@ -63,19 +66,19 @@ export default function DayPanel({ date, sessions, pomodoros, todos, todoOps, by
         >
           <CalendarPlus size={17} />
           <span>
-            No time logged. <span className="font-semibold text-text underline underline-offset-2">Add time</span>
+            {__("No time logged.")} <span className="font-semibold text-text underline underline-offset-2">{__("Add time")}</span>
           </span>
         </button>
       ) : (
         <table className="mt-3 w-full border-collapse text-[13px]">
           <thead>
             <tr className="border-b border-rule text-left font-serif text-xs italic text-muted">
-              <th className="py-1 pr-3 font-normal">In</th>
-              <th className="py-1 pr-3 font-normal">Out</th>
-              <th className="py-1 pr-3 font-normal">Project</th>
-              <th className="py-1 text-right font-normal">Hours</th>
+              <th className="py-1 pr-3 font-normal">{__("In")}</th>
+              <th className="py-1 pr-3 font-normal">{__("Out")}</th>
+              <th className="py-1 pr-3 font-normal">{__("Project")}</th>
+              <th className="py-1 text-right font-normal">{__("Hours")}</th>
               <th className="w-0 py-1">
-                <span className="sr-only">Actions</span>
+                <span className="sr-only">{__("Actions")}</span>
               </th>
             </tr>
           </thead>
@@ -90,19 +93,15 @@ export default function DayPanel({ date, sessions, pomodoros, todos, todoOps, by
                   <td className="figures pr-3 whitespace-nowrap">{fmtTime(s.start)}</td>
                   <td className="figures pr-3 whitespace-nowrap">
                     {running && s.openItem ? (
-                      <span className="inline-flex items-center gap-1.5 font-semibold text-accent-2" title="Open: close it when it's done">
-                        <Hourglass size={12} aria-hidden="true" />
-                        open
-                      </span>
+                      <span className="inline-flex items-center gap-1.5 font-semibold text-accent-2" title={__("Open: close it when it's done")}>
+                        <Hourglass size={12} aria-hidden="true" />{__("open")}</span>
                     ) : running ? (
                       <span className="inline-flex items-center gap-1.5 font-semibold text-accent">
-                        <span className="blink-dot size-1.5 rounded-full bg-accent" aria-hidden="true" />
-                        now
-                      </span>
+                        <span className="blink-dot size-1.5 rounded-full bg-accent" aria-hidden="true" />{__("now")}</span>
                     ) : (
                       <span className="inline-flex items-center gap-1">
                         {fmtTime(s.end)}
-                        {crossesMidnight && <Moon size={11} className="text-muted" aria-label="Crosses midnight" />}
+                        {crossesMidnight && <Moon size={11} className="text-muted" aria-label={__("Crosses midnight")} />}
                       </span>
                     )}
                   </td>
@@ -111,7 +110,7 @@ export default function DayPanel({ date, sessions, pomodoros, todos, todoOps, by
                       <Icon size={14} className="shrink-0" style={{ color: inkText(project.color) }} aria-hidden="true" />
                       <span className="truncate">{project.name}</span>
                       {s.todo_id && todosById.has(s.todo_id) && project.kind !== "task" && (
-                        <span className="min-w-0 shrink truncate text-muted" title={`On "${todosById.get(s.todo_id).text}"`}>
+                        <span className="min-w-0 shrink truncate text-muted" title={__("On \"{text}\"", { text: todosById.get(s.todo_id).text })}>
                           · {todosById.get(s.todo_id).text}
                         </span>
                       )}
@@ -128,23 +127,23 @@ export default function DayPanel({ date, sessions, pomodoros, todos, todoOps, by
                     <div className="flex justify-end gap-0.5 transition-opacity sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100">
                       {running && s.openItem ? (
                         <>
-                          <RowButton label="Edit the open item" onClick={() => onEdit(s)}>
+                          <RowButton label={__("Edit the open item")} onClick={() => onEdit(s)}>
                             <Pencil size={14} />
                           </RowButton>
-                          <RowButton label="Close it now" onClick={() => onStop(s)}>
+                          <RowButton label={__("Close it now")} onClick={() => onStop(s)}>
                             <Check size={14} />
                           </RowButton>
                         </>
                       ) : running ? (
-                        <RowButton label="Stop timer" onClick={() => onStop(s)}>
+                        <RowButton label={__("Stop timer")} onClick={() => onStop(s)}>
                           <Square size={12} fill="currentColor" />
                         </RowButton>
                       ) : (
                         <>
-                          <RowButton label="Edit session" onClick={() => onEdit(s)}>
+                          <RowButton label={__("Edit session")} onClick={() => onEdit(s)}>
                             <Pencil size={14} />
                           </RowButton>
-                          <RowButton label="Delete session" onClick={() => onDelete(s)} danger>
+                          <RowButton label={__("Delete session")} onClick={() => onDelete(s)} danger>
                             <Trash2 size={14} />
                           </RowButton>
                         </>
@@ -161,7 +160,7 @@ export default function DayPanel({ date, sessions, pomodoros, todos, todoOps, by
       {dayPomodoros.length > 0 && (
         <div className="mt-5">
           <h3 className="flex items-baseline gap-2 border-b border-rule py-1 text-left font-serif text-xs font-normal italic text-muted">
-            Pomodoros <span className="figures not-italic">{completedPomodoros(dayPomodoros).length}</span>
+            {__("Pomodoros")} <span className="figures not-italic">{completedPomodoros(dayPomodoros).length}</span>
           </h3>
           <ul>
             {dayPomodoros.map((p) => {
@@ -180,15 +179,15 @@ export default function DayPanel({ date, sessions, pomodoros, todos, todoOps, by
                   <span className={`figures shrink-0 whitespace-nowrap ${p.completed ? "" : "text-muted"}`}>
                     {fmtTime(p.start)}–{fmtTime(p.end)}
                   </span>
-                  {!p.completed && <span className="shrink-0 font-serif text-xs italic text-muted">cut short</span>}
+                  {!p.completed && <span className="shrink-0 font-serif text-xs italic text-muted">{__("cut short")}</span>}
                   <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-0.5">
                     {label && (
-                      <span className="flex min-w-0 items-center gap-1.5 font-semibold" title={`Chore: ${label}`}>
+                      <span className="flex min-w-0 items-center gap-1.5 font-semibold" title={__("Chore: {label}", { label })}>
                         <Tag size={13} className="shrink-0 text-muted" aria-hidden="true" />
                         <span className="max-w-[12rem] truncate">{label}</span>
                       </span>
                     )}
-                    {worked.length === 0 && !label && <span className="font-serif text-xs italic text-muted">no project timer</span>}
+                    {worked.length === 0 && !label && <span className="font-serif text-xs italic text-muted">{__("no project timer")}</span>}
                     {worked.map(([id, secs]) => {
                       const project = projectsById.get(id);
                       const Icon = iconFor(project.icon);
@@ -212,7 +211,7 @@ export default function DayPanel({ date, sessions, pomodoros, todos, todoOps, by
 
       {ticked.length > 0 && (
         <div className="mt-5">
-          <h3 className="border-b border-rule py-1 text-left font-serif text-xs font-normal italic text-muted">Ticked off</h3>
+          <h3 className="border-b border-rule py-1 text-left font-serif text-xs font-normal italic text-muted">{__("Ticked off")}</h3>
           <ul>
             {ticked.map((x) => {
               const project = projectsById.get(todoSubject(x));
@@ -227,7 +226,7 @@ export default function DayPanel({ date, sessions, pomodoros, todos, todoOps, by
                   </span>
                   <span className="flex shrink-0 items-center gap-1.5 text-muted" title={project.name}>
                     <Icon size={14} style={{ color: inkText(project.color) }} aria-hidden="true" />
-                    <span className="max-w-[9rem] truncate max-sm:sr-only">{project.kind === "task" ? "Task" : project.name}</span>
+                    <span className="max-w-[9rem] truncate max-sm:sr-only">{project.kind === "task" ? __("Task") : project.name}</span>
                   </span>
                 </li>
               );
@@ -242,6 +241,7 @@ export default function DayPanel({ date, sessions, pomodoros, todos, todoOps, by
 /** The name of a to-do ticked off that day, which can be corrected in place (saved on blur or Enter; an emptied
  *  line goes back to what it was, Esc too). */
 function TickedName({ todo, ops }) {
+  useT();
   const [draft, setDraft] = useState(todo.text);
   useEffect(() => setDraft(todo.text), [todo.text]);
   const commit = () => {
@@ -262,8 +262,8 @@ function TickedName({ todo, ops }) {
         }
       }}
       maxLength={200}
-      aria-label="Name of the to-do"
-      title="Click to rename"
+      aria-label={__("Name of the to-do")}
+      title={__("Click to rename")}
       className="h-7 min-w-[8rem] flex-1 truncate bg-transparent text-[13px] outline-none focus:bg-surface-2"
     />
   );

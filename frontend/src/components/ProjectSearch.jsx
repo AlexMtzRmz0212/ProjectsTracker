@@ -3,13 +3,15 @@ import { Search } from "lucide-react";
 import Modal from "./Modal";
 import { taskKey } from "../api";
 import { ON_INK, TASK_ICON, TASK_INK, inkFor, inkText, iconFor, tint } from "../lib/palette";
+import { __, useT } from "../i18n";
+
 
 /** Not a project: the Tasks tab, offered at the top of every search (here, in the pomodoro's full screen and
  *  in the mini clock) so the tasks are a Ctrl+F away from anywhere in the app. */
 export const TASKS_TAB = { id: "tab:tasks", kind: "tab", name: "Tasks", color: TASK_INK, icon: TASK_ICON, archived_at: null };
 
 /** The list a search works through: the Tasks tab first when there is somewhere to show it (`onTasks`). */
-export const withTasksTab = (projects, onTasks) => (onTasks ? [TASKS_TAB, ...projects] : projects);
+export const withTasksTab = (projects, onTasks) => (onTasks ? [{ ...TASKS_TAB, name: __("Tasks") }, ...projects] : projects);
 
 /** The open to-dos to find by name, each filed under what it belongs to (`subjects`, by id): a project's to-do
  *  under the project, a task's sub-to-do under the task at the top. A task itself is one of the subjects, so it
@@ -58,7 +60,8 @@ export function matchProjects(projects, query) {
 /** Find a project or task by name: type, move with the arrow keys, Enter (or a click) opens it. Typed, it finds
  *  their open to-dos too (`todos`, from todoEntries), and picking one calls `onPick(subjectId, todoId)`. With
  *  `onTasks`, the Tasks tab is one of the results, and picking it calls that instead. */
-export default function ProjectSearch({ projects, todos = [], statusesById, onPick, onTasks, onClose, title = "Find a project or task" }) {
+export default function ProjectSearch({ projects, todos = [], statusesById, onPick, onTasks, onClose, title = __("Find a project or task") }) {
+  useT();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const listRef = useRef(null);
@@ -97,8 +100,8 @@ export default function ProjectSearch({ projects, todos = [], statusesById, onPi
           aria-expanded="true"
           aria-controls="project-search-results"
           aria-activedescendant={results[current] ? `project-search-${results[current].id}` : undefined}
-          aria-label="Project, task or to-do"
-          placeholder="Type a project, task or to-do and press Enter"
+          aria-label={__("Project, task or to-do")}
+          placeholder={__("Type a project, task or to-do and press Enter")}
           autoComplete="off"
           spellCheck={false}
           className="h-10 min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-faint"
@@ -106,7 +109,7 @@ export default function ProjectSearch({ projects, todos = [], statusesById, onPi
       </div>
 
       {results.length === 0 ? (
-        <p className="py-6 text-center font-serif text-sm italic text-muted">Nothing matches “{query.trim()}”.</p>
+        <p className="py-6 text-center font-serif text-sm italic text-muted">{__("Nothing matches “{query}”.", { query: query.trim() })}</p>
       ) : (
         <ul id="project-search-results" ref={listRef} role="listbox" className="mt-1 max-h-[22rem] overflow-y-auto">
           {results.map((p, i) => {
@@ -133,11 +136,11 @@ export default function ProjectSearch({ projects, todos = [], statusesById, onPi
                 {p.kind === "todo" ? (
                   <TodoNote entry={p} />
                 ) : p.kind === "tab" ? (
-                  <span className="shrink-0 font-serif text-xs italic text-muted">Go to tab</span>
+                  <span className="shrink-0 font-serif text-xs italic text-muted">{__("Go to tab")}</span>
                 ) : p.kind === "task" ? (
-                  <span className="shrink-0 font-serif text-xs italic text-muted">Task</span>
+                  <span className="shrink-0 font-serif text-xs italic text-muted">{__("Task")}</span>
                 ) : p.archived_at ? (
-                  <span className="shrink-0 font-serif text-xs italic text-muted">{p.cancelled_at ? "Cancelled" : "Archived"}</span>
+                  <span className="shrink-0 font-serif text-xs italic text-muted">{p.cancelled_at ? __("Cancelled") : __("Archived")}</span>
                 ) : (
                   status && (
                     <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted">
@@ -157,10 +160,11 @@ export default function ProjectSearch({ projects, todos = [], statusesById, onPi
 
 /** What a to-do found by name belongs to, and whether it is being worked on. */
 export function TodoNote({ entry, className = "text-xs" }) {
+  useT();
   return (
     <span className={`flex min-w-0 max-w-[45%] shrink-0 items-center gap-1.5 font-serif italic text-muted ${className}`}>
-      {entry.working && <span className="blink-dot size-1.5 shrink-0 rounded-full bg-accent" title="Working on this" aria-label="Working on" />}
-      <span className="truncate">in {entry.in}</span>
+      {entry.working && <span className="blink-dot size-1.5 shrink-0 rounded-full bg-accent" title={__("Working on this")} aria-label={__("Working on")} />}
+      <span className="truncate">{__("in {name}", { name: entry.in })}</span>
     </span>
   );
 }

@@ -1,15 +1,18 @@
 import { useMemo } from "react";
 import { countTags, dayKey, fmtHM, fmtShort } from "../lib/time";
+import { N_, __, useT } from "../i18n";
+
 
 const DAYS = 30; // the window of "where the time went"
 const RHYTHM_WEEKS = 12; // the window of the weekday rhythm
-const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const WEEKDAYS = [N_("Mon"), N_("Tue"), N_("Wed"), N_("Thu"), N_("Fri"), N_("Sat"), N_("Sun")];
 const SHOWN_PROJECTS = 6;
 
 const daysBack = (today, n) => new Date(today.getFullYear(), today.getMonth(), today.getDate() - n);
 
 /** Where the last 30 days went: the projects worked on, longest first, as bars in their own ink. */
 export function ProjectTime({ byDay, projectsById, today, onOpenProject }) {
+  useT();
   const rows = useMemo(() => {
     const totals = new Map();
     for (let i = 0; i < DAYS; i++) {
@@ -28,10 +31,10 @@ export function ProjectTime({ byDay, projectsById, today, onOpenProject }) {
 
   return (
     <section>
-      <h2 className="font-hand text-[26px] font-semibold leading-none">Where the time went</h2>
-      <p className="font-serif text-[13px] italic text-muted">The last {DAYS} days.</p>
+      <h2 className="font-hand text-[26px] font-semibold leading-none">{__("Where the time went")}</h2>
+      <p className="font-serif text-[13px] italic text-muted">{__("The last {n} days.", { n: DAYS })}</p>
       {shown.length === 0 ? (
-        <p className="mt-3 font-serif text-[13px] italic text-faint">Nothing logged yet.</p>
+        <p className="mt-3 font-serif text-[13px] italic text-faint">{__("Nothing logged yet.")}</p>
       ) : (
         <ul className="mt-3 flex flex-col gap-2">
           {shown.map(([id, secs]) => {
@@ -57,7 +60,7 @@ export function ProjectTime({ byDay, projectsById, today, onOpenProject }) {
           })}
           {rest > 0 && (
             <li className="flex justify-between font-serif text-xs italic text-muted">
-              <span>{rows.length - SHOWN_PROJECTS} more</span>
+              <span>{__("{n} more", { n: rows.length - SHOWN_PROJECTS })}</span>
               <span className="figures">{fmtHM(rest)}</span>
             </li>
           )}
@@ -69,6 +72,7 @@ export function ProjectTime({ byDay, projectsById, today, onOpenProject }) {
 
 /** Which weekdays carry the work: the average time logged on each, over the last twelve weeks. */
 export function WeekdayRhythm({ byDay, today }) {
+  useT();
   const averages = useMemo(() => {
     const totals = Array(7).fill(0);
     for (let i = 0; i < RHYTHM_WEEKS * 7; i++) {
@@ -83,13 +87,13 @@ export function WeekdayRhythm({ byDay, today }) {
 
   return (
     <section>
-      <h2 className="font-hand text-[26px] font-semibold leading-none">Weekday rhythm</h2>
+      <h2 className="font-hand text-[26px] font-semibold leading-none">{__("Weekday rhythm")}</h2>
       <p className="font-serif text-[13px] italic text-muted">
-        {top < 60 ? `Average a day, ${RHYTHM_WEEKS} weeks.` : `Busiest on ${WEEKDAYS[averages.indexOf(top)]}s. Average a day, ${RHYTHM_WEEKS} weeks.`}
+        {top < 60 ? __("Average a day, {RHYTHM_WEEKS} weeks.", { RHYTHM_WEEKS }) : __("Busiest on {value}s. Average a day, {RHYTHM_WEEKS} weeks.", { value: __(WEEKDAYS[averages.indexOf(top)]), RHYTHM_WEEKS })}
       </p>
       <div className="mt-3 grid grid-cols-7 gap-1.5">
         {averages.map((secs, i) => (
-          <div key={WEEKDAYS[i]} className="flex flex-col items-center gap-1" title={`${WEEKDAYS[i]}: ${fmtHM(secs)} a day`}>
+          <div key={WEEKDAYS[i]} className="flex flex-col items-center gap-1" title={__("{value}: {fmtHM} a day", { value: __(WEEKDAYS[i]), fmtHM: fmtHM(secs) })}>
             <span className="figures h-4 text-[10px] text-muted">{secs >= 60 ? fmtShort(secs) : ""}</span>
             <div className="flex h-20 w-full items-end bg-surface-2">
               <div
@@ -100,7 +104,7 @@ export function WeekdayRhythm({ byDay, today }) {
                 }}
               />
             </div>
-            <span className={`text-[11px] ${i === todayIndex ? "font-semibold text-text" : "text-faint"}`}>{WEEKDAYS[i]}</span>
+            <span className={`text-[11px] ${i === todayIndex ? "font-semibold text-text" : "text-faint"}`}>{__(WEEKDAYS[i])}</span>
           </div>
         ))}
       </div>
@@ -110,6 +114,7 @@ export function WeekdayRhythm({ byDay, today }) {
 
 /** What the pomodoros of the last 30 days were tagged as, most used first. Not drawn until one has a tag. */
 export function PomodoroTags({ pomodoros, today }) {
+  useT();
   const rows = useMemo(() => {
     const from = daysBack(today, DAYS - 1);
     return countTags(pomodoros.filter((p) => p.start >= from));
@@ -120,8 +125,8 @@ export function PomodoroTags({ pomodoros, today }) {
 
   return (
     <section>
-      <h2 className="font-hand text-[26px] font-semibold leading-none">Pomodoro tags</h2>
-      <p className="font-serif text-[13px] italic text-muted">What the focuses were for, the last {DAYS} days.</p>
+      <h2 className="font-hand text-[26px] font-semibold leading-none">{__("Pomodoro tags")}</h2>
+      <p className="font-serif text-[13px] italic text-muted">{__("What the focuses were for, the last {n} days.", { n: DAYS })}</p>
       <ul className="mt-3 flex flex-col gap-2">
         {shown.map(([label, count]) => (
           <li key={label} title={`${label}: ${count} ${count === 1 ? "pomodoro" : "pomodoros"}`}>
@@ -135,7 +140,7 @@ export function PomodoroTags({ pomodoros, today }) {
           </li>
         ))}
         {rows.length > shown.length && (
-          <li className="font-serif text-xs italic text-muted">{rows.length - shown.length} more</li>
+          <li className="font-serif text-xs italic text-muted">{__("{n} more", { n: rows.length - shown.length })}</li>
         )}
       </ul>
     </section>

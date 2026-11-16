@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { formatDistanceToNowStrict } from "date-fns";
+import { formatDistanceToNowStrict } from "../lib/dates";
 import { ArrowLeft, ArrowRight, Check, ListChecks, Undo2, X } from "lucide-react";
 import { iconFor, inkFor, inkText } from "../lib/palette";
 import { fmtHM } from "../lib/time";
+import { __, useT } from "../i18n";
 
 const FLING_PX = 110; // dragged this far sideways, a card is decided
 const FLING_SPEED = 0.55; // px per ms: a quick flick decides it sooner
@@ -19,6 +20,7 @@ const EXIT_MS = 230;
  * current card ids, `onOrder(ids, released)` saves an order, and `todoOps` moves the tasks. Undo takes the last swipe back.
  */
 export default function FeedSwipe({ cards, order, onOrder, todoOps, onClose }) {
+  useT();
   const [index, setIndex] = useState(0);
   const [drag, setDrag] = useState(null); // { x, y, active }
   const [leaving, setLeaving] = useState(null); // "left" | "right"
@@ -122,24 +124,23 @@ export default function FeedSwipe({ cards, order, onOrder, todoOps, onClose }) {
   const hint = leaving ?? (drag && Math.abs(drag.x) > 30 ? (drag.x > 0 ? "right" : "left") : null);
 
   return createPortal(
-    <div role="dialog" aria-modal="true" aria-label="Sort the Feed" className="fixed inset-0 z-[70] flex flex-col bg-bg">
+    <div role="dialog" aria-modal="true" aria-label={__("Sort the Feed")} className="fixed inset-0 z-[70] flex flex-col bg-bg">
       <div className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3">
-        <h2 className="font-serif text-[17px] font-semibold">Sort the Feed</h2>
+        <h2 className="font-serif text-[17px] font-semibold">{__("Sort the Feed")}</h2>
         <span className="figures font-serif text-xs italic text-muted">
-          {done ? "All sorted" : `${index + 1} of ${cards.length}`}
+          {done ? __("All sorted") : __("{value} of {length}", { value: index + 1, length: cards.length })}
         </span>
         <button
           onClick={undo}
           disabled={index === 0 || Boolean(leaving)}
           className="ml-auto inline-flex h-8 items-center gap-1.5 px-2 text-xs font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-text disabled:pointer-events-none disabled:opacity-35"
-          title="Take back the last swipe (Backspace)"
+          title={__("Take back the last swipe (Backspace)")}
         >
-          <Undo2 size={14} aria-hidden="true" /> Undo
-        </button>
+          <Undo2 size={14} aria-hidden="true" />{" "}{__("Undo")}</button>
         <button
           onClick={onClose}
-          aria-label="Close"
-          title="Close (Esc)"
+          aria-label={__("Close")}
+          title={__("Close (Esc)")}
           className="grid size-8 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
         >
           <X size={17} />
@@ -149,14 +150,13 @@ export default function FeedSwipe({ cards, order, onOrder, todoOps, onClose }) {
       <div className="relative mx-auto flex min-h-0 w-full max-w-md flex-1 flex-col items-center justify-center px-4">
         {done ? (
           <div className="text-center">
-            <p className="font-serif text-lg font-semibold">All sorted</p>
-            <p className="mt-1 text-[13px] text-muted">The Feed now follows your order. Pin or skip cards any time to adjust it.</p>
+            <p className="font-serif text-lg font-semibold">{__("All sorted")}</p>
+            <p className="mt-1 text-[13px] text-muted">{__("The Feed now follows your order. Pin or skip cards any time to adjust it.")}</p>
             <button
               onClick={onClose}
               className="mt-4 inline-flex h-9 items-center gap-1.5 border border-text bg-text px-4 text-[13px] font-semibold text-bg"
             >
-              <Check size={14} aria-hidden="true" /> Back to the Feed
-            </button>
+              <Check size={14} aria-hidden="true" />{" "}{__("Back to the Feed")}</button>
           </div>
         ) : (
           <>
@@ -185,17 +185,13 @@ export default function FeedSwipe({ cards, order, onOrder, todoOps, onClose }) {
                 }`}
                 style={{ color: "var(--accent-2)", borderColor: "var(--accent-2)" }}
                 aria-hidden="true"
-              >
-                Do soon
-              </span>
+              >{__("Do soon")}</span>
               <span
                 className={`absolute right-4 top-4 rotate-12 border-2 border-muted px-2 py-0.5 font-hand text-2xl font-semibold uppercase text-muted transition-opacity ${
                   hint === "left" ? "opacity-100" : "opacity-0"
                 }`}
                 aria-hidden="true"
-              >
-                Later
-              </span>
+              >{__("Later")}</span>
             </div>
           </>
         )}
@@ -207,21 +203,17 @@ export default function FeedSwipe({ cards, order, onOrder, todoOps, onClose }) {
             <button
               onClick={() => decide("left")}
               className="inline-flex h-12 min-w-[7.5rem] items-center justify-center gap-2 border border-line-strong text-[13px] font-semibold transition-colors hover:border-text hover:bg-surface-2"
-              aria-label="Later: send it to the back (left arrow)"
+              aria-label={__("Later: send it to the back (left arrow)")}
             >
-              <ArrowLeft size={16} aria-hidden="true" /> Later
-            </button>
+              <ArrowLeft size={16} aria-hidden="true" />{" "}{__("Later")}</button>
             <button
               onClick={() => decide("right")}
               className="inline-flex h-12 min-w-[7.5rem] items-center justify-center gap-2 border border-text bg-text text-[13px] font-semibold text-bg"
-              aria-label="Do soon: bring it to the front (right arrow)"
-            >
-              Do soon <ArrowRight size={16} aria-hidden="true" />
+              aria-label={__("Do soon: bring it to the front (right arrow)")}
+            >{__("Do soon")}{" "}<ArrowRight size={16} aria-hidden="true" />
             </button>
           </div>
-          <p className="px-4 text-center font-serif text-xs italic text-muted">
-            Projects go to the front or back of the Feed. Tasks go to the top or bottom of the Tasks list.
-          </p>
+          <p className="px-4 text-center font-serif text-xs italic text-muted">{__("Projects go to the front or back of the Feed. Tasks go to the top or bottom of the Tasks list.")}</p>
         </div>
       )}
     </div>,
@@ -230,18 +222,18 @@ export default function FeedSwipe({ cards, order, onOrder, todoOps, onClose }) {
 }
 
 function Card({ card }) {
+  useT();
   if (card.kind === "task") {
     const { todo } = card;
     return (
       <div className="flex h-full flex-col p-5">
         <span className="inline-flex items-center gap-1.5 text-xs text-muted">
-          <ListChecks size={14} aria-hidden="true" /> Task
-        </span>
+          <ListChecks size={14} aria-hidden="true" />{" "}{__("Task")}</span>
         <p className="mt-3 break-words font-serif text-[22px] font-medium leading-snug">{todo.text}</p>
         <p className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-          {todo.working_since && <span className="font-semibold text-accent">Working on it</span>}
-          {todo.total_seconds >= 60 && <span className="figures">{fmtHM(todo.total_seconds)} logged</span>}
-          {card.subs > 0 && <span>{card.subs} sub-tasks</span>}
+          {todo.working_since && <span className="font-semibold text-accent">{__("Working on it")}</span>}
+          {todo.total_seconds >= 60 && <span className="figures">{__("{time} logged", { time: fmtHM(todo.total_seconds) })}</span>}
+          {card.subs > 0 && <span>{__("{n} sub-tasks", { n: card.subs })}</span>}
         </p>
       </div>
     );
@@ -252,7 +244,7 @@ function Card({ card }) {
     <div className="flex h-full flex-col p-5">
       <span className="inline-flex items-center gap-1.5 text-xs text-muted">
         <span className="size-2" style={{ background: status ? inkFor(status.color) : "var(--line-strong)" }} aria-hidden="true" />
-        {status?.name ?? "Project"}
+        {status?.name ?? __("Project")}
       </span>
       <div className="mt-3 flex items-start gap-2.5">
         <Icon size={20} strokeWidth={2.25} className="mt-1 shrink-0" style={{ color: inkText(project.color) }} aria-hidden="true" />
@@ -265,11 +257,11 @@ function Card({ card }) {
               · {t.text}
             </li>
           ))}
-          {todos.length > 4 && <li className="text-faint">+{todos.length - 4} more</li>}
+          {todos.length > 4 && <li className="text-faint">{__("+{n} more", { n: todos.length - 4 })}</li>}
         </ul>
       )}
       <p className="mt-auto font-serif text-xs italic text-muted">
-        {lastWorked ? `Last worked ${formatDistanceToNowStrict(lastWorked, { addSuffix: true })}` : "Never worked"}
+        {lastWorked ? __("Last worked {formatDistanceToNowStrict}", { formatDistanceToNowStrict: formatDistanceToNowStrict(lastWorked, { addSuffix: true }) }) : __("Never worked")}
       </p>
     </div>
   );

@@ -1,13 +1,16 @@
 import { useMemo } from "react";
-import { addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, startOfMonth, startOfWeek } from "date-fns";
+import { addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, startOfMonth, startOfWeek } from "../lib/dates";
 import { ChevronLeft, ChevronRight, Tag } from "lucide-react";
 import { tint } from "../lib/palette";
 import { dayKey, fmtHM, fmtShort } from "../lib/time";
+import { __, _n, useT } from "../i18n";
+
 
 const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
 const MIN_SCALE = 2 * 3600; // a day "fills" at the month's busiest day, but never below 2h
 
 export default function MonthCalendar({ cursor, onCursor, selected, onSelect, byDay, tagsByDay, projectsById, today }) {
+  useT();
   const days = useMemo(
     () =>
       eachDayOfInterval({
@@ -32,7 +35,7 @@ export default function MonthCalendar({ cursor, onCursor, selected, onSelect, by
           {format(cursor, "MMMM")} <span className="figures font-normal text-muted">{format(cursor, "yyyy")}</span>
         </h2>
         <div className="ml-auto flex items-center">
-          <NavButton label="Previous month" onClick={() => onCursor(addMonths(cursor, -1))}>
+          <NavButton label={__("Previous month")} onClick={() => onCursor(addMonths(cursor, -1))}>
             <ChevronLeft size={17} />
           </NavButton>
           <button
@@ -41,16 +44,14 @@ export default function MonthCalendar({ cursor, onCursor, selected, onSelect, by
               onSelect(today);
             }}
             className="h-8 px-2.5 text-[13px] font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-text"
-          >
-            Today
-          </button>
-          <NavButton label="Next month" onClick={() => onCursor(addMonths(cursor, 1))}>
+          >{__("Today")}</button>
+          <NavButton label={__("Next month")} onClick={() => onCursor(addMonths(cursor, 1))}>
             <ChevronRight size={17} />
           </NavButton>
         </div>
       </div>
       <p className="font-serif text-xs italic text-muted">
-        {fmtHM(monthTotal)} this month, {activeDays} active {activeDays === 1 ? "day" : "days"}
+        {__("{time} this month, {days}", { time: fmtHM(monthTotal), days: _n(activeDays, "{n} active day", "{n} active days") })}
       </p>
 
       <div className="mt-3 mb-1 grid grid-cols-7 text-center text-[11px] text-faint">
@@ -76,8 +77,8 @@ export default function MonthCalendar({ cursor, onCursor, selected, onSelect, by
             <button
               key={key}
               onClick={() => onSelect(d)}
-              aria-label={`${format(d, "EEEE, MMMM d")}: ${fmtHM(total)}${tags.length ? `. Pomodoro tags: ${tags.join(", ")}` : ""}`}
-              title={tags.length ? `Pomodoro tags: ${tags.join(", ")}` : undefined}
+              aria-label={`${format(d, "EEEE, MMMM d")}: ${fmtHM(total)}${tags.length ? `. ${__("Pomodoro tags: {tags}", { tags: tags.join(", ") })}` : ""}`}
+              title={tags.length ? __("Pomodoro tags: {join}", { join: tags.join(", ") }) : undefined}
               aria-pressed={isSelected}
               className={`relative h-12 border-r border-b border-rule text-left transition-colors hover:bg-surface-2 sm:h-[52px] ${
                 outside ? "opacity-45" : ""

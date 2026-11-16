@@ -1,9 +1,11 @@
 import { useEffect } from "react";
 import { Check, TriangleAlert, X } from "lucide-react";
+import { __, useT } from "../i18n";
 
 /** A message at the bottom of the screen: an error by default, or a plain note (`tone: "info"`). A notice
  *  can carry an `action` ({ label, run }), a button that does something and closes it (Undo, for one). */
 export default function Toast({ notice, onDismiss }) {
+  useT();
   useEffect(() => {
     if (!notice) return;
     const id = setTimeout(onDismiss, notice.action ? 7000 : 5000);
@@ -38,7 +40,7 @@ export default function Toast({ notice, onDismiss }) {
         <button
           onClick={onDismiss}
           className="grid size-7 shrink-0 place-items-center text-muted transition-colors hover:text-text"
-          aria-label="Dismiss"
+          aria-label={__("Dismiss")}
         >
           <X size={15} />
         </button>

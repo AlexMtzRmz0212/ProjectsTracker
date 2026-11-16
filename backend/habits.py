@@ -227,16 +227,16 @@ def fetch_latest_backup() -> Optional[BackupFile]:
 
 # ── Copying it in ────────────────────────────────────────────────────────────
 
-def sync(db: DbSession, force: bool = False) -> dict:
-    """Bring the habits up to date with the newest backup. Nothing is done when that backup is the one already
-    synced (unless `force`). Habits are added and updated, never deleted: one missing from the newest backup is
-    marked removed and keeps its days. Returns {changed, file_name, habits}."""
+def sync(db: DbSession, user_id: str, force: bool = False) -> dict:
+    """Bring `user_id`'s habits up to date with the newest backup. Nothing is done when that backup is the one
+    already synced (unless `force`). Habits are added and updated, never deleted: one missing from the newest backup
+    is marked removed and keeps its days. Returns {changed, file_name, habits}."""
     backup = fetch_latest_backup()
     if backup is None:
         raise HabitsError("No .db backup in the Drive folder. Export one from My Habits (Settings, export full backup)", 404)
-    last = db.get(HabitSync, 1)
+    last = db.get(HabitSync, user_id)
     if not force and last is not None and backup.md5 and last.md5 == backup.md5:
-        return {"changed": False, "file_name": backup.name, "habits": db.query(Habit).count()}
+        return {"changed": False, "file_name": backup.name, "habits": db.query(Habit).filter(Habit.user_id == user_id).count()}
 
     with tempfile.TemporaryDirectory() as folder:
         path = Path(folder) / "backup.db"
@@ -246,10 +246,10 @@ def sync(db: DbSession, force: bool = False) -> dict:
         raise HabitsError("That backup has no habits in it, so nothing was changed", 422)
 
     now = utcnow()
-    existing = {h.loop_uuid: h for h in db.scalars(select(Habit))}
+    existing = {h.loop_uuid: h for h in db.scalars(select(Habit).where(Habit.user_id == user_id))}
     seen = set()
     for loop in habits:
-        habit = existing.get(loop.uuid) or Habit(loop_uuid=loop.uuid)
+        habit = existing.get(loop.uuid) or Habit(user_id=user_id, loop_uuid=loop.uuid)
         habit.name, habit.question, habit.unit = loop.name[:120], loop.question[:300], loop.unit[:40]
         habit.value_type, habit.target_type, habit.target_value = loop.value_type, loop.target_type, loop.target_value
         habit.freq_num, habit.freq_den, habit.position, habit.archived = loop.freq_num, loop.freq_den, loop.position, loop.archived
@@ -272,7 +272,7 @@ def sync(db: DbSession, force: bool = False) -> dict:
         db.add(HabitEntry(habit_id=existing[entry.habit_uuid].id, entry_date=entry.day, status=entry.status, value=entry.value))
 
     if last is None:
-        last = HabitSync(id=1)
+        last = HabitSync(user_id=user_id)
         db.add(last)
     last.file_name, last.md5, last.synced_at = backup.name[:255], backup.md5, now
     db.commit()

@@ -261,3 +261,128 @@ def test_todos_and_sessions_made_when_every_one_had_a_project_take_tasks(tmp_pat
             "VALUES ('s2', NULL, 't2', '2026-02-03 10:00:00', '2026-02-03 10:30:00', '')"
         ))
     assert "ix_todos_project_id" in {i["name"] for i in inspect(engine).get_indexes("todos")}
+
+
+# ── Accounts: the upgrade from the single-owner database ────────────────────
+
+def test_data_from_before_accounts_goes_to_the_admin(tmp_path, monkeypatch):
+    """Rows with no user_id (made before accounts existed) are adopted by the admin the first time one is
+    made from ADMIN_EMAIL + OWNER_PASSWORD; an account made later gets none of them."""
+    monkeypatch.setenv("ADMIN_EMAIL", "")
+    monkeypatch.setenv("OWNER_PASSWORD", "")
+    engine = create_engine(f"sqlite:///{tmp_path / 'single-owner.db'}")
+    init_db(engine)  # no admin yet: the default statuses wait, unowned
+    with engine.begin() as conn:
+        status_id = conn.execute(text("SELECT id FROM statuses WHERE name = 'Active'")).scalar()
+        conn.execute(
+            text("INSERT INTO projects (id, name, color, icon, status_id, sort_order, created_at) "
+                 "VALUES ('p1', 'Old', '#2f5d8a', 'code', :s, 1, '2026-02-01')"),
+            {"s": status_id},
+        )
+        conn.execute(text("INSERT INTO todos (id, project_id, text, done, sort_order, created_at) VALUES ('t1', 'p1', 'x', 0, 1, '2026-02-02')"))
+        conn.execute(text("INSERT INTO pomodoros (id, start, end, completed, label) VALUES ('m1', '2026-02-02 10:00:00', '2026-02-02 10:25:00', 1, '')"))
+        assert conn.execute(text("SELECT COUNT(*) FROM users")).scalar() == 0
+
+    monkeypatch.setenv("ADMIN_EMAIL", "Owner@Example.com")
+    monkeypatch.setenv("OWNER_PASSWORD", "the old password")
+    init_db(engine)
+    init_db(engine)  # repeatable
+
+    with engine.connect() as conn:
+        admin = conn.execute(text("SELECT id, email, is_admin FROM users")).one()
+        assert admin.email == "owner@example.com" and admin.is_admin == 1
+        for table in ("statuses", "projects", "todos", "pomodoros"):
+            owners = {r[0] for r in conn.execute(text(f"SELECT user_id FROM {table}"))}
+            assert owners == {admin.id}, table
+        assert conn.execute(text("SELECT COUNT(*) FROM statuses")).scalar() == 2  # not seeded twice
+
+    from backend.models import User
+    from backend.passwords import verify_password
+
+    with engine.connect() as conn:
+        stored = conn.execute(text("SELECT password_hash FROM users")).scalar()
+    assert verify_password("the old password", stored) and not verify_password("nope", stored)
+
+    # A later account owns nothing of what was there
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO users (id, email, password_hash, is_admin, token_version, created_at) "
+                          "VALUES ('u2', 'b@example.com', 'x', 0, 0, '2026-03-01')"))
+    init_db(engine)
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM projects WHERE user_id = 'u2'")).scalar() == 0
+
+
+def test_tables_made_before_accounts_get_a_user_id(tmp_path, monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAIL", "owner@example.com")
+    monkeypatch.setenv("OWNER_PASSWORD", "the old password")
+    engine = create_engine(f"sqlite:///{tmp_path / 'old-pomodoros.db'}")
+    init_db(engine)
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE pomodoros"))
+        conn.execute(text(
+            "CREATE TABLE pomodoros (id VARCHAR NOT NULL PRIMARY KEY, start DATETIME NOT NULL, end DATETIME NOT NULL, "
+            "completed BOOLEAN NOT NULL, project_id VARCHAR, todo_id VARCHAR, label VARCHAR(120) NOT NULL)"
+        ))
+        conn.execute(text("INSERT INTO pomodoros VALUES ('m1', '2026-02-02 10:00:00', '2026-02-02 10:25:00', 1, NULL, NULL, '')"))
+
+    init_db(engine)
+    init_db(engine)  # repeatable
+
+    assert "user_id" in {c["name"] for c in inspect(engine).get_columns("pomodoros")}
+    assert "ix_pomodoros_user_id" in {i["name"] for i in inspect(engine).get_indexes("pomodoros")}
+    with engine.connect() as conn:
+        admin_id = conn.execute(text("SELECT id FROM users")).scalar()
+        assert conn.execute(text("SELECT user_id FROM pomodoros WHERE id = 'm1'")).scalar() == admin_id
+
+
+def test_the_single_habit_sync_row_moves_to_the_admin(tmp_path, monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAIL", "owner@example.com")
+    monkeypatch.setenv("OWNER_PASSWORD", "the old password")
+    engine = create_engine(f"sqlite:///{tmp_path / 'old-habit-sync.db'}")
+    init_db(engine)
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE habit_sync"))
+        conn.execute(text(
+            "CREATE TABLE habit_sync (id INTEGER NOT NULL PRIMARY KEY, file_name VARCHAR(255) NOT NULL, "
+            "md5 VARCHAR(64), synced_at DATETIME NOT NULL)"
+        ))
+        conn.execute(text("INSERT INTO habit_sync VALUES (1, 'backup.db', 'abc', '2026-02-02 10:00:00')"))
+
+    init_db(engine)
+    init_db(engine)  # repeatable
+
+    with engine.connect() as conn:
+        admin_id = conn.execute(text("SELECT id FROM users")).scalar()
+        assert conn.execute(text("SELECT user_id, file_name, md5 FROM habit_sync")).one() == (admin_id, "backup.db", "abc")
+
+
+def test_a_habit_uuid_that_was_unique_on_its_own_becomes_unique_per_account(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'old-habits.db'}")
+    init_db(engine)
+    with engine.begin() as conn:
+        conn.execute(text("DROP INDEX uq_habits_user_loop"))
+        conn.execute(text("DROP INDEX ix_habits_loop_uuid"))
+        conn.execute(text("CREATE UNIQUE INDEX ix_habits_loop_uuid ON habits (loop_uuid)"))
+
+    init_db(engine)
+
+    with engine.begin() as conn:  # two accounts, one uuid: no longer a clash
+        for habit_id, user_id in (("h1", "u1"), ("h2", "u2")):
+            conn.execute(text("INSERT INTO habits (id, user_id, loop_uuid, name, value_type, position, archived) "
+                              "VALUES (:h, :u, 'same', 'Run', 'boolean', 0, 0)"), {"h": habit_id, "u": user_id})
+
+
+def test_accounts_made_before_languages_existed_speak_english(tmp_path, monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAIL", "owner@example.com")
+    monkeypatch.setenv("OWNER_PASSWORD", "the old password")
+    engine = create_engine(f"sqlite:///{tmp_path / 'old-users.db'}")
+    init_db(engine)
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE users DROP COLUMN language"))  # as if the table came from before the column
+    assert "language" not in {c["name"] for c in inspect(engine).get_columns("users")}
+
+    init_db(engine)
+    init_db(engine)  # repeatable
+
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT language FROM users")).scalar() == "en"

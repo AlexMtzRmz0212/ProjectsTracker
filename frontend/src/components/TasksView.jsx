@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { format } from "date-fns";
+import { format } from "../lib/dates";
 import { Ban, CalendarPlus, Check, CircleDot, ClipboardPaste, Copy, FolderPlus, Hourglass, PanelRight, Play, Search, Sparkles, Square, X } from "lucide-react";
 import { TodoList } from "./ProjectDetail";
 import TaskAiPanel from "./TaskAiPanel";
@@ -9,6 +9,8 @@ import { EMPTY_FILTER, FILTER_CHIPS, isFiltering, loadFilter, saveFilter, taskMa
 import { ON_INK, TASK_INK, iconFor, TASK_ICON } from "../lib/palette";
 import { fmtClock, fmtHM, fmtTime, sessionSeconds } from "../lib/time";
 import { taskKey } from "../api";
+import { __, __r, useT } from "../i18n";
+
 
 /**
  * The Tasks tab: things to do that aren't part of any project. Each one is ticked off like a to-do, can be
@@ -21,6 +23,7 @@ import { taskKey } from "../api";
 export default function TasksView({
   tasks, todoOps, runningId, clock, openItems, now, secondsFor, onStart, onStop, onLeaveOpen, onLogTime, onOpenItem, onOpenTask,
 }) {
+  useT();
   const openFor = new Map(openItems.map((x) => [x.project_id, x]));
 
   const rowExtra = (task) => {
@@ -40,17 +43,17 @@ export default function TasksView({
           <button
             onClick={() => onOpenItem(item)}
             className="inline-flex h-7 items-center gap-1 px-1.5 text-xs font-semibold text-accent-2 transition-colors hover:bg-surface-2"
-            title={`Open since ${format(item.start, "EEE d MMM, HH:mm")}. Click to close or edit`}
+            title={__("Open since {format}. Click to close or edit", { format: format(item.start, "EEE d MMM, HH:mm") })}
           >
             <Hourglass size={12} aria-hidden="true" />
             <span className="figures">{fmtHM((now - item.start) / 1000)}</span>
           </button>
         )}
-        {secs >= 60 && !running && <span className="figures px-1 text-xs text-muted" title="Time logged">{fmtHM(secs)}</span>}
+        {secs >= 60 && !running && <span className="figures px-1 text-xs text-muted" title={__("Time logged")}>{fmtHM(secs)}</span>}
         <button
           onClick={() => (running ? onStop() : onStart(key))}
-          aria-label={running ? `Stop the timer on "${task.text}"` : `Start the timer on "${task.text}"`}
-          title={running ? "Stop the timer" : "Start the timer"}
+          aria-label={running ? __("Stop the timer on \"{text}\"", { text: task.text }) : __("Start the timer on \"{text}\"", { text: task.text })}
+          title={running ? __("Stop the timer") : __("Start the timer")}
           className={`inline-flex h-7 min-w-7 items-center justify-center gap-1.5 border px-1.5 text-xs font-semibold transition-colors ${
             running ? "" : "border-line-strong text-muted hover:border-text hover:text-text"
           }`}
@@ -75,10 +78,10 @@ export default function TasksView({
     const key = taskKey(task.id);
     const item = openFor.get(key);
     return [
-      { label: "Open its details", icon: PanelRight, onClick: () => onOpenTask(key) },
-      { label: "Log time on it", icon: CalendarPlus, onClick: () => onLogTime(key) },
-      !item && { label: "Start it and leave it open", icon: Hourglass, onClick: () => onLeaveOpen(key) },
-      { label: "Turn it into a project", icon: FolderPlus, onClick: () => todoOps.toProject(task.id) },
+      { label: __("Open its details"), icon: PanelRight, onClick: () => onOpenTask(key) },
+      { label: __("Log time on it"), icon: CalendarPlus, onClick: () => onLogTime(key) },
+      !item && { label: __("Start it and leave it open"), icon: Hourglass, onClick: () => onLeaveOpen(key) },
+      { label: __("Turn it into a project"), icon: FolderPlus, onClick: () => todoOps.toProject(task.id) },
     ];
   };
 
@@ -124,48 +127,43 @@ export default function TasksView({
   return (
     <section className="flex h-full flex-col">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 className="font-serif text-[17px] font-semibold">Tasks</h2>
+        <h2 className="font-serif text-[17px] font-semibold">{__("Tasks")}</h2>
         <span className="font-serif text-xs italic text-muted">
-          {filtering ? `${passing.size} of ${open} shown` : `${open} to do`}
-          {working > 0 && `, ${working} being worked on`}
+          {filtering ? __("{size} of {open} shown", { size: passing.size, open }) : __("{open} to do", { open })}
+          {working > 0 && __(", {working} being worked on", { working })}
         </span>
         <div className="ml-auto flex items-center gap-0.5 self-center">
           {open > 0 && (
             <>
-              <HeaderButton onClick={copyList} done={copied === "list"} icon={Copy} title="Copy the tasks still to do as text">
-                {copied === "list" ? "Copied" : "Copy list"}
+              <HeaderButton onClick={copyList} done={copied === "list"} icon={Copy} title={__("Copy the tasks still to do as text")}>
+                {copied === "list" ? __("Copied") : __("Copy list")}
               </HeaderButton>
               <HeaderButton
                 onClick={copyForAi}
                 done={copied === "ai"}
                 icon={Sparkles}
-                title="Copy the tasks with a prompt that asks an AI for sub-tasks and an estimate on each"
+                title={__("Copy the tasks with a prompt that asks an AI for sub-tasks and an estimate on each")}
               >
-                {copied === "ai" ? "Copied" : "Copy for AI"}
+                {copied === "ai" ? __("Copied") : __("Copy for AI")}
               </HeaderButton>
             </>
           )}
-          <HeaderButton onClick={() => setAiOpen((o) => !o)} pressed={aiOpen} icon={ClipboardPaste} title="Paste an AI's reply to rewrite the tasks">
-            Paste AI reply
-          </HeaderButton>
+          <HeaderButton onClick={() => setAiOpen((o) => !o)} pressed={aiOpen} icon={ClipboardPaste} title={__("Paste an AI's reply to rewrite the tasks")}>{__("Paste AI reply")}</HeaderButton>
         </div>
       </div>
-      <p className="mt-0.5 mb-3 text-[13px] text-muted">
-        Things to do, and to time, that aren't part of a project. A task happens once: when it's ticked off it's logged
-        on that day in the calendar and leaves this list. Time on a task shows on the calendar like a project's.
-      </p>
+      <p className="mt-0.5 mb-3 text-[13px] text-muted">{__("Things to do, and to time, that aren't part of a project. A task happens once: when it's ticked off it's logged on that day in the calendar and leaves this list. Time on a task shows on the calendar like a project's.")}</p>
 
       {aiOpen && <TaskAiPanel tasks={openTasks} subsOf={subsAll} todoOps={todoOps} onClose={() => setAiOpen(false)} />}
 
       {open > 0 && (
-        <div className="mb-2 flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5" role="search" aria-label="Filter the tasks">
+        <div className="mb-2 flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5" role="search" aria-label={__("Filter the tasks")}>
           <label className="flex h-8 min-w-[10rem] flex-1 items-center gap-2 border border-line-strong px-2 focus-within:border-text sm:max-w-[16rem]">
             <Search size={14} className="shrink-0 text-muted" aria-hidden="true" />
             <input
               value={filter.q}
               onChange={(e) => setFilter({ ...filter, q: e.target.value })}
-              placeholder="Search tasks"
-              aria-label="Search tasks"
+              placeholder={__("Search tasks")}
+              aria-label={__("Search tasks")}
               className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-faint"
             />
           </label>
@@ -176,12 +174,12 @@ export default function TasksView({
                 key={chip.id}
                 onClick={() => toggleChip(chip.id)}
                 aria-pressed={on}
-                title={chip.hint}
+                title={__(chip.hint)}
                 className={`inline-flex h-8 items-center border px-2.5 text-xs font-semibold transition-colors ${
                   on ? "border-text bg-text text-bg" : "border-line text-muted hover:border-text hover:text-text"
                 }`}
               >
-                {chip.label}
+                {__(chip.label)}
               </button>
             );
           })}
@@ -190,13 +188,12 @@ export default function TasksView({
               onClick={() => setFilter(EMPTY_FILTER)}
               className="inline-flex h-8 items-center gap-1 px-2 text-xs text-muted transition-colors hover:text-text"
             >
-              <X size={13} aria-hidden="true" /> Clear
-            </button>
+              <X size={13} aria-hidden="true" />{" "}{__("Clear")}</button>
           )}
         </div>
       )}
       {filtering && passing.size === 0 && (
-        <p className="mb-2 font-serif text-sm italic text-muted">No task matches. Clear the filters to see them all.</p>
+        <p className="mb-2 font-serif text-sm italic text-muted">{__("No task matches. Clear the filters to see them all.")}</p>
       )}
 
       <TodoList
@@ -206,8 +203,8 @@ export default function TasksView({
         rowExtra={rowExtra}
         rowMenu={rowMenu}
         hideDone
-        placeholder="Add a task and press Enter"
-        label="New task"
+        placeholder={__("Add a task and press Enter")}
+        label={__("New task")}
       />
     </section>
   );
@@ -233,6 +230,7 @@ function HeaderButton({ onClick, icon: Icon, done = false, pressed, title, child
 /** A task opened up (in the side peek, or the pomodoro's full screen): its timer, whether it is being worked
  *  on, ticking it off, and the time logged on it. */
 export function TaskDetail({ task, sessions, totalSeconds, isRunning, elapsed, now, todoOps, onToggleTimer, onLeaveOpen }) {
+  useT();
   const Icon = iconFor(TASK_ICON);
   const working = Boolean(task.working_since) && !task.done;
   return (
@@ -241,26 +239,24 @@ export function TaskDetail({ task, sessions, totalSeconds, isRunning, elapsed, n
         <span className="grid size-8 shrink-0 place-items-center" style={{ background: TASK_INK, color: ON_INK }}>
           <Icon size={17} />
         </span>
-        <span className="text-[13px] text-muted">Task</span>
+        <span className="text-[13px] text-muted">{__("Task")}</span>
         <span className="font-serif text-[13px] italic text-muted">
-          <span className="figures not-italic text-text">{fmtHM(totalSeconds)}</span> logged
+          {__r("{time} logged", { time: <span className="figures not-italic text-text">{fmtHM(totalSeconds)}</span> })}
         </span>
         {!task.done && (
           <div className="ml-auto flex items-center gap-1.5">
             <button
               onClick={() => todoOps.update(task.id, { cancelled: true })}
               className="flex h-8 items-center gap-1.5 border border-line-strong px-2.5 text-xs font-semibold transition-colors hover:border-text hover:bg-surface-2"
-              title="Call it off: it leaves the list, its time stays logged"
+              title={__("Call it off: it leaves the list, its time stays logged")}
             >
-              <Ban size={13} /> Cancel
-            </button>
+              <Ban size={13} />{" "}{__("Cancel")}</button>
             <button
               onClick={onLeaveOpen}
               className="flex h-8 items-center gap-1.5 border border-line-strong px-2.5 text-xs font-semibold transition-colors hover:border-text hover:bg-surface-2"
-              title="Start it and leave it open, for long work"
+              title={__("Start it and leave it open, for long work")}
             >
-              <Hourglass size={13} /> Leave open
-            </button>
+              <Hourglass size={13} />{" "}{__("Leave open")}</button>
             <button
               onClick={onToggleTimer}
               className={`flex h-8 min-w-[6.5rem] items-center justify-center gap-1.5 border text-xs font-semibold transition-colors ${
@@ -275,8 +271,7 @@ export function TaskDetail({ task, sessions, totalSeconds, isRunning, elapsed, n
                 </>
               ) : (
                 <>
-                  <Play size={11} fill="currentColor" /> Start
-                </>
+                  <Play size={11} fill="currentColor" />{" "}{__("Start")}</>
               )}
             </button>
           </div>
@@ -302,22 +297,22 @@ export function TaskDetail({ task, sessions, totalSeconds, isRunning, elapsed, n
             }`}
           >
             <CircleDot size={14} className={working ? "blink-dot" : ""} aria-hidden="true" />
-            {working ? "Working on it" : "Mark as working on"}
+            {working ? __("Working on it") : __("Mark as working on")}
           </button>
         )}
       </div>
 
       <section className="min-h-0 flex-1 overflow-y-auto">
-        <h3 className="border-b border-rule py-1 font-serif text-xs italic text-muted">Sessions</h3>
+        <h3 className="border-b border-rule py-1 font-serif text-xs italic text-muted">{__("Sessions")}</h3>
         {sessions.length === 0 ? (
-          <p className="py-3 text-[13px] text-muted">No time on it yet.</p>
+          <p className="py-3 text-[13px] text-muted">{__("No time on it yet.")}</p>
         ) : (
           <ul>
             {sessions.map((s) => (
               <li key={s.id} className="flex h-9 items-center gap-3 border-b border-rule text-[13px]">
                 <span className="figures w-24 shrink-0 text-muted">{format(s.start, "EEE d MMM")}</span>
                 <span className="figures shrink-0">
-                  {fmtTime(s.start)}–{s.end ? fmtTime(s.end) : "now"}
+                  {fmtTime(s.start)}–{s.end ? fmtTime(s.end) : __("now")}
                 </span>
                 <span className="min-w-0 flex-1 truncate font-serif text-xs italic text-muted">{s.note}</span>
                 <span className="figures shrink-0 font-semibold">{fmtHM(sessionSeconds(s, now))}</span>

@@ -1,20 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import FocusTag from "./FocusTag";
-import { BookOpen, Coffee, Ellipsis, Inbox, Tag, LogOut, Maximize2, Moon, NotebookPen, Pause, PictureInPicture2, Play, Plus, Search, SkipForward, SlidersHorizontal, Square, Sun, Timer } from "lucide-react";
+import { BookOpen, Coffee, Ellipsis, Inbox, Languages, Tag, LogOut, Maximize2, Moon, NotebookPen, Pause, PictureInPicture2, Play, Plus, Search, SkipForward, SlidersHorizontal, Square, Sun, Timer, UserRound } from "lucide-react";
 import { Button } from "./Modal";
 import { tint } from "../lib/palette";
 import { fmtClock, fmtCountdown, fmtHM } from "../lib/time";
+import LanguageToggle from "./LanguageToggle";
+import { __, useT } from "../i18n";
+
 
 export default function Header({
   runningProject, elapsed, heldProject, heldSeconds, pomodoro, pomodorosToday = 0, onStop, onStopFocus, onExpand, onMini, miniOpen, onNewProject,
-  focusChoices, theme, onToggleTheme, onSignOut, signOutLabel = "Sign out", onInbox, inboxUnread = 0, onSearch, searchHint, onStatuses, onGuide, workingMenu,
+  focusChoices, theme, onToggleTheme, onSignOut, signOutLabel = __("Sign out"), onAccount, onInbox, inboxUnread = 0, onSearch, searchHint, onStatuses, onGuide, workingMenu,
 }) {
+  useT();
   return (
     <header data-app-header className="relative z-40 shrink-0 border-b-[3px] border-double border-line-strong bg-bg">
       <div className="mx-auto flex h-14 max-w-7xl items-center gap-2 px-3 sm:h-16 sm:gap-3 sm:px-6">
         <div className="flex shrink-0 items-center gap-2 max-[380px]:hidden">
           <Timer size={20} className="text-text" aria-hidden="true" />
-          <span className="font-hand hidden text-[26px] font-semibold leading-none lg:block">ProjectsTracker</span>
+          <span className="font-hand hidden text-[26px] font-semibold leading-none lg:block">{__("ProjectsTracker")}</span>
         </div>
 
         <div className="flex min-w-0 flex-1 justify-center">
@@ -43,15 +47,15 @@ export default function Header({
             <Button
               onClick={onSearch}
               className="shrink-0 px-2.5 sm:px-3"
-              aria-label={searchHint ? `Find a project (${searchHint})` : "Find a project"}
-              title={searchHint ? `Find a project (${searchHint})` : "Find a project"}
+              aria-label={searchHint ? __("Find a project ({searchHint})", { searchHint }) : __("Find a project")}
+              title={searchHint ? __("Find a project ({searchHint})", { searchHint }) : __("Find a project")}
             >
               <Search size={16} />
               {searchHint && <span className="figures hidden text-xs font-normal text-faint lg:inline">{searchHint}</span>}
             </Button>
-            <Button variant="outline" onClick={onNewProject} className="shrink-0 px-2.5 sm:px-3.5" aria-label="New project">
+            <Button variant="outline" onClick={onNewProject} className="shrink-0 px-2.5 sm:px-3.5" aria-label={__("New project")}>
               <Plus size={16} strokeWidth={2.5} />
-              <span className="hidden md:inline">New project</span>
+              <span className="hidden md:inline">{__("New project")}</span>
             </Button>
           </div>
 
@@ -64,6 +68,7 @@ export default function Header({
             inboxUnread={inboxUnread}
             onStatuses={onStatuses}
             onGuide={onGuide}
+            onAccount={onAccount}
             onSignOut={onSignOut}
             signOutLabel={signOutLabel}
           />
@@ -75,7 +80,8 @@ export default function Header({
 
 /** Everything the header row has no room for, in one menu: on a wide screen the inbox, the theme and sign
  *  out; below that, finding and adding projects too. Closes on a pick, an outside press or Esc. */
-function MoreMenu({ theme, onToggleTheme, onSearch, onNewProject, onInbox, inboxUnread, onStatuses, onGuide, onSignOut, signOutLabel }) {
+function MoreMenu({ theme, onToggleTheme, onSearch, onNewProject, onInbox, inboxUnread, onStatuses, onGuide, onAccount, onSignOut, signOutLabel }) {
+  useT();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -117,7 +123,7 @@ function MoreMenu({ theme, onToggleTheme, onSearch, onNewProject, onInbox, inbox
       <Button
         onClick={() => setOpen((o) => !o)}
         className="relative w-9 shrink-0 px-0"
-        aria-label={inboxUnread ? `More, ${inboxUnread} new` : "More"}
+        aria-label={inboxUnread ? __("More, {inboxUnread} new", { inboxUnread }) : __("More")}
         aria-haspopup="menu"
         aria-expanded={open}
       >
@@ -127,16 +133,22 @@ function MoreMenu({ theme, onToggleTheme, onSearch, onNewProject, onInbox, inbox
       {open && (
         <div
           role="menu"
-          aria-label="More"
+          aria-label={__("More")}
           className="fade-in absolute right-0 top-full z-50 mt-2 w-[min(15rem,calc(100vw-2rem))] border border-line-strong bg-surface py-1"
         >
-          {item("Find a project", Search, onSearch, 0, "xl:hidden")}
-          {item("New project", Plus, onNewProject, 0, "xl:hidden")}
+          {item(__("Find a project"), Search, onSearch, 0, "xl:hidden")}
+          {item(__("New project"), Plus, onNewProject, 0, "xl:hidden")}
           {/* the tab bar has its own Statuses button where it has the room (a wide page); here it is always at hand */}
-          {onStatuses && item("Statuses", SlidersHorizontal, onStatuses)}
-          {onInbox && item("Interest", Inbox, onInbox, inboxUnread)}
-          {onGuide && item("Guide", BookOpen, onGuide)}
-          {item(theme === "dark" ? "Light theme" : "Dark theme", theme === "dark" ? Sun : Moon, onToggleTheme)}
+          {onStatuses && item(__("Statuses"), SlidersHorizontal, onStatuses)}
+          {onInbox && item(__("Interest"), Inbox, onInbox, inboxUnread)}
+          {onGuide && item(__("Guide"), BookOpen, onGuide)}
+          <div className="flex h-11 items-center gap-3 px-3 text-[14px]">
+            <Languages size={17} className="shrink-0 text-muted" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate">{__("Language")}</span>
+            <LanguageToggle persist={Boolean(onAccount)} />
+          </div>
+          {item(theme === "dark" ? __("Light theme") : __("Dark theme"), theme === "dark" ? Sun : Moon, onToggleTheme)}
+          {onAccount && item(__("Account"), UserRound, onAccount)}
           {onSignOut && item(signOutLabel, LogOut, onSignOut)}
         </div>
       )}
@@ -181,15 +193,16 @@ function NowTracking({
 
 /** A project timer paused for the break. It starts again with the next focus. */
 function HeldChip({ project, seconds }) {
+  useT();
   return (
     <div
       className="relative flex h-[34px] min-w-0 items-center gap-2 border border-dashed pl-3 pr-2.5 text-muted"
       style={{ borderColor: tint(project.color, 55) }}
-      title={`${project.name} is paused for the break. It starts again with the next focus.`}
+      title={__("{name} is paused for the break. It starts again with the next focus.", { name: project.name })}
     >
       <Pause size={11} fill="currentColor" className="shrink-0" aria-hidden="true" />
       <span className="hidden max-w-[10rem] truncate font-serif text-[15px] italic lg:block">{project.name}</span>
-      <span className="figures whitespace-nowrap text-[15px] font-semibold" role="timer" aria-label={`Time on ${project.name}, paused`}>
+      <span className="figures whitespace-nowrap text-[15px] font-semibold" role="timer" aria-label={__("Time on {name}, paused", { name: project.name })}>
         <span className="max-sm:hidden">{fmtClock(seconds)}</span>
         <span className="sm:hidden">{fmtHM(seconds)}</span>
       </span>
@@ -199,6 +212,7 @@ function HeldChip({ project, seconds }) {
 
 /** The project timer: it counts up while you work on the project, and that time is what gets logged. */
 function ProjectChip({ project, elapsed, onStop }) {
+  useT();
   const edge = tint(project.color, 55);
   return (
     <div className="relative flex h-[34px] min-w-0 items-stretch border" style={{ borderColor: edge, background: tint(project.color, 10) }}>
@@ -206,13 +220,13 @@ function ProjectChip({ project, elapsed, onStop }) {
         <span className="blink-dot size-2 shrink-0 rounded-full bg-accent" aria-hidden="true" />
         <span className="hidden min-w-0 max-w-[10rem] truncate font-serif text-[15px] italic lg:block">{project.name}</span>
         {/* The time never gives way: when the row is tight, the name is what gets cut */}
-        <span className="figures shrink-0 whitespace-nowrap text-[15px] font-semibold" role="timer" aria-label={`Time on ${project.name}`}>
+        <span className="figures shrink-0 whitespace-nowrap text-[15px] font-semibold" role="timer" aria-label={__("Time on {name}", { name: project.name })}>
           <span className="max-sm:hidden">{fmtClock(elapsed)}</span>
           <span className="sm:hidden">{fmtHM(elapsed)}</span>
         </span>
       </div>
       {/* Phones show only what's running and for how long: its card and the Feed have the Stop button */}
-      <ChipButton edge={edge} onClick={onStop} label={`Stop ${project.name} timer`} className="max-sm:hidden">
+      <ChipButton edge={edge} onClick={onStop} label={__("Stop {name} timer", { name: project.name })} className="max-sm:hidden">
         <Square size={10} fill="currentColor" />
       </ChipButton>
     </div>
@@ -221,6 +235,7 @@ function ProjectChip({ project, elapsed, onStop }) {
 
 /** The pomodoro's own countdown: idle and ready to start, focusing (or paused), or on a break. */
 function PomodoroChip({ pomodoro, doneToday, focusChoices, onStopFocus, projectRunning, onExpand, onMini, miniOpen }) {
+  useT();
   const { phase } = pomodoro;
   if (phase === "breakWait" || phase === "break" || phase === "breakPaused" || phase === "ready") {
     return <BreakChip pomodoro={pomodoro} onExpand={onExpand} onMini={onMini} miniOpen={miniOpen} />;
@@ -239,26 +254,26 @@ function PomodoroChip({ pomodoro, doneToday, focusChoices, onStopFocus, projectR
         ) : (
           <Timer size={14} className={`shrink-0 max-sm:hidden ${focus ? "text-accent" : "text-muted"}`} aria-hidden="true" />
         )}
-        {paused && <span className="hidden text-[13px] font-semibold sm:block">Paused</span>}
+        {paused && <span className="hidden text-[13px] font-semibold sm:block">{__("Paused")}</span>}
         <span
           className={`figures text-[17px] font-semibold ${phase === "idle" ? "text-muted" : ""}`}
           role="timer"
-          aria-label={paused ? "Focus time left, paused" : "Focus time left"}
+          aria-label={paused ? __("Focus time left, paused") : __("Focus time left")}
         >
           {fmtCountdown(pomodoro.focusRemaining)}
         </span>
         {!pomodoro.continuous && (
-          <span className="figures hidden text-xs text-muted md:block" title="Focus periods in this set">
+          <span className="figures hidden text-xs text-muted md:block" title={__("Focus periods in this set")}>
             {pomodoro.position}/{pomodoro.settings.longEvery}
           </span>
         )}
         {doneToday > 0 && (
-          <span className="figures hidden whitespace-nowrap text-xs text-muted lg:block" title="Pomodoros finished today">
-            · {doneToday} today
+          <span className="figures hidden whitespace-nowrap text-xs text-muted lg:block" title={__("Pomodoros finished today")}>
+            · {__("{n} today", { n: doneToday })}
           </span>
         )}
         {pomodoro.focusFor?.label && (
-          <span className="hidden max-w-[8rem] truncate font-serif text-[13px] italic text-muted xl:block" title={`For: ${pomodoro.focusFor.label}`}>
+          <span className="hidden max-w-[8rem] truncate font-serif text-[13px] italic text-muted xl:block" title={__("For: {label}", { label: pomodoro.focusFor.label })}>
             {pomodoro.focusFor.label}
           </span>
         )}
@@ -269,7 +284,7 @@ function PomodoroChip({ pomodoro, doneToday, focusChoices, onStopFocus, projectR
           <ChipButton
             edge={edge}
             onClick={toggle}
-            label={pomodoro.focusFor ? `For: ${pomodoro.focusFor.label}. Change it` : "What is this pomodoro for?"}
+            label={pomodoro.focusFor ? __("For: {label}. Change it", { label: pomodoro.focusFor.label }) : __("What is this pomodoro for?")}
             className={`max-sm:hidden ${open ? "bg-surface-2" : ""}`}
           >
             <Tag size={13} className={pomodoro.focusFor ? "text-accent" : ""} />
@@ -277,25 +292,25 @@ function PomodoroChip({ pomodoro, doneToday, focusChoices, onStopFocus, projectR
         )}
       </FocusTag>
       {phase === "idle" && (
-        <ChipButton edge={edge} onClick={pomodoro.startFocus} label="Start a focus" text="Focus">
+        <ChipButton edge={edge} onClick={pomodoro.startFocus} label={__("Start a focus")} text={__("Focus")}>
           <Play size={10} fill="currentColor" />
         </ChipButton>
       )}
       {focus && (
         <>
-          <ChipButton edge={edge} onClick={pomodoro.pause} label="Pause the focus">
+          <ChipButton edge={edge} onClick={pomodoro.pause} label={__("Pause the focus")}>
             <Pause size={13} fill="currentColor" />
           </ChipButton>
           {/* Phones keep the chip to pause and stop: the break arrives by itself when the focus ends */}
           {!pomodoro.continuous && (
-            <ChipButton edge={edge} onClick={pomodoro.breakNow} label="Take a break now" className="max-sm:hidden">
+            <ChipButton edge={edge} onClick={pomodoro.breakNow} label={__("Take a break now")} className="max-sm:hidden">
               <Coffee size={14} />
             </ChipButton>
           )}
         </>
       )}
       {paused && (
-        <ChipButton edge={edge} onClick={pomodoro.resume} label="Resume the focus" text="Resume">
+        <ChipButton edge={edge} onClick={pomodoro.resume} label={__("Resume the focus")} text={__("Resume")}>
           <Play size={10} fill="currentColor" />
         </ChipButton>
       )}
@@ -303,7 +318,7 @@ function PomodoroChip({ pomodoro, doneToday, focusChoices, onStopFocus, projectR
         <ChipButton
           edge={edge}
           onClick={onStopFocus ?? pomodoro.dismiss}
-          label={onStopFocus && projectRunning ? "Stop the focus and the project timer" : "Stop the pomodoro"}
+          label={onStopFocus && projectRunning ? __("Stop the focus and the project timer") : __("Stop the pomodoro")}
         >
           <Square size={10} fill="currentColor" />
         </ChipButton>
@@ -317,6 +332,7 @@ function PomodoroChip({ pomodoro, doneToday, focusChoices, onStopFocus, projectR
 
 /** The rest between focus periods: waiting to be started, counting down (or paused), then waiting to be asked back. */
 function BreakChip({ pomodoro, onExpand, onMini, miniOpen }) {
+  useT();
   const { phase } = pomodoro;
   const waiting = phase === "breakWait";
   const paused = phase === "breakPaused";
@@ -331,45 +347,45 @@ function BreakChip({ pomodoro, onExpand, onMini, miniOpen }) {
       <div className="flex min-w-0 items-center gap-2 pl-2.5 pr-2 sm:pl-3 sm:pr-2.5">
         <Coffee size={15} className="shrink-0 max-sm:hidden" style={{ color: edge }} aria-hidden="true" />
         {ready ? (
-          <span className="truncate text-[13px] font-semibold">Break over</span>
+          <span className="truncate text-[13px] font-semibold">{__("Break over")}</span>
         ) : (
           <>
             <span className="hidden text-[13px] font-semibold sm:block">
-              {long ? "Long break" : "Break"}
-              {paused && <span className="font-normal text-muted"> · paused</span>}
+              {long ? __("Long break") : __("Break")}
+              {paused && <span className="font-normal text-muted">{__(" · paused")}</span>}
             </span>
-            <span className="figures text-[17px] font-semibold" role="timer" aria-label="Break time left">
+            <span className="figures text-[17px] font-semibold" role="timer" aria-label={__("Break time left")}>
               {fmtCountdown(pomodoro.breakRemaining)}
             </span>
           </>
         )}
       </div>
       {waiting && (
-        <ChipButton edge={edge} onClick={pomodoro.startBreak} label="Start the break" text="Start break">
+        <ChipButton edge={edge} onClick={pomodoro.startBreak} label={__("Start the break")} text={__("Start break")}>
           <Play size={10} fill="currentColor" />
         </ChipButton>
       )}
       {phase === "break" && (
-        <ChipButton edge={edge} onClick={pomodoro.pauseBreak} label="Pause the break">
+        <ChipButton edge={edge} onClick={pomodoro.pauseBreak} label={__("Pause the break")}>
           <Pause size={13} fill="currentColor" />
         </ChipButton>
       )}
       {paused && (
-        <ChipButton edge={edge} onClick={pomodoro.resumeBreak} label="Resume the break" text="Resume">
+        <ChipButton edge={edge} onClick={pomodoro.resumeBreak} label={__("Resume the break")} text={__("Resume")}>
           <Play size={10} fill="currentColor" />
         </ChipButton>
       )}
       {/* Starting the next focus: the main button once the break is over, a way out of the break before then */}
       {ready ? (
-        <ChipButton edge={edge} onClick={pomodoro.startFocus} label="Start the next focus" text="Focus">
+        <ChipButton edge={edge} onClick={pomodoro.startFocus} label={__("Start the next focus")} text={__("Focus")}>
           <Play size={10} fill="currentColor" />
         </ChipButton>
       ) : (
-        <ChipButton edge={edge} onClick={pomodoro.startFocus} label="Skip the break and start the next focus" className="max-sm:hidden">
+        <ChipButton edge={edge} onClick={pomodoro.startFocus} label={__("Skip the break and start the next focus")} className="max-sm:hidden">
           <SkipForward size={12} fill="currentColor" />
         </ChipButton>
       )}
-      <ChipButton edge={edge} onClick={pomodoro.dismiss} label="Stop the break">
+      <ChipButton edge={edge} onClick={pomodoro.dismiss} label={__("Stop the break")}>
         <Square size={10} fill="currentColor" />
       </ChipButton>
       <MiniButton edge={edge} onMini={onMini} open={miniOpen} />
@@ -381,9 +397,10 @@ function BreakChip({ pomodoro, onExpand, onMini, miniOpen }) {
 
 /** Opens the mini clock (a small floating window), or puts it away again while it is out. Not on phones. */
 function MiniButton({ edge, onMini, open }) {
+  useT();
   if (!onMini) return null;
   return (
-    <ChipButton edge={edge} onClick={onMini} label={open ? "Close the mini clock" : "Mini clock"} className="max-sm:hidden">
+    <ChipButton edge={edge} onClick={onMini} label={open ? __("Close the mini clock") : __("Mini clock")} className="max-sm:hidden">
       <PictureInPicture2 size={14} className={open ? "text-accent" : ""} />
     </ChipButton>
   );
@@ -391,9 +408,10 @@ function MiniButton({ edge, onMini, open }) {
 
 /** The chip's last button: the pomodoro's full screen. */
 function ExpandButton({ edge, onExpand }) {
+  useT();
   if (!onExpand) return null;
   return (
-    <ChipButton edge={edge} onClick={onExpand} label="Full screen" className="max-sm:px-2">
+    <ChipButton edge={edge} onClick={onExpand} label={__("Full screen")} className="max-sm:px-2">
       <Maximize2 size={13} />
     </ChipButton>
   );
@@ -414,6 +432,7 @@ function Progress({ value, color }) {
  *  It lands on the same session record that Add time's note does. `up` opens it above the button
  *  instead of below, for a button near the foot of the screen. */
 export function TimerNote({ session, project, edge, onSave, up = false }) {
+  useT();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(session.note);
   const saved = useRef(session.note);
@@ -456,9 +475,9 @@ export function TimerNote({ session, project, edge, onSave, up = false }) {
         disabled={!ready}
         className="relative flex items-center border-l px-2.5 transition-colors hover:bg-surface-2 disabled:opacity-50"
         style={{ borderColor: edge }}
-        aria-label={session.note ? "Edit the note on this timer" : "Add a note to this timer"}
+        aria-label={session.note ? __("Edit the note on this timer") : __("Add a note to this timer")}
         aria-expanded={open}
-        title={session.note || "Add a note to this timer"}
+        title={session.note || __("Add a note to this timer")}
       >
         <NotebookPen size={14} />
         {session.note && <span className="absolute right-1.5 top-1.5 size-1.5 bg-accent" aria-hidden="true" />}
@@ -472,7 +491,7 @@ export function TimerNote({ session, project, edge, onSave, up = false }) {
         >
           <label className="block">
             <span className="mb-1.5 block text-xs font-semibold text-muted">
-              What are you working on? <span className="font-normal italic">{project.name}</span>
+              {__("What are you working on?")} <span className="font-normal italic">{project.name}</span>
             </span>
             <textarea
               autoFocus
@@ -481,11 +500,11 @@ export function TimerNote({ session, project, edge, onSave, up = false }) {
               onBlur={save}
               maxLength={280}
               rows={3}
-              placeholder="Outlined the methods section"
+              placeholder={__("Outlined the methods section")}
               className="w-full resize-none border border-line-strong bg-transparent p-2 text-[14px] outline-none placeholder:text-faint focus:border-text"
             />
           </label>
-          <p className="mt-1.5 text-xs text-faint">Saved when you click away. It stays on the session after you stop.</p>
+          <p className="mt-1.5 text-xs text-faint">{__("Saved when you click away. It stays on the session after you stop.")}</p>
         </div>
       )}
     </div>

@@ -119,7 +119,7 @@ Double-click `dev.bat` to open both servers in Windows Terminal and launch the b
 Ports 8001/5174 are used so this can run next to Daily-Checklist (8000/5173).
 
 **If the API seems to run old code** (for example `http://localhost:5174/api/auth/me` answers 404, or
-the footer lock asks for a password when none is set): a leftover uvicorn worker is still holding
+the footer lock opens an old sign-in form): a leftover uvicorn worker is still holding
 port 8001. On Windows, killing the `--reload` supervisor leaves its worker running, and two servers
 can bind the same port, with the older one winning the traffic. `dev.bat` now stops these orphans
 before starting. To clear one by hand:
@@ -140,31 +140,52 @@ pytest
 
 `/` is a public landing page. Its demo is the real interface running on in-memory sample data
 (`frontend/src/demo/demoApi.js`), so visitors can play without touching any database. A small lock
-icon in the footer opens the owner sign-in; after signing in, the same page becomes your real tracker.
+icon in the footer opens the sign-in; after signing in, the same page becomes your real tracker.
 
-- **`OWNER_PASSWORD`** (env var) is the owner login. Every data route requires the session cookie it
-  creates (HttpOnly, SameSite=Strict, 30 days). Changing the password signs every session out.
-- On Vercel, if it is missing, the data routes answer 503 on purpose: a forgotten variable never
-  leaves your data open.
+**Accounts.** Everyone has their own email + password and their own private data: projects, statuses,
+to-dos, sessions, the running timer, pomodoros and habits are all per account, and another account's
+ids answer 404. Signup is by invite only. The session is an HttpOnly, SameSite=Strict cookie (30 days)
+holding the user id; changing a password signs that account out everywhere else.
 
-**Locally.** `http://localhost:5174` opens the landing page like it does for visitors. With
-`OWNER_PASSWORD` empty (the default) the login is off: the lock icon in the footer takes you straight
-into your tracker, and the exit button in the tracker's header ("Back to the public page") returns
-you to the landing page. To try the real login, put `OWNER_PASSWORD=...` in `.env` (see
-`.env.example`) and restart the API.
+- **`SESSION_SECRET`** signs the cookies. On Vercel, if it is missing, every data route answers 503 on
+  purpose: a forgotten variable never leaves data open. Locally a development key is used if it is empty.
+- **`ADMIN_EMAIL` + `OWNER_PASSWORD`** make the first admin when the database has no accounts. When
+  upgrading from the single-owner version, every existing row (projects, sessions, ...) is adopted by
+  that admin, so you sign in with the password you already had and nothing is lost. After that the two
+  variables are ignored.
+- **Invites.** The admin opens menu > Account > *New invite* and sends the link
+  (`/?invite=CODE`). It works once, for a week, and is shown only once (only its hash is stored).
+  The new person picks their email and password and starts with an empty board and the default statuses.
+- **Admin only:** invites, the Interest inbox, and the Google Drive habits sync (the Drive folder is one
+  person's, so other accounts have no habits sync).
+- What the browser remembers (Feed order, filters, pomodoro countdown, ...) is kept under keys that
+  carry the user id (`frontend/src/lib/storage.js`), so accounts sharing a browser don't share them.
+
+**Languages.** The app speaks English and Spanish. The EN | ES switch is on the landing page and in the
+menu (`...`); signed in, the choice is saved on the account (`users.language`) so it follows the person to
+other devices, and a new account is seeded with its starting statuses in the language it signed up in.
+There is no i18n library: text is written in English where it is used and wrapped, `__("Save")`, or
+`_n(n, "{n} habit", "{n} habits")` for counts, and `frontend/src/i18n/es.js` maps that same English text to
+Spanish (untranslated text just shows in English). Text outside a component (a table of labels) is marked
+with `N_("...")` and passed through `__` where it is shown. Dates go through `src/lib/dates.js`, which picks
+the language's date-fns locale. Server error messages are translated by matching them in `es.js`.
+
+**Locally.** `http://localhost:5174` opens the landing page like it does for visitors. Put
+`ADMIN_EMAIL=...` and `OWNER_PASSWORD=...` in `.env` (see `.env.example`), restart the API, and sign in
+with the lock icon in the footer.
 
 **The "I'd use this" counter.** It stores one random browser id per vote and caps new votes at 60
 per 10 minutes, so it is a soft signal, not a tamper-proof count. After pressing it, a visitor can
 optionally leave an email (to be replied to) and/or a note. Those go into the `interest_messages`
-table, which is created automatically, and only the owner can read them: the **Interest** button in
-the tracker's header opens the inbox (the badge counts notes you haven't opened yet), with a reply
+table, which is created automatically, and only the admin can read them: the **Interest** button in
+the tracker's menu opens the inbox (the badge counts notes you haven't opened yet), with a reply
 link and a delete button per note. An email address is personal data, so delete a note when someone
 asks you to; deleting it leaves their vote counted.
 
 ## API
 
 All routes are under `/api`. Everything except `/health`, `/auth/*`, `/interest` and
-`/interest/message` needs the owner session. Times are ISO-8601. The server stores UTC and returns
+`/interest/message` needs a signed-in user, and only sees that user's own data. Times are ISO-8601. The server stores UTC and returns
 it with a `Z`, and the browser groups by local day.
 
 | Method | Path | Purpose |
@@ -182,13 +203,23 @@ it with a `Z`, and the browser groups by local day.
 | GET | `/timer` | The running session, or `null` |
 | POST | `/timer/start` | `{project_id}`: stops the current timer, starts this one |
 | POST | `/timer/stop?keep=` | Stops the running timer. A session under 2 minutes is dropped as a mis-click unless `keep=true` (a timer paused for a pomodoro break) |
-| GET | `/auth/me` | `{authenticated, required}`: is there a valid owner session |
-| POST | `/auth/login` | `{password}`: sets the session cookie (204) |
+| POST | `/projects/{id}/cancel` | Call a project off: archived too, with `cancelled_at` set; restore clears both |
+| POST | `/todos/{id}/to-project` | Turn a task (a to-do with no project) into a project |
+| GET / POST / PATCH / DELETE | `/open-items[/{id}]` | Work started and left open; `POST /open-items/{id}/close` turns it into a session |
+| GET | `/habits` | The user's habits (from the My Habits backup) with their last days |
+| POST | `/habits/sync?force=` | Admin only: copy the newest backup in the Drive folder in |
+| GET | `/auth/me` | `{authenticated, user}`: who is signed in, if anyone |
+| POST | `/auth/login` | `{email, password}`: sets the session cookie, returns the user |
+| POST | `/auth/register` | `{code, email, password}`: make an account with an invite code (signs in) |
 | POST | `/auth/logout` | Clears the session cookie (204) |
+| POST | `/auth/language` | `{language}` (`en` or `es`): the account's language |
+| POST | `/auth/password` | `{current_password, new_password}`: signs the account out everywhere else (204) |
+| GET / POST | `/admin/invites` | Admin only: list invites / make one (`{days}`; the code is returned once) |
+| DELETE | `/admin/invites/{id}` | Admin only: revoke an invite |
 | GET / POST | `/interest` | Public counter: `{count}`; POST `{visitor_id}` registers one "I'd use this" |
 | POST | `/interest/message` | Public: `{visitor_id, email?, message?}`, at least one of the two; sending again replaces the earlier note |
-| GET | `/interest/messages` | Owner only: `{count, messages}`, newest first |
-| DELETE | `/interest/messages/{visitor_id}` | Owner only: erase one note (the vote stays) |
+| GET | `/interest/messages` | Admin only: `{count, messages}`, newest first |
+| DELETE | `/interest/messages/{visitor_id}` | Admin only: erase one note (the vote stays) |
 
 ## File structure
 
@@ -216,6 +247,6 @@ ProjectsTracker/
 
 ## Not in v1 (yet)
 
-- Multiple users: login is a single owner password, and data is not split per account
+- Password reset by email, email verification, deleting an account, per-account Drive habits sync
 - Goals or budgets per project
 - CSV export

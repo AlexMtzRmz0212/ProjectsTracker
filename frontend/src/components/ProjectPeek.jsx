@@ -4,6 +4,8 @@ import { ChevronLeft, PanelRight, X } from "lucide-react";
 import { iconFor, inkText } from "../lib/palette";
 import { useHeaderBottom } from "../hooks/useHeaderBottom";
 import { useClickOutside } from "../hooks/useClickOutside";
+import { __, useT } from "../i18n";
+
 
 const MIN_WIDTH = 352;
 const DEFAULT_WIDTH = MIN_WIDTH; // it opens at its least width
@@ -25,6 +27,7 @@ const KEEP_WIDE = '[role="dialog"], [role="menu"]';
  * on top, while `escPaused`, and inside a text box (a sub-to-do uses it to cancel).
  */
 export default function ProjectPeek({ open, onOpenChange, onWidth, widthResetKey = 0, project, escPaused = false, children }) {
+  useT();
   const panel = useRef(null);
   const top = useHeaderBottom();
   const id = useId();
@@ -125,7 +128,8 @@ export default function ProjectPeek({ open, onOpenChange, onWidth, widthResetKey
   return createPortal(
     <aside
       ref={panel}
-      aria-label={project ? `${project.name}, side peek` : "Side peek"}
+      data-side-peek=""
+      aria-label={project ? __("{name}, side peek", { name: project.name }) : __("Side peek")}
       className="fixed bottom-[var(--bottom-bar,0px)] right-0 z-[35] flex flex-col border-l border-line-strong bg-surface [--row-bg:var(--surface)] transition-transform duration-200 ease-out"
       style={{ top, width: `min(${shownWidth}px, calc(100vw - ${GAP}px))`, transform, transition: dragging ? "none" : undefined }}
     >
@@ -141,10 +145,10 @@ export default function ProjectPeek({ open, onOpenChange, onWidth, widthResetKey
           dragging ? "bg-surface-2 text-text" : "bg-surface text-muted"
         }`}
         aria-label={
-          open ? `Close the side peek on ${name}. Drag, or use the left and right arrow keys, to resize it`
-          : project ? `Peek at ${project.name}` : "Open the side peek"
+          open ? __("Close the side peek on {name}. Drag, or use the left and right arrow keys, to resize it", { name })
+          : project ? __("Peek at {name}", { name: project.name }) : __("Open the side peek")
         }
-        title={open ? "Click to close, drag to resize" : project ? `Peek at ${project.name} (click, or drag out to a width)` : "Side peek: click a project to open it here"}
+        title={open ? __("Click to close, drag to resize") : project ? __("Peek at {name} (click, or drag out to a width)", { name: project.name }) : __("Side peek: click a project to open it here")}
         aria-expanded={open}
         aria-controls={id}
       >
@@ -159,8 +163,8 @@ export default function ProjectPeek({ open, onOpenChange, onWidth, widthResetKey
         <button
           onClick={() => onOpenChange(false)}
           className="grid size-9 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
-          aria-label="Close the side peek"
-          title="Close (Esc)"
+          aria-label={__("Close the side peek")}
+          title={__("Close (Esc)")}
         >
           <X size={18} />
         </button>
@@ -173,10 +177,8 @@ export default function ProjectPeek({ open, onOpenChange, onWidth, widthResetKey
           <div className="grid flex-1 place-items-center border border-dashed border-line-strong p-6 text-center">
             <div>
               <PanelRight size={22} className="mx-auto text-faint" aria-hidden="true" />
-              <p className="mt-3 font-serif text-lg font-semibold">Nothing to peek at yet</p>
-              <p className="mt-1 text-[13px] text-muted">
-                Click a project on the board, in the Feed or in Stats and it opens here, with the board still beside it.
-              </p>
+              <p className="mt-3 font-serif text-lg font-semibold">{__("Nothing to peek at yet")}</p>
+              <p className="mt-1 text-[13px] text-muted">{__("Click a project on the board, in the Feed or in Stats and it opens here, with the board still beside it.")}</p>
             </div>
           </div>
         )}

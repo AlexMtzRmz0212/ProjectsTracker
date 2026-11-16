@@ -3,8 +3,11 @@ import { createPortal } from "react-dom";
 import { Ellipsis, ListChecks, Pencil, Play, Plus, Square } from "lucide-react";
 import { ON_INK, iconFor, inkFor, inkText, tint } from "../lib/palette";
 import { fmtClock, fmtHM } from "../lib/time";
+import { scopedKey } from "../lib/storage";
 import { Button } from "./Modal";
 import ArchiveDrawer from "./ArchiveDrawer";
+import { N_, __, _n, useT } from "../i18n";
+
 
 /**
  * Every status as a column, every project as a card. Drag a card up or down its column to put it
@@ -19,6 +22,7 @@ import ArchiveDrawer from "./ArchiveDrawer";
 export default function ProjectBoard({
   projects, archived, statuses, cardProps, onMove, onCreate, onDelete, onArchive, onRestore, onOpenArchived, revealId = null,
 }) {
+  useT();
   const [phoneStatus, setPhoneStatus] = useState(null);
   const shownOnPhone = statuses.some((s) => s.id === phoneStatus) ? phoneStatus : statuses[0]?.id;
   const [savedHidden, , setAllSaved, saveHidden] = useHiddenStatuses(statuses);
@@ -148,7 +152,7 @@ export default function ProjectBoard({
       />
 
       {/* Phones: the status to look at, and where a dragged card is dropped */}
-      <div className="flex shrink-0 flex-wrap gap-x-4 gap-y-0.5 @3xl:hidden" role="radiogroup" aria-label="Status">
+      <div className="flex shrink-0 flex-wrap gap-x-4 gap-y-0.5 @3xl:hidden" role="radiogroup" aria-label={__("Status")}>
         {statuses.map((s) => {
           const active = s.id === shownOnPhone;
           const target = over === s.id;
@@ -174,19 +178,19 @@ export default function ProjectBoard({
 
       {/* Larger screens: which statuses get a column. Phones already show one at a time. */}
       {statuses.length > 1 && (
-        <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-0.5 @max-3xl:hidden" role="group" aria-label="Show columns">
+        <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-0.5 @max-3xl:hidden" role="group" aria-label={__("Show columns")}>
           <button
             onClick={() => setAllHidden(hidden.size === 0)}
-            aria-label={hidden.size === 0 ? `Hide all columns but ${keptName}` : "Show all columns"}
-            title={hidden.size === 0 ? `Hide every column but ${keptName}` : "Show every column"}
+            aria-label={hidden.size === 0 ? __("Hide all columns but {keptName}", { keptName }) : __("Show all columns")}
+            title={hidden.size === 0 ? __("Hide every column but {keptName}", { keptName }) : __("Show every column")}
             className="flex font-serif text-xs italic text-faint transition-colors hover:text-text"
           >
             {/* The word rolls like a counter wheel, while "all" stays put. Both words share one cell, so
                 the row doesn't shift; the idle one waits above or below, out of sight. */}
             <span className="inline-grid overflow-hidden px-px leading-5" aria-hidden="true">
               {[
-                ["Show", hidden.size > 0, "-translate-y-full"],
-                ["Hide", hidden.size === 0, "translate-y-full"],
+                [N_("Show"), hidden.size > 0, "-translate-y-full"],
+                [N_("Hide"), hidden.size === 0, "translate-y-full"],
               ].map(([text, on, away]) => (
                 <span
                   key={text}
@@ -194,11 +198,11 @@ export default function ProjectBoard({
                     on ? "" : away
                   }`}
                 >
-                  {text}
+                  {__(text)}
                 </span>
               ))}
             </span>
-            <span className="leading-5" aria-hidden="true">&nbsp;all</span>
+            <span className="leading-5" aria-hidden="true">{__(" all")}</span>
           </button>
           {statuses.map((s) => {
             const shown = !hidden.has(s.id);
@@ -209,7 +213,7 @@ export default function ProjectBoard({
                 aria-pressed={shown}
                 disabled={onlyOne}
                 onClick={() => toggleHidden(s.id)}
-                title={onlyOne ? "At least one column stays visible" : shown ? `Hide ${s.name}` : `Show ${s.name}`}
+                title={onlyOne ? __("At least one column stays visible") : shown ? __("Hide {name}", { name: s.name }) : __("Show {name}", { name: s.name })}
                 className={`inline-flex h-7 items-center gap-1.5 border-b-2 text-[13px] transition-colors disabled:cursor-default ${
                   shown ? "text-text" : "border-transparent text-faint line-through hover:text-text"
                 }`}
@@ -235,7 +239,7 @@ export default function ProjectBoard({
           return (
             <section
               key={status.id}
-              aria-label={`${status.name}, ${cards.length} ${cards.length === 1 ? "project" : "projects"}`}
+              aria-label={__("{name}, {count}", { name: status.name, count: _n(cards.length, "{n} project", "{n} projects") })}
               data-drop={status.id}
               className={`column-in min-h-0 flex-col border bg-surface-2/40 transition-colors ${
                 status.id === shownOnPhone ? "flex" : "@max-3xl:hidden"
@@ -245,11 +249,11 @@ export default function ProjectBoard({
                 <span className="size-2.5 shrink-0" style={{ background: inkFor(status.color) }} aria-hidden="true" />
                 <h3 className="min-w-0 truncate font-serif text-[15px] font-semibold">{status.name}</h3>
                 <span className="figures text-xs text-muted">{cards.length}</span>
-                {status.is_done && <span className="font-serif text-xs italic text-faint">finished</span>}
+                {status.is_done && <span className="font-serif text-xs italic text-faint">{__("finished")}</span>}
                 <button
                   onClick={() => onCreate(status.id)}
-                  aria-label={`New project in ${status.name}`}
-                  title={`New project in ${status.name}`}
+                  aria-label={__("New project in {name}", { name: status.name })}
+                  title={__("New project in {name}", { name: status.name })}
                   className="ml-auto grid size-7 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
                 >
                   <Plus size={16} />
@@ -271,8 +275,8 @@ export default function ProjectBoard({
                 ))}
                 {shown.length === 0 && (
                   <li className="grid place-items-center border border-dashed border-line-strong px-3 py-6 text-center text-[13px] text-faint">
-                    <span className="@max-3xl:hidden">Drop a project here</span>
-                    <span className="@3xl:hidden">Nothing here</span>
+                    <span className="@max-3xl:hidden">{__("Drop a project here")}</span>
+                    <span className="@3xl:hidden">{__("Nothing here")}</span>
                   </li>
                 )}
               </ul>
@@ -326,7 +330,7 @@ const HIDDEN_KEY = "pt-hidden-statuses";
 function useHiddenStatuses(statuses) {
   const [stored, setStored] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem(HIDDEN_KEY)) ?? [];
+      return JSON.parse(localStorage.getItem(scopedKey(HIDDEN_KEY))) ?? [];
     } catch {
       return [];
     }
@@ -337,7 +341,7 @@ function useHiddenStatuses(statuses) {
   const save = (next) => {
     setStored([...next]);
     try {
-      localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next]));
+      localStorage.setItem(scopedKey(HIDDEN_KEY), JSON.stringify([...next]));
     } catch {
       // storage blocked: the choice still holds until the page is reloaded
     }
@@ -547,6 +551,7 @@ function BoardCard({
   totalSeconds, todaySeconds, lastSeven, openTodos, isRunning, elapsed,
   onOpen, onToggleTimer, onAddTime, onEdit,
 }) {
+  useT();
   const { color, name } = project;
   const Icon = iconFor(project.icon);
   const finished = status.is_done;
@@ -576,7 +581,7 @@ function BoardCard({
         <button
           onClick={onOpen}
           title={name}
-          aria-label={`Open ${name}: to-dos and sessions`}
+          aria-label={__("Open {name}: to-dos and sessions", { name })}
           className={`min-w-0 flex-1 text-left font-serif text-[15px] font-medium leading-snug underline-offset-4 hover:underline focus-visible:underline ${
             finished ? "text-muted" : ""
           }`}
@@ -587,15 +592,15 @@ function BoardCard({
       </div>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pt-1.5 text-xs text-muted">
-        <span className="font-serif italic">Today</span>
+        <span className="font-serif italic">{__("Today")}</span>
         <span className={`figures -ml-2 ${todaySeconds ? "text-text" : ""}`}>{fmtHM(todaySeconds)}</span>
-        <span className="font-serif italic">Total</span>
+        <span className="font-serif italic">{__("Total")}</span>
         <span className="figures -ml-2 text-text">{fmtHM(totalSeconds)}</span>
         {openTodos > 0 && (
-          <span title={`${openTodos} open to-do${openTodos === 1 ? "" : "s"}`} className="inline-flex items-center gap-1">
+          <span title={_n(openTodos, "{n} open to-do", "{n} open to-dos")} className="inline-flex items-center gap-1">
             <ListChecks size={13} aria-hidden="true" />
             <span className="figures">{openTodos}</span>
-            <span className="sr-only">open to-dos</span>
+            <span className="sr-only">{__("open to-dos")}</span>
           </span>
         )}
         <Sparkline className="ml-auto shrink-0" days={lastSeven} color={color} />
@@ -603,7 +608,7 @@ function BoardCard({
 
       <div className="px-3 pb-2.5 pt-2">
         {finished ? (
-          <p className="font-serif text-xs italic text-faint">No timer on finished projects</p>
+          <p className="font-serif text-xs italic text-faint">{__("No timer on finished projects")}</p>
         ) : (
           <button
             onClick={onToggleTimer}
@@ -611,7 +616,7 @@ function BoardCard({
               isRunning ? "" : "border-line-strong hover:border-text hover:bg-surface-2"
             }`}
             style={isRunning ? { background: color, borderColor: color, color: ON_INK } : undefined}
-            aria-label={isRunning ? `Stop ${name}` : `Start ${name}`}
+            aria-label={isRunning ? __("Stop {name}", { name }) : __("Start {name}", { name })}
           >
             {isRunning ? (
               <>
@@ -620,8 +625,7 @@ function BoardCard({
               </>
             ) : (
               <>
-                <Play size={11} fill="currentColor" /> Start
-              </>
+                <Play size={11} fill="currentColor" />{" "}{__("Start")}</>
             )}
           </button>
         )}
@@ -653,6 +657,7 @@ function Sparkline({ days, color, className = "" }) {
 /** The ⋯ menu. It's drawn on top of the page, not inside the card, because the column
  *  scrolls and would otherwise clip it. */
 function CardMenu({ name, onAddTime, onEdit }) {
+  useT();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
   const button = useRef(null);
@@ -709,7 +714,7 @@ function CardMenu({ name, onAddTime, onEdit }) {
           setOpen((o) => !o);
         }}
         className="-mr-1.5 grid size-7 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
-        aria-label={`Actions for ${name}`}
+        aria-label={__("Actions for {name}", { name })}
         aria-haspopup="menu"
         aria-expanded={open}
       >
@@ -723,8 +728,8 @@ function CardMenu({ name, onAddTime, onEdit }) {
             className="fade-in fixed z-[55] w-52 border border-line-strong bg-surface p-1"
             style={{ top: pos?.top ?? 0, left: pos?.left ?? 0, visibility: pos ? "visible" : "hidden" }}
           >
-            {item(Plus, "Add time", onAddTime)}
-            {item(Pencil, "Edit", onEdit)}
+            {item(Plus, __("Add time"), onAddTime)}
+            {item(Pencil, __("Edit"), onEdit)}
           </div>,
           document.body
         )}
@@ -736,6 +741,7 @@ function CardMenu({ name, onAddTime, onEdit }) {
  *  asks "Are you sure?" on a slip that unrolls out of the can. It stays mounted and
  *  `phase` (hidden | ready | hot | confirm) drives the motion, in index.css, both ways. */
 function TrashCan({ phase, project, drop, totalSeconds, onCancel, onConfirm }) {
+  useT();
   const root = useRef(null);
   const id = useId();
   const confirming = phase === "confirm";
@@ -777,7 +783,7 @@ function TrashCan({ phase, project, drop, totalSeconds, onCancel, onConfirm }) {
           <path d="M10 11v6" />
           <path d="M14 11v6" />
         </svg>
-        <span className="trash-caption">Drop to delete</span>
+        <span className="trash-caption">{__("Drop to delete")}</span>
       </div>
 
       {project && (
@@ -789,26 +795,18 @@ function TrashCan({ phase, project, drop, totalSeconds, onCancel, onConfirm }) {
           aria-describedby={`${id}-note`}
           className="trash-slip w-80 border border-line-strong bg-surface"
         >
-          <h2 id={`${id}-title`} className="border-b-[3px] border-double border-line-strong px-4 py-2.5 font-serif text-[15px] font-semibold">
-            Are you sure?
-          </h2>
+          <h2 id={`${id}-title`} className="border-b-[3px] border-double border-line-strong px-4 py-2.5 font-serif text-[15px] font-semibold">{__("Are you sure?")}</h2>
           <div className="px-4 pt-3">
             <div className="flex items-center gap-2.5 border-b border-rule pb-3">
               <Icon size={17} className="shrink-0" style={{ color: inkText(project.color) }} aria-hidden="true" />
               <span className="min-w-0 flex-1 truncate font-serif text-[14px] font-medium">{project.name}</span>
-              <span className="figures shrink-0 text-[13px] font-semibold text-danger">−{fmtHM(totalSeconds)} logged</span>
+              <span className="figures shrink-0 text-[13px] font-semibold text-danger">{__("−{time} logged", { time: fmtHM(totalSeconds) })}</span>
             </div>
-            <p id={`${id}-note`} className="mt-2.5 text-xs text-muted">
-              Its sessions and to-dos go with it. This can't be undone.
-            </p>
+            <p id={`${id}-note`} className="mt-2.5 text-xs text-muted">{__("Its sessions and to-dos go with it. This can't be undone.")}</p>
           </div>
           <div className="flex items-center gap-2 px-4 py-3">
-            <Button className="ml-auto" onClick={onCancel}>
-              Cancel
-            </Button>
-            <Button variant="solidDanger" onClick={onConfirm} autoFocus={confirming}>
-              Delete
-            </Button>
+            <Button className="ml-auto" onClick={onCancel}>{__("Cancel")}</Button>
+            <Button variant="solidDanger" onClick={onConfirm} autoFocus={confirming}>{__("Delete")}</Button>
           </div>
         </div>
       )}
