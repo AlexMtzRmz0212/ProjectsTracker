@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Hourglass, Moon, Search, Tag, Trash2, TriangleAlert } from "lucide-react";
+import { Check, Hourglass, Moon, Plus, Search, Tag, Trash2, TriangleAlert } from "lucide-react";
 import Modal, { Button } from "./Modal";
 import { matchProjects } from "./ProjectSearch";
 import { choreKey, choreLabelOf, isChoreKey } from "../api";
@@ -39,25 +39,31 @@ function initialSpan(session, openItem, date, span) {
 /**
  * Log time after the fact, edit an existing session, or start something to close later.
  *
- * You say when it ended and how long it lasted; the start follows. Type any of the
- * three (start, end, duration) and the others keep up: start and end give the
- * duration, a duration moves the start. The end is the anchor because time is
- * usually logged just after the fact ("2h, finished now"), so one tap on a chip does it.
+ * Type any of the three (start, end, duration) and the others keep up: start and end give the duration, and a
+ * duration moves whichever of start and end was not set last (the anchor). Time is usually logged just after the
+ * fact, so it begins anchored on the end ("2h, finished now": one tap on a chip). Set the start (typed, or "now") and
+ * the anchor is the start: a duration then moves the end. Set the end (typed, or "now") and the start follows again.
+ * A start of now with a duration ends in the future, which can't be saved as a session: "Still going" is for that.
  *
  * "Leave it open" turns it into an open item: only the start is kept, and it runs (alongside the timer)
- * until it is closed. Start → now does that from this moment. `openItem` edits one that is open: keep it
- * open, or switch it off to close it at the end given. `projects` are the subjects time can go on: open
- * projects and tasks.
+ * until it is closed. `openItem` edits one that is open: keep it open, or switch it off to close it at the end given.
+ *
+ * `projects` are the subjects time can go on: open projects and tasks. Before anything is typed only `suggested`
+ * (ids: what was logged on lately, what is running or being worked on, recent chores) is offered, as chips; typing
+ * searches them all. There is no note: a session keeps the one it has.
  */
 export default function SessionModal({
-  session, openItem, projectId, date, span, startOpen = false, projects, todos = [], chores = [], onClose, onSave, onDelete, onSaveOpen, onCloseOpen,
+  session, openItem, projectId, date, span, startOpen = false, projects, todos = [], chores = [], suggested = [], onClose, onSave, onDelete, onSaveOpen, onCloseOpen,
 }) {
   useT();
   const first = initialSpan(session, openItem, date, span);
-  const [pid, setPid] = useState(session?.project_id ?? openItem?.project_id ?? projectId ?? projects[0]?.id);
+  const [pid, setPid] = useState(
+    session?.project_id ?? openItem?.project_id ?? projectId ?? suggested.find((id) => projects.some((p) => p.id === id)) ?? projects[0]?.id
+  );
   const [start, setStart] = useState(startOpen ? flooredMinute(new Date()) : first.start);
   const [end, setEnd] = useState(first.end);
-  const [note, setNote] = useState(session?.note ?? openItem?.note ?? "");
+  // Which of start and end the person set last: a duration moves the other one
+  const [anchor, setAnchor] = useState("end");
   const [open, setOpen] = useState(Boolean(openItem) || startOpen);
   const [saving, setSaving] = useState(false);
   // The field being typed in keeps its raw text; the others are shown from start and end
@@ -95,14 +101,20 @@ export default function SessionModal({
     ? projects.find((p) => p.id === pid) ?? chores.find((c) => c.id === pid) ??
       { id: pid, kind: "chore", name: choreLabelOf(pid), color: CHORE_INK, icon: CHORE_ICON }
     : null;
-  const chips = [
-    ...(chosenChore && !projects.some((p) => p.id === pid) ? [chosenChore] : []),
-    ...visible,
-    ...choreHits.filter((c) => c.id !== pid),
-  ];
+  const project = projects.find((p) => p.id === pid) ?? chosenChore ?? undefined;
+  // Nothing typed: the chosen one and the suggested ones (an open item has no chores); typed: every match
+  const byId = new Map([...chores, ...projects].map((p) => [p.id, p]));
+  const offered = [project, ...suggested.map((id) => byId.get(id))].filter((p, i, all) => p && !(open && p.kind === "chore") && all.findIndex((x) => x?.id === p.id) === i);
+  const chips = q
+    ? [
+        ...(chosenChore && !projects.some((p) => p.id === pid) ? [chosenChore] : []),
+        ...visible,
+        ...choreHits.filter((c) => c.id !== pid),
+      ]
+    : offered;
+  const hidden = q ? 0 : Math.max(0, projects.length - offered.filter((p) => p.kind !== "chore").length);
 
   const canOpen = Boolean(onSaveOpen) && !session && !chosenChore; // a session already logged stays a session; a chore can't be left open
-  const project = projects.find((p) => p.id === pid) ?? chosenChore ?? undefined;
   const color = project?.color ?? "var(--accent-2)";
   const minutes = Math.round((end - start) / MINUTE);
   const crossesMidnight = dayKey(start) !== dayKey(end);
@@ -116,37 +128,47 @@ export default function SessionModal({
     duration: minutes > 0 ? fmtDurationInput(minutes) : "",
   };
 
-  // ── Edits. Each keeps one end fixed and moves the rest ──────────────────────
+  // ── Edits. Setting the start or the end makes it the anchor; a duration moves the other one ──────────────
 
   const setEndTime = (m) => {
     // The end keeps its day; a time before the start can only mean the next day
     let next = atMinute(end, m);
     if (next <= start) next = new Date(next.getTime() + DAY);
     setEnd(next);
+    setAnchor("end");
   };
   const setStartTime = (m) => {
+    setAnchor("start");
     if (open) return setStart(atMinute(start, m)); // nothing to keep before: the start keeps its day
     // The start is the latest moment with that clock time before the end
     let next = atMinute(end, m);
     if (next >= end) next = new Date(next.getTime() - DAY);
     setStart(next);
   };
-  const setDuration = (mins) => setStart(new Date(end.getTime() - mins * MINUTE));
+  const setDuration = (mins) => {
+    if (anchor === "start") setEnd(new Date(start.getTime() + mins * MINUTE));
+    else setStart(new Date(end.getTime() - mins * MINUTE));
+  };
   const setDay = (day) => {
     if (open) return setStart(atMinute(day, start.getHours() * 60 + start.getMinutes()));
     const shift = atMinute(day, end.getHours() * 60 + end.getMinutes()) - end;
     setStart(new Date(start.getTime() + shift));
     setEnd(new Date(end.getTime() + shift));
   };
+  /** Ended now: the end is the anchor again, and the start follows, keeping the duration chosen. */
   const endNow = () => {
     const now = flooredMinute(new Date());
     setStart(new Date(now.getTime() - Math.max(minutes, 1) * MINUTE));
     setEnd(now);
+    setAnchor("end");
   };
-  /** Starting now can't end yet: it is left open. */
+  /** Started now: the start is the anchor, and the end follows, keeping the duration chosen (which puts it in
+   *  the future, so it can't be saved until a shorter duration, End → now, or "Still going" is used). */
   const startNow = () => {
-    setStart(flooredMinute(new Date()));
-    setOpen(true);
+    const now = flooredMinute(new Date());
+    setStart(now);
+    if (!open) setEnd(new Date(now.getTime() + Math.max(minutes, 1) * MINUTE));
+    setAnchor("start");
   };
   const toggleOpen = (next) => {
     setOpen(next);
@@ -183,7 +205,8 @@ export default function SessionModal({
     e?.preventDefault();
     if (!valid || saving) return;
     setSaving(true);
-    const data = { project_id: pid, start, note: note.trim() };
+    // No note: an existing one is kept (it isn't sent), and a new session has none
+    const data = { project_id: pid, start };
     const ok =
       open ? await onSaveOpen(openItem, data)
       : openItem ? await onCloseOpen(openItem, { ...data, end })
@@ -254,6 +277,21 @@ export default function SessionModal({
               );
             })}
             {projects.length === 0 && <p className="text-[13px] text-muted">{__("No open projects or tasks.")}</p>}
+            {/* A chore is time with no project: always one tap away, named in the search above */}
+            {!q && !open && (
+              <button
+                type="button"
+                onClick={() => searchRef.current?.focus()}
+                title={__("Type a name in the search above to use it as a chore")}
+                className="inline-flex h-9 max-w-full items-center gap-2 border border-dotted border-line-strong px-3 text-[13px] font-medium text-muted transition-colors hover:bg-surface-2 hover:text-text"
+              >
+                <Plus size={15} className="shrink-0" aria-hidden="true" />
+                <span className="truncate">{__("New chore")}</span>
+              </button>
+            )}
+            {hidden > 0 && (
+              <p className="basis-full text-xs text-faint">{__("Showing what you worked on lately. Search above for any of the other {n}.", { n: hidden })}</p>
+            )}
             {todoHits.map((x) => {
               const Icon = iconFor(x.icon);
               const active = x.subjectId === pid;
@@ -344,14 +382,12 @@ export default function SessionModal({
           <label>
             <span className={labelClass}>
               {__("Start")}{" "}
-              {canOpen && (
-                <button
-                  type="button"
-                  onClick={startNow}
-                  className="ml-1 font-normal text-accent-2 underline underline-offset-2 hover:text-text"
-                  title={__("Start it now and leave it open")}
-                >{__("now")}</button>
-              )}
+              <button
+                type="button"
+                onClick={startNow}
+                className="ml-1 font-normal text-accent-2 underline underline-offset-2 hover:text-text"
+                title={__("Start now: a duration then sets where it ends")}
+              >{__("now")}</button>
             </span>
             <input {...field("start")} inputMode="text" autoComplete="off" placeholder="9:00" className={timeFieldClass} />
           </label>
@@ -420,20 +456,14 @@ export default function SessionModal({
           </div>
         )}
 
-        <label className="block">
-          <span className={labelClass}>{__("Note (optional)")}</span>
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            maxLength={280}
-            placeholder={open ? __("Rendering the final cut") : __("Outlined the methods section")}
-            className={`${fieldClass} text-[14px]`}
-          />
-        </label>
-
         {inFuture && (
-          <p className="flex items-center gap-2 text-[13px] text-danger">
-            <TriangleAlert size={15} /> {open ? __("That starts in the future") : __("That ends in the future")}
+          <p className="flex items-start gap-2 text-[13px] text-danger">
+            <TriangleAlert size={15} className="mt-0.5 shrink-0" />
+            <span>
+              {open ? __("That starts in the future")
+                : canOpen && anchor === "start" ? __("That ends in the future. Pick a shorter duration or End → now, or tick “Still going” to count up from the start.")
+                : __("That ends in the future")}
+            </span>
           </p>
         )}
         <button type="submit" hidden />

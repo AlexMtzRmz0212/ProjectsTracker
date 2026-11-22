@@ -206,8 +206,16 @@ it with a `Z`, and the browser groups by local day.
 | POST | `/projects/{id}/cancel` | Call a project off: archived too, with `cancelled_at` set; restore clears both |
 | POST | `/todos/{id}/to-project` | Turn a task (a to-do with no project) into a project |
 | GET / POST / PATCH / DELETE | `/open-items[/{id}]` | Work started and left open; `POST /open-items/{id}/close` turns it into a session |
-| GET | `/habits` | The user's habits (from the My Habits backup) with their last days |
-| POST | `/habits/sync?force=` | Admin only: copy the newest backup in the Drive folder in |
+| GET | `/habits` | The user's habits (picked from the My Habits backup, or made here) with their last days |
+| GET | `/habits/drive` | Admin only: the habits in the newest Drive backup, to choose from |
+| POST | `/habits/import` | Admin only: add the chosen Drive habits (`{uuids}`), refreshing the ones already added |
+| POST | `/habits/sync?force=` | Admin only: bring the habits added from Drive up to date with the newest backup |
+| POST | `/habits` | Make a habit here (a continuous task): yes/no, or a number with a unit and target |
+| PATCH / DELETE | `/habits/{id}` | Edit a habit made here (a Drive habit answers 409); delete either kind |
+| PUT | `/habits/{id}/entries/{day}` | Log one day of a habit made here (`unknown` clears it) |
+| GET / POST | `/plan` | The Workspace's "next up" plan in order (finished things drop off); add a project, to-do, habit or chore (`kind` + its id or `label`) |
+| PUT | `/plan/order` | Set the plan's order (`{ids}`) |
+| DELETE | `/plan/{id}` | Take something off the plan |
 | GET | `/auth/me` | `{authenticated, user}`: who is signed in, if anyone |
 | POST | `/auth/login` | `{email, password}`: sets the session cookie, returns the user |
 | POST | `/auth/register` | `{code, email, password}`: make an account with an invite code (signs in) |

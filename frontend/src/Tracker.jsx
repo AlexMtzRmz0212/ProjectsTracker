@@ -30,6 +30,14 @@ import TimeGrid from "./components/TimeGrid";
 import Heatmap from "./components/Heatmap";
 import ProjectModal from "./components/ProjectModal";
 import StatusModal from "./components/StatusModal";
+import TabOrderModal from "./components/TabOrderModal";
+import StillWorkingDialog from "./components/StillWorkingDialog";
+import { useStillWorking } from "./hooks/useStillWorking";
+import { planRef, usePlan } from "./hooks/usePlan";
+import { PlanContext } from "./lib/planContext";
+import { buildPlanPrompt } from "./lib/aiTasks";
+import { copyText } from "./lib/clipboard";
+import { TAB_IDS, loadTabOrder, orderTabs, saveTabOrder } from "./lib/tabOrder";
 import ProjectDetail from "./components/ProjectDetail";
 import ProjectPeek from "./components/ProjectPeek";
 import ProjectSearch, { todoEntries } from "./components/ProjectSearch";
@@ -48,7 +56,7 @@ import Toast from "./components/Toast";
 import { Button } from "./components/Modal";
 import { CHORE_ICON, CHORE_INK, TASK_ICON, TASK_INK, inkFor } from "./lib/palette";
 import { choreKey, isChoreKey, isTaskKey, taskIdOf, taskKey, todoSubject } from "./api";
-import { isActive as isActiveHabit } from "./lib/habits";
+import { entriesByDay, isActive as isActiveHabit, streakOf } from "./lib/habits";
 import { N_, __, useT } from "./i18n";
 
 
@@ -64,6 +72,7 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
   useT();
   const t = useTracker(api);
   const habits = useHabits(api); // from the My Habits backup on Drive; kept apart so it can fail on its own
+  const plan = usePlan(api); // the Workspace's "next up" list; also kept apart: without it everything else still works
   const isAdmin = Boolean(user?.is_admin);
   const inbox = useInbox(!demo && isAdmin); // the notes visitors left: only the admin's app asks for them
   const [inboxOpen, setInboxOpen] = useState(false);
@@ -104,13 +113,33 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
   const pomodoro = usePomodoro({
     running: t.running, startTimer: resumeTimer, stopTimer: t.stopTimer, onFocusDone: t.addPomodoro, scope: demo ? "demo" : "app",
   });
+  // A timer or pomodoro left running asks every hour whether anyone is still working; with no answer it stops, ending
+  // at the moment it asked. Open items and to-dos marked as being worked on are meant to run for days, and never ask.
+  const stillWorking = useStillWorking({
+    enabled: !demo,
+    running: t.running,
+    pomodoro,
+    onStop: async ({ at, timer, pomodoro: pomodoroGoing }) => {
+      const end = new Date(at);
+      if (pomodoroGoing) pomodoro.dismiss(at);
+      if (timer && t.running) await t.updateSession(t.running.id, { end });
+      t.notify({ tone: "info", text: __("Stopped at {time}: nobody answered “still working?”", { time: fmtTime(end) }) });
+    },
+  });
   const [pomodoroOpen, setPomodoroOpen] = useState(false);
   const [screenOpen, setScreenOpen] = useState(false); // the pomodoro full screen
   const mini = useMiniPlayer(); // the mini clock: a floating window, or a widget over the page
 
   const [cursor, setCursor] = useState(() => new Date());
   const [selected, setSelected] = useState(() => new Date());
-  const [tab, setTab] = useState("feed"); // feed | workspace | projects | tasks | habits | calendar | stats
+  // The tabs' order is the person's own (Tab order, in the More menu); the app opens on the first. The demo keeps the usual one
+  const [tabOrder, setTabOrder] = useState(() => (demo ? [] : loadTabOrder()));
+  const [tab, setTab] = useState(() => tabOrder.find((id) => TAB_IDS.includes(id)) ?? "feed"); // feed | workspace | projects | tasks | habits | calendar | stats
+  const [tabsOpen, setTabsOpen] = useState(false);
+  const changeTabOrder = (ids) => {
+    setTabOrder(ids);
+    saveTabOrder(ids);
+  };
   const [calView, setCalView] = useCalendarView(); // month | week | day
   const [statusesOpen, setStatusesOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
@@ -236,6 +265,19 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
       .map((label) => ({ id: choreKey(label), kind: "chore", name: label, color: CHORE_INK, icon: CHORE_ICON }));
     return [...choreSubjects, ...fromPomodoros];
   }, [choreSubjects, chores]);
+  // What Add time offers before anything is typed (the rest is a search away): what is running or being worked on,
+  // then what time was logged on in the last month, newest first, chores included; at most 8
+  const suggestedSubjectIds = useMemo(() => {
+    const since = Date.now() - 30 * 86_400_000;
+    const last = new Map();
+    const note = (id, at) => {
+      if (at >= since && at > (last.get(id) ?? 0)) last.set(id, at);
+    };
+    for (const s of t.sessions) note(s.project_id, (s.end ?? new Date()).getTime());
+    for (const p of t.pomodoros) if (!p.project_id && !p.todo_id && p.label) note(choreKey(p.label), (p.end ?? p.start).getTime());
+    const recent = [...last].sort((a, b) => b[1] - a[1]).map(([id]) => id);
+    return [...new Set([runningId, ...workingTodos.map((w) => w.subjectId), ...recent].filter(Boolean))].slice(0, 8);
+  }, [t.sessions, t.pomodoros, runningId, workingTodos]);
   // The tasks sit in the Feed as one card of their own, while there are any to do. Unlike a project it is not
   // ranked by when it was last worked on: it stays on top until it is skipped, and then goes behind the projects
   // that have not been worked on since (so it is back on top once they all have). Skipping it is kept in this
@@ -294,8 +336,8 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
   // How the Feed is ordered (kept in this browser): rotation is the queue above; the other modes and the pins re-sort it
   const feedOrder = useFeedOrder(demo ? "demo" : "app");
   const shownQueue = useMemo(
-    () => orderQueue(queue, { mode: feedOrder.mode, manual: feedOrder.manual, pinned: feedOrder.pinned }, isTaskKey(runningId) ? FEED_TASKS : runningId),
-    [queue, feedOrder.mode, feedOrder.manual, feedOrder.pinned, runningId]
+    () => orderQueue(queue, { mode: feedOrder.mode, manual: feedOrder.manual, pinned: feedOrder.pinned, displace: feedOrder.displace }, isTaskKey(runningId) ? FEED_TASKS : runningId),
+    [queue, feedOrder.mode, feedOrder.manual, feedOrder.pinned, feedOrder.displace, runningId]
   );
   /** Skip a Feed card to the back: in the rotation by stamping it, in "My order" by moving it to the end of that
    *  order. Either way it loses its pin, or it would stay on top. */
@@ -324,7 +366,8 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
     const byDay = new Map();
     for (const p of t.pomodoros) {
       const label = p.label?.trim();
-      if (!label) continue;
+      // A pomodoro for a project or task keeps its name as the label: only chores are tags
+      if (!label || p.project_id || p.todo_id) continue;
       const key = dayKey(p.start);
       byDay.set(key, [...(byDay.get(key) ?? []), label]);
     }
@@ -405,12 +448,17 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
       if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== "f") return;
       if (!searchOpen && document.querySelector('[role="dialog"]')) return;
       e.preventDefault();
-      if (searchOpen) document.getElementById("project-search")?.select();
-      else setSearchOpen(true);
+      if (searchOpen) return document.getElementById("project-search")?.select();
+      // Where the tab has a search of its own (the Tasks filter, the Workspace's), the shortcut goes there
+      const own = document.getElementById({ tasks: "task-filter", workspace: "workspace-search" }[tab]);
+      if (own) {
+        own.focus();
+        own.select();
+      } else setSearchOpen(true);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [demo, searchOpen]);
+  }, [demo, searchOpen, tab]);
 
   // The owner's phone layout has a tab bar along the bottom: let fixed layers (peek, toast) know to clear it
   useEffect(() => {
@@ -464,9 +512,16 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
   /** Start a project's (or task's) timer by hand, on one of its to-dos if given; a pomodoro that isn't going
    *  starts with it. */
   const startProject = (id, todoId = null) => {
+    pomodoro.setFocusFor(null); // a project's focus has no chore beside it
     const started = startTimer(id, todoId);
     pomodoro.followTimer();
     return started;
+  };
+
+  /** Take over the timer with a project or task (or a to-do of it), dropping any chore the focus was for. */
+  const startOn = (id, todoId = null) => {
+    pomodoro.setFocusFor(null);
+    return startTimer(id, todoId);
   };
 
   /** A project, task or to-do found from the mini clock: with no pomodoro going it starts the way a card's timer
@@ -474,7 +529,7 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
   const pickFromMini = (id, todoId = null) => {
     if (t.running?.project_id === id && !todoId) return;
     if (!t.running && (pomodoro.phase === "idle" || pomodoro.phase === "ready")) startProject(id, todoId);
-    else startTimer(id, todoId);
+    else startOn(id, todoId);
   };
 
   /** Time one of a project's to-dos: the project's timer, on that to-do (which is marked as being worked on). */
@@ -483,11 +538,28 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
   /** Time any to-do: a project's, or a task's (a sub-task is timed on its task, and is the one marked). */
   const startAnyTodo = (todo) => (todo.project_id ? startTodo(todo) : startProject(taskKey(todo.parent_id ?? todo.id), todo.id));
 
+  /** Say a focus is for a chore: just these words, no project timer (one running is stopped, so a pomodoro is for a
+   *  project or a chore, never both). */
+  const setChore = (label) => {
+    if (t.running) t.stopTimer();
+    pomodoro.setFocusFor({ project_id: null, todo_id: null, label });
+  };
+
   /** Start a pomodoro for a chore or a habit: no project timer, just a focus with these words as what it is for. */
   const startChore = (label) => {
-    pomodoro.setFocusFor({ project_id: null, todo_id: null, label });
+    setChore(label);
     pomodoro.followTimer();
   };
+
+  /** What a pomodoro is for, from the pickers: a project or task takes over the timer like a search pick does, a
+   *  chore is the words alone, and null clears it. Choosing one lets go of the other. */
+  const setFocus = (value) => {
+    if (!value) pomodoro.setFocusFor(null);
+    else if (value.project_id) pickFromMini(value.project_id, value.todo_id ?? null);
+    else setChore(value.label);
+  };
+  // The pickers say what a pomodoro is for through setFocus, so a project and a chore are never both set
+  const pomodoroUi = { ...pomodoro, setFocusFor: setFocus };
 
   /** Stop a focus, and the project timer that goes with it. Stopping a break leaves a running timer alone. */
   const stopFocus = () => {
@@ -573,15 +645,25 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
   // A project found by name: its peek opens and the board is shown with its card scrolled into view and
   // briefly marked. An archived project or a task has no card on the board, so only the peek opens.
   const [revealId, setRevealId] = useState(null);
+  // In the Feed the find stays in the Feed: its card (the Tasks card, for a task) is scrolled into view and marked.
   const revealProject = (id) => {
     peek(id);
     const found = projectsById.get(id);
     if (!found || found.archived_at || found.kind === "chore") return;
+    if (tab === "feed") return setRevealId(found.kind === "task" ? FEED_TASKS : id);
+    if (found.kind === "task") return; // a task has no card on the board: only the peek opens
     setTab("projects");
     setRevealId(id);
   };
+  /** The Tasks tab from a search: in the Feed, its card there (when it has one), otherwise the tab itself. */
+  const findTasks = () => {
+    if (tab === "feed" && shownQueue.some((x) => x.project.id === FEED_TASKS)) {
+      setSearchOpen(false);
+      setRevealId(FEED_TASKS);
+    } else showTasks();
+  };
   useEffect(() => {
-    if (!revealId || tab !== "projects") return;
+    if (!revealId || (tab !== "projects" && tab !== "feed")) return;
     const id = revealId;
     setRevealId(null);
     // Its column may have just been switched back on, so wait for the card to be on screen
@@ -615,30 +697,97 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
       ? [...pickSubjects, projectsById.get(editedSubject)]
       : pickSubjects;
 
+  // What the find lists. In the Feed, names that match equally are in the Feed's order (the rest after, as before)
+  const allSubjects = [...projects, ...openTaskSubjects];
+  const inFeed = tab === "feed" ? shownQueue.map((x) => x.project).filter((p) => p.kind !== "tasks") : [];
+  const feedIds = new Set(inFeed.map((p) => p.id));
+  const searchSubjects = inFeed.length ? [...inFeed, ...allSubjects.filter((p) => !feedIds.has(p.id))] : allSubjects;
+
   // How the find shortcut reads on this machine; the demo doesn't take the shortcut (see above)
   const searchHint = demo ? undefined : /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘F" : "Ctrl F";
 
   if (t.status === "error") return <ServerDown onRetry={t.reload} connecting={t.connecting} failures={t.failures} auto={!demo} />;
 
-  const tabs = [
-    { id: "feed", label: __("Feed"), icon: ListTodo, color: "#bf3a30" },
-    { id: "workspace", label: __("Workspace"), short: __("Work"), icon: Briefcase, color: "#2c8a86" },
-    { id: "projects", label: __("Projects"), icon: Columns3, color: "#2f5d8a" },
-    { id: "tasks", label: __("Tasks"), icon: ListChecks, color: "#4f7a52" },
-    { id: "habits", label: __("Habits"), icon: Repeat, color: "#a8512f" },
-    { id: "calendar", label: __("Calendar"), icon: CalendarDays, color: "#b07d2a" },
-    { id: "stats", label: __("Stats"), icon: ChartColumn, color: "#7a5a96" },
-  ];
+  // The plan as rows to show and start; what has been finished since it was made is left out
+  const planRows = plan.items.flatMap((item) => {
+    if (item.kind === "project") {
+      const p = projectsById.get(item.project_id);
+      if (!p || p.archived_at || !isOpen(p)) return [];
+      return [{ planId: item.id, kind: "project", name: p.name, icon: p.icon, color: p.color, running: runningId === p.id, onStart: () => startProject(p.id) }];
+    }
+    if (item.kind === "todo") {
+      const todo = todosById.get(item.todo_id);
+      if (!todo || todo.done || todo.cancelled_at) return [];
+      const owner = todo.project_id ? projectsById.get(todo.project_id) : null;
+      const parent = todo.parent_id ? todosById.get(todo.parent_id) : null;
+      const context = [owner?.name ?? __("Task"), parent?.text].filter(Boolean).join(": ");
+      return [{ planId: item.id, kind: "todo", name: todo.text, context, icon: owner?.icon, color: owner?.color, running: t.running?.todo_id === todo.id, onStart: () => startAnyTodo(todo) }];
+    }
+    if (item.kind === "habit") {
+      const h = habits.habits.find((x) => x.id === item.habit_id);
+      if (!h || !isActiveHabit(h)) return [];
+      return [{ planId: item.id, kind: "habit", name: h.name, running: pomodoro.focusFor?.label === h.name, onStart: () => startChore(h.name) }];
+    }
+    return [{ planId: item.id, kind: "chore", name: item.label, running: pomodoro.focusFor?.label === item.label, onStart: () => startChore(item.label) }];
+  });
+
+  /** Copy everything that could be worked on (projects with their open to-dos, tasks, habits, chores, and the plan so far)
+   *  as a prompt for an AI to say what to do first. Resolves to whether it was copied. */
+  const copyPlanForAi = () => {
+    const openOnes = (list) => list.filter((x) => !x.done && !x.cancelled_at);
+    const asTodo = (x) => {
+      const subs = openOnes(t.todos.filter((s) => s.parent_id === x.id)).map((s) => ({ id: `todo:${s.id}`, text: s.text }));
+      return { id: `todo:${x.id}`, text: x.text, ...(x.working_since ? { working: true } : {}), ...(subs.length ? { subtasks: subs } : {}) };
+    };
+    const lastWorkedOf = (id) => queue.find((e) => e.project.id === id)?.lastWorked ?? null;
+    const projectsData = openProjects.map((p) => {
+      const last = lastWorkedOf(p.id);
+      return {
+        id: `project:${p.id}`,
+        name: p.name,
+        status: statusesById.get(p.status_id)?.name,
+        hoursLogged: Math.round(p.total_seconds / 360) / 10,
+        lastWorked: last ? dayKey(last) : "never",
+        ...(p.cadence_days > 0 ? { everyDays: p.cadence_days } : {}),
+        ...(p.notes?.trim() ? { notes: p.notes.trim().slice(0, 300) } : {}),
+        todos: openOnes(t.todos.filter((x) => x.project_id === p.id && !x.parent_id)).slice(0, 15).map(asTodo),
+      };
+    });
+    const todayKeyText = dayKey(today);
+    return copyText(
+      buildPlanPrompt({
+        now: format(new Date(), "EEEE d MMMM yyyy, HH:mm"),
+        projects: projectsData,
+        tasks: openOnes(tasks.filter((x) => !x.parent_id)).map(asTodo),
+        habits: habits.habits.filter(isActiveHabit).map((h) => ({ id: `habit:${h.id}`, name: h.name, streak: streakOf(h, today), loggedToday: entriesByDay(h).has(todayKeyText) })),
+        chores: chores.map((label) => ({ id: `chore:${label}`, name: label })),
+        plan: plan.items.map((item) => `${item.kind}:${planRef(item)}`),
+      })
+    );
+  };
+
+  const tabs = orderTabs(
+    [
+      { id: "feed", label: __("Feed"), icon: ListTodo, color: "#bf3a30" },
+      { id: "workspace", label: __("Workspace"), short: __("Work"), icon: Briefcase, color: "#2c8a86" },
+      { id: "projects", label: __("Projects"), icon: Columns3, color: "#2f5d8a" },
+      { id: "tasks", label: __("Tasks"), icon: ListChecks, color: "#4f7a52" },
+      { id: "habits", label: __("Habits"), icon: Repeat, color: "#a8512f" },
+      { id: "calendar", label: __("Calendar"), icon: CalendarDays, color: "#b07d2a" },
+      { id: "stats", label: __("Stats"), icon: ChartColumn, color: "#7a5a96" },
+    ],
+    tabOrder
+  );
 
   return (
-    <>
+    <PlanContext.Provider value={plan}>
       <div className="flex h-full min-h-0 flex-col">
         <Header
           runningProject={runningProject}
           elapsed={clock}
           heldProject={heldProject}
           heldSeconds={pomodoro.heldSeconds}
-          pomodoro={pomodoro}
+          pomodoro={pomodoroUi}
           pomodorosToday={pomodorosToday}
           focusChoices={pickSubjects}
           onStop={t.stopTimer}
@@ -658,6 +807,7 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
           inboxUnread={inbox.unread}
           onStatuses={!demo && tab === "projects" && t.status === "ready" ? () => setStatusesOpen(true) : undefined}
           onGuide={() => setGuideOpen(true)}
+          onTabs={demo ? undefined : () => setTabsOpen(true)}
           workingMenu={
             t.status === "ready" && (
               <WorkingMenu todos={t.todos} projectsById={projectsById} todoOps={t.todoOps} now={now} onOpen={peek} />
@@ -781,7 +931,9 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
                 syncedAt={habits.synced_at}
                 sourceFile={habits.source_file}
                 syncing={habits.syncing}
+                error={habits.error}
                 onSync={habits.sync}
+                actions={habits}
                 today={today}
               />
             ) : tab === "workspace" ? (
@@ -794,6 +946,10 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
                 runningId={runningId}
                 timedTodoId={t.running?.todo_id ?? null}
                 focusLabel={pomodoro.focusFor?.label ?? null}
+                plan={planRows}
+                onPlanReorder={plan.reorder}
+                onPlanRemove={plan.remove}
+                onCopyForAi={copyPlanForAi}
                 today={today}
                 onStartSubject={startProject}
                 onStartTodo={startAnyTodo}
@@ -926,7 +1082,7 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
 
       {screenOpen && (
         <PomodoroScreen
-          pomodoro={pomodoro}
+          pomodoro={pomodoroUi}
           pomodorosToday={pomodorosToday}
           projects={pickSubjects}
           todos={pickTodos}
@@ -935,7 +1091,7 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
           clock={clock}
           heldProject={heldProject}
           heldSeconds={pomodoro.heldSeconds}
-          onStartTimer={startTimer}
+          onStartTimer={startOn}
           onStopTimer={t.stopTimer}
           onStopFocus={stopFocus}
           onSaveNote={(note) => t.updateSession(t.running.id, { note })}
@@ -951,7 +1107,7 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
 
       {mini.open && (
         <MiniPlayer
-          pomodoro={pomodoro}
+          pomodoro={pomodoroUi}
           pip={mini.pip}
           hidden={screenOpen}
           runningProject={runningProject}
@@ -964,6 +1120,7 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
           projects={pickSubjects}
           searchTodos={pickTodos}
           onPickProject={pickFromMini}
+          onChore={startChore}
           onTasks={showTasks}
           onStopFocus={stopFocus}
           onStopTimer={() => t.stopTimer()}
@@ -993,12 +1150,24 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
         <StatusModal projects={projects} statuses={t.statuses} ops={t.statusOps} onClose={() => setStatusesOpen(false)} />
       )}
 
+      {stillWorking.asking && (
+        <StillWorkingDialog
+          name={runningProject?.name ?? pomodoro.focusFor?.label ?? __("your pomodoro")}
+          askedAt={stillWorking.askedAt}
+          answerBy={stillWorking.answerBy}
+          onYes={stillWorking.answer}
+          onStop={stopFocus}
+        />
+      )}
+
+      {tabsOpen && <TabOrderModal tabs={tabs} onChange={changeTabOrder} onReset={() => changeTabOrder([])} onClose={() => setTabsOpen(false)} />}
+
       {searchOpen && (
         <ProjectSearch
-          projects={[...projects, ...openTaskSubjects]}
+          projects={searchSubjects}
           todos={boardTodos}
           statusesById={statusesById}
-          onTasks={showTasks}
+          onTasks={findTasks}
           onClose={() => setSearchOpen(false)}
           onPick={(id) => {
             setSearchOpen(false);
@@ -1033,6 +1202,7 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
           projects={pickableProjects}
           todos={pickTodos}
           chores={choreChoices}
+          suggested={suggestedSubjectIds}
           onClose={() => setSessionModal(null)}
           onSave={(data) =>
             sessionModal.session ? t.updateSession(sessionModal.session.id, data) : t.addSession(data)
@@ -1061,7 +1231,7 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
           }}
         />
       )}
-    </>
+    </PlanContext.Provider>
   );
 }
 

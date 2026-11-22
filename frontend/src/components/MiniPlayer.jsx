@@ -4,7 +4,7 @@ import { format } from "../lib/dates";
 import { CircleDot, GripHorizontal, MoveDiagonal2, Search, Tag, X } from "lucide-react";
 import { FocusPicker } from "./FocusTag";
 import { ActionButton, controlsFor, phaseView } from "./PomodoroScreen";
-import { TASKS_TAB, TodoNote, searchResults, withTasksTab } from "./ProjectSearch";
+import { ChoreName, TASKS_TAB, TodoNote, searchResultsWithChore, withTasksTab } from "./ProjectSearch";
 import { iconFor, inkText, tint } from "../lib/palette";
 import { fmtClock, fmtCountdown } from "../lib/time";
 import { scopedKey } from "../lib/storage";
@@ -137,11 +137,13 @@ function MiniClock(props) {
           projects={props.projects}
           todos={props.searchTodos}
           runningId={props.runningProject?.id}
+          chores={Boolean(props.onChore)}
           onTasks={props.onTasks}
           onClose={() => setSearching(false)}
           onPick={(p) => {
             setSearching(false);
-            if (p.id === TASKS_TAB.id) props.onTasks();
+            if (p.kind === "chore") props.onChore?.(p.name);
+            else if (p.id === TASKS_TAB.id) props.onTasks();
             else if (p.kind === "todo") props.onPickProject(p.subjectId, p.todoId);
             else props.onPickProject(p.id);
           }}
@@ -567,12 +569,15 @@ function MiniTag({ value, choices, onChange, onClose }) {
 /** Find an open project or task by name inside the mini clock, or one of their to-dos once something is
  *  typed: type, arrows, Enter starts it (`onPick` gets the result); Esc goes back. With `onTasks`, the Tasks
  *  tab is one of the results. */
-function MiniSearch({ projects, todos = [], runningId, onTasks, onPick, onClose }) {
+function MiniSearch({ projects, todos = [], runningId, chores = false, onTasks, onPick, onClose }) {
   useT();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const listRef = useRef(null);
-  const results = useMemo(() => searchResults(withTasksTab(projects, onTasks), todos, query), [projects, todos, onTasks, query]);
+  const results = useMemo(
+    () => searchResultsWithChore(withTasksTab(projects, onTasks), todos, query, chores),
+    [projects, todos, onTasks, query, chores]
+  );
   const current = Math.min(active, results.length - 1);
 
   useEffect(() => {
@@ -630,6 +635,21 @@ function MiniSearch({ projects, todos = [], runningId, onTasks, onPick, onClose 
       ) : (
         <ul ref={listRef} role="listbox" className="min-h-0 flex-1 overflow-y-auto">
           {results.map((p, i) => {
+            if (p.kind === "chore") {
+              return (
+                <li
+                  key={p.id}
+                  role="option"
+                  aria-selected={i === current}
+                  onClick={() => onPick(p)}
+                  onMouseMove={() => i !== current && setActive(i)}
+                  className={`flex h-8 cursor-pointer items-center gap-2 border-b border-rule px-2.5 text-[13px] ${i === current ? "bg-surface-2" : ""}`}
+                >
+                  <Tag size={14} className="shrink-0 text-muted" aria-hidden="true" />
+                  <span className="min-w-0 flex-1 truncate"><ChoreName name={p.name} /></span>
+                </li>
+              );
+            }
             const Icon = iconFor(p.icon);
             return (
               <li

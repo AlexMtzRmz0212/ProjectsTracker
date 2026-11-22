@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search } from "lucide-react";
+import { Search, Tag } from "lucide-react";
 import Modal from "./Modal";
 import { taskKey } from "../api";
 import { ON_INK, TASK_ICON, TASK_INK, inkFor, inkText, iconFor, tint } from "../lib/palette";
-import { __, useT } from "../i18n";
+import { __, __r, useT } from "../i18n";
 
 
 /** Not a project: the Tasks tab, offered at the top of every search (here, in the pomodoro's full screen and
@@ -57,16 +57,34 @@ export function matchProjects(projects, query) {
     .map((x) => x.project);
 }
 
+/** `searchResults`, plus (where a chore can be named, `chores`) the typed words as a last result: a chore, only a
+ *  label, offered when no project or task is named exactly that. */
+export function searchResultsWithChore(subjects, todos, query, chores) {
+  const results = searchResults(subjects, todos, query);
+  const text = query.trim();
+  if (!chores || !text) return results;
+  const named = results.some((p) => p.kind !== "todo" && p.name.toLowerCase() === text.toLowerCase());
+  return named ? results : [...results, { id: "chore:new", kind: "chore", name: text.slice(0, 120) }];
+}
+
+/** The row for the typed words as a chore, the same wherever a search offers it. */
+export function ChoreName({ name }) {
+  return __r("Use “{name}” as a chore", { name: <b>{name}</b> });
+}
+
 /** Find a project or task by name: type, move with the arrow keys, Enter (or a click) opens it. Typed, it finds
  *  their open to-dos too (`todos`, from todoEntries), and picking one calls `onPick(subjectId, todoId)`. With
- *  `onTasks`, the Tasks tab is one of the results, and picking it calls that instead. */
-export default function ProjectSearch({ projects, todos = [], statusesById, onPick, onTasks, onClose, title = __("Find a project or task") }) {
+ *  `onTasks`, the Tasks tab is one of the results, and picking it calls that instead. With `onChore`, words that
+ *  name nothing can be used as a chore: it is called with them. */
+export default function ProjectSearch({ projects, todos = [], statusesById, onPick, onTasks, onChore, onClose, title = __("Find a project or task") }) {
   useT();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const listRef = useRef(null);
-  const results = useMemo(() => searchResults(withTasksTab(projects, onTasks), todos, query), [projects, todos, onTasks, query]);
-  const choose = (p) => (p.id === TASKS_TAB.id ? onTasks() : p.kind === "todo" ? onPick(p.subjectId, p.todoId) : onPick(p.id));
+  const chores = Boolean(onChore);
+  const results = useMemo(() => searchResultsWithChore(withTasksTab(projects, onTasks), todos, query, chores), [projects, todos, onTasks, query, chores]);
+  const choose = (p) =>
+    p.kind === "chore" ? onChore(p.name) : p.id === TASKS_TAB.id ? onTasks() : p.kind === "todo" ? onPick(p.subjectId, p.todoId) : onPick(p.id);
   const current = Math.min(active, results.length - 1);
 
   useEffect(() => {
@@ -113,6 +131,26 @@ export default function ProjectSearch({ projects, todos = [], statusesById, onPi
       ) : (
         <ul id="project-search-results" ref={listRef} role="listbox" className="mt-1 max-h-[22rem] overflow-y-auto">
           {results.map((p, i) => {
+            if (p.kind === "chore") {
+              return (
+                <li
+                  key={p.id}
+                  id={`project-search-${p.id}`}
+                  role="option"
+                  aria-selected={i === current}
+                  onClick={() => choose(p)}
+                  onMouseMove={() => i !== current && setActive(i)}
+                  className={`flex cursor-pointer items-center gap-3 border-b border-rule px-1 py-2 ${i === current ? "bg-surface-2" : ""}`}
+                >
+                  <span className="grid size-7 shrink-0 place-items-center bg-surface-2 text-muted">
+                    <Tag size={14} aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[14px]">
+                    <ChoreName name={p.name} />
+                  </span>
+                </li>
+              );
+            }
             const Icon = iconFor(p.icon);
             const status = statusesById.get(p.status_id);
             return (

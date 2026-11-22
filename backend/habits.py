@@ -1,9 +1,11 @@
 """
-Habits, from the "My Habits" app (a Loop Habit Tracker fork).
+Habits from the "My Habits" app (a Loop Habit Tracker fork). Habits made in the tracker itself live in the same
+tables (see `Habit.source`) and don't come through here.
 
 My Habits writes a full backup, a SQLite `.db` file, to a Google Drive folder. This module finds the newest one
-there, reads it (read-only) and copies the habits and their recent days into the tracker's own tables, so the
-Habits tab can show them. The tracker never writes back to Drive: the backup is the only copy the other app has.
+there, reads it (read-only), lists the habits in it to choose from (`list_drive_habits`) and copies the chosen ones,
+and their recent days, into the tracker's own tables (`import_habits`), so the Habits tab can show them. A sync then
+keeps those up to date. The tracker never writes back to Drive: the backup is the only copy the other app has.
 
 Access is a service account that the Drive folder is shared with as Viewer, so there is no sign-in step. Two
 environment variables set it up, the same two the Habits-Tracking site uses:
@@ -227,29 +229,58 @@ def fetch_latest_backup() -> Optional[BackupFile]:
 
 # ── Copying it in ────────────────────────────────────────────────────────────
 
-def sync(db: DbSession, user_id: str, force: bool = False) -> dict:
-    """Bring `user_id`'s habits up to date with the newest backup. Nothing is done when that backup is the one
-    already synced (unless `force`). Habits are added and updated, never deleted: one missing from the newest backup
-    is marked removed and keeps its days. Returns {changed, file_name, habits}."""
-    backup = fetch_latest_backup()
-    if backup is None:
-        raise HabitsError("No .db backup in the Drive folder. Export one from My Habits (Settings, export full backup)", 404)
-    last = db.get(HabitSync, user_id)
-    if not force and last is not None and backup.md5 and last.md5 == backup.md5:
-        return {"changed": False, "file_name": backup.name, "habits": db.query(Habit).filter(Habit.user_id == user_id).count()}
-
+def _read_habits(backup: BackupFile) -> tuple[list[LoopHabit], list[LoopEntry]]:
     with tempfile.TemporaryDirectory() as folder:
         path = Path(folder) / "backup.db"
         path.write_bytes(backup.data)
         habits, entries = read_backup(path)
     if not habits:  # a broken export must not retire everything
         raise HabitsError("That backup has no habits in it, so nothing was changed", 422)
+    return habits, entries
 
+
+def _newest_backup() -> BackupFile:
+    backup = fetch_latest_backup()
+    if backup is None:
+        raise HabitsError("No .db backup in the Drive folder. Export one from My Habits (Settings, export full backup)", 404)
+    return backup
+
+
+def _imported(db: DbSession, user_id: str) -> dict[str, Habit]:
+    """The user's habits that came from Drive, by their key there."""
+    return {
+        h.loop_uuid: h
+        for h in db.scalars(select(Habit).where(Habit.user_id == user_id, Habit.source == "drive", Habit.loop_uuid.is_not(None)))
+    }
+
+
+def list_drive_habits(db: DbSession, user_id: str) -> dict:
+    """What is in the newest backup, to choose from: {file_name, habits: [{uuid, name, value_type, unit, archived,
+    imported}]}. `imported` says the user already has it. Nothing is changed."""
+    backup = _newest_backup()
+    habits, _ = _read_habits(backup)
+    have = _imported(db, user_id)
+    return {
+        "file_name": backup.name,
+        "habits": [
+            {"uuid": h.uuid, "name": h.name, "value_type": h.value_type, "unit": h.unit, "archived": h.archived, "imported": h.uuid in have}
+            for h in sorted(habits, key=lambda h: (h.archived, h.position, h.name.lower()))
+        ],
+    }
+
+
+def _copy_in(db: DbSession, user_id: str, backup: BackupFile, wanted: Optional[set[str]]) -> dict:
+    """Copy habits from `backup`: the ones the user already imported are brought up to date, and those in `wanted`
+    (keys in the backup) are added. Habits are added and updated, never deleted: an imported one missing from the
+    backup is marked removed and keeps its days. Returns {changed, file_name, habits}."""
+    habits, entries = _read_habits(backup)
     now = utcnow()
-    existing = {h.loop_uuid: h for h in db.scalars(select(Habit).where(Habit.user_id == user_id))}
-    seen = set()
-    for loop in habits:
-        habit = existing.get(loop.uuid) or Habit(user_id=user_id, loop_uuid=loop.uuid)
+    existing = _imported(db, user_id)
+    take = set(existing) | (wanted or set())
+    in_backup = {h.uuid for h in habits}
+    chosen = [loop for loop in habits if loop.uuid in take]
+    for loop in chosen:
+        habit = existing.get(loop.uuid) or Habit(user_id=user_id, loop_uuid=loop.uuid, source="drive")
         habit.name, habit.question, habit.unit = loop.name[:120], loop.question[:300], loop.unit[:40]
         habit.value_type, habit.target_type, habit.target_value = loop.value_type, loop.target_type, loop.target_value
         habit.freq_num, habit.freq_den, habit.position, habit.archived = loop.freq_num, loop.freq_den, loop.position, loop.archived
@@ -257,23 +288,49 @@ def sync(db: DbSession, user_id: str, force: bool = False) -> dict:
         if habit.id is None:
             db.add(habit)
         existing[loop.uuid] = habit
-        seen.add(loop.uuid)
     for uuid, habit in existing.items():
-        if uuid not in seen and habit.removed_at is None:
+        if uuid not in in_backup and habit.removed_at is None:
             habit.removed_at = now
     db.flush()
 
     # The days in the window are replaced as a whole, so a day cleared in the app is cleared here too (a habit
     # that is no longer in the backup keeps the days it has)
     cutoff = date.today() - timedelta(days=KEEP_DAYS + 2)
-    db.execute(delete(HabitEntry).where(HabitEntry.entry_date >= cutoff, HabitEntry.habit_id.in_([existing[u].id for u in seen])))
-    days = {(e.habit_uuid, e.day): e for e in entries}  # one entry a day: the last one wins
+    taken = [existing[loop.uuid].id for loop in chosen]
+    if taken:
+        db.execute(delete(HabitEntry).where(HabitEntry.entry_date >= cutoff, HabitEntry.habit_id.in_(taken)))
+    days = {(e.habit_uuid, e.day): e for e in entries if e.habit_uuid in take}  # one entry a day: the last one wins
     for entry in days.values():
         db.add(HabitEntry(habit_id=existing[entry.habit_uuid].id, entry_date=entry.day, status=entry.status, value=entry.value))
 
+    last = db.get(HabitSync, user_id)
     if last is None:
         last = HabitSync(user_id=user_id)
         db.add(last)
     last.file_name, last.md5, last.synced_at = backup.name[:255], backup.md5, now
     db.commit()
-    return {"changed": True, "file_name": backup.name, "habits": len(habits)}
+    return {"changed": True, "file_name": backup.name, "habits": len(chosen)}
+
+
+def sync(db: DbSession, user_id: str, force: bool = False) -> dict:
+    """Bring the habits the user imported up to date with the newest backup. Nothing is done when that backup is the
+    one already synced (unless `force`). Habits that are not imported are left out: they are chosen with `import_habits`."""
+    backup = _newest_backup()  # (also says so when Drive isn't set up)
+    if not _imported(db, user_id):
+        raise HabitsError("No habit has been imported yet: choose which ones to add from Drive first", 409)
+    last = db.get(HabitSync, user_id)
+    if not force and last is not None and backup.md5 and last.md5 == backup.md5:
+        return {"changed": False, "file_name": backup.name, "habits": len(_imported(db, user_id))}
+    return _copy_in(db, user_id, backup, None)
+
+
+def import_habits(db: DbSession, user_id: str, uuids: list[str]) -> dict:
+    """Add the habits with these keys (in the newest backup) to the user's own, and refresh the ones they already
+    have from the same backup. Keys the backup doesn't hold are an error: the list on screen was out of date."""
+    backup = _newest_backup()
+    habits, _ = _read_habits(backup)
+    wanted = set(uuids)
+    missing = wanted - {h.uuid for h in habits}
+    if missing:
+        raise HabitsError("Some of those habits are no longer in the backup: reload the list and choose again", 409)
+    return _copy_in(db, user_id, backup, wanted)

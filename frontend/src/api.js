@@ -189,10 +189,28 @@ export const api = {
     parseSession(await fetchApi(`/open-items/${id}/close`, json("POST", serialize({ end })))),
   deleteOpenItem: (id) => fetchApi(`/open-items/${id}`, { method: "DELETE" }),
 
-  /** The habits copied in from the My Habits backup on Drive, with their last days. */
+  /** The Workspace's "next up" plan, in order: [{ id, kind: project | todo | habit | chore, project_id, todo_id, habit_id, label, position }]. */
+  listPlan: async () => fetchApi("/plan"),
+  /** Put something at the end of the plan: { kind, project_id | todo_id | habit_id | label }. Already there: that item. */
+  addToPlan: (data) => fetchApi("/plan", json("POST", data)),
+  /** Every item id of the plan, in the new order. */
+  orderPlan: (ids) => fetchApi("/plan/order", json("PUT", { ids })),
+  removeFromPlan: (id) => fetchApi(`/plan/${id}`, { method: "DELETE" }),
+
+  /** The habits: those picked from the My Habits backup on Drive and those made here, with their last days. */
   listHabits: () => fetchApi("/habits"),
-  /** Copy the newest backup in; `force` copies it even if it is the one already copied. */
+  /** Bring the habits already added from Drive up to date; `force` copies the newest backup even if it is the one already copied. */
   syncHabits: ({ force = false } = {}) => fetchApi(`/habits/sync${force ? "?force=true" : ""}`, { method: "POST" }),
+  /** The habits in the newest Drive backup, to choose from: { file_name, habits: [{ uuid, name, value_type, unit, archived, imported }] }. */
+  listDriveHabits: () => fetchApi("/habits/drive"),
+  /** Add the habits with these Drive keys (and refresh the ones already added). */
+  importHabits: (uuids) => fetchApi("/habits/import", json("POST", { uuids })),
+  /** A habit made here: { name, question?, value_type: boolean | numerical, unit?, target_type?, target_value?, freq_num?, freq_den? }. */
+  createHabit: (data) => fetchApi("/habits", json("POST", data)),
+  updateHabit: (id, data) => fetchApi(`/habits/${id}`, json("PATCH", data)),
+  deleteHabit: (id) => fetchApi(`/habits/${id}`, { method: "DELETE" }),
+  /** Log one day ("yyyy-MM-dd") of a habit made here: { status: yes | no | skip | value | unknown (clears), value? }; answers with the habit. */
+  setHabitDay: (id, day, data) => fetchApi(`/habits/${id}/entries/${day}`, json("PUT", data)),
 };
 
 /** Dates as ISO strings, and a subject id as the server's project_id / todo_id. */

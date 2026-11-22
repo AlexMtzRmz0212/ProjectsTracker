@@ -112,6 +112,7 @@ function seed(now) {
       icon: def.icon,
       status_id: def.status,
       notes: def.projectNotes ?? "",
+      cadence_days: 0,
       sort_order: i + 1,
       created_at: new Date(now.getTime() - def.from * DAY).toISOString(),
       // Last edited somewhere between when it was made and when it was last worked, so the board's order varies
@@ -184,6 +185,9 @@ export function createDemoApi() {
   let sessions = seededSessions;
   let pomodoros = [];
   let openItems = [];
+  let planItems = []; // the Workspace's plan
+  let habitList = demoHabits(); // the sample habits, which can be changed like ones made in the app
+  const habitOut = (h) => ({ ...h, entries: h.entries.map((e) => ({ ...e })) });
   let seq = nextId;
   const newId = () => `demo-s${seq++}`;
 
@@ -281,6 +285,7 @@ export function createDemoApi() {
         color: data.color,
         icon: data.icon,
         notes: data.notes ?? "",
+        cadence_days: data.cadence_days ?? 0,
         status_id: data.status_id ? status(data.status_id).id : firstOpen().id,
         sort_order: Math.max(0, ...projects.map((p) => p.sort_order)) + 1,
         created_at: new Date().toISOString(),
@@ -390,7 +395,9 @@ export function createDemoApi() {
       const created = {
         id: `demo-d${seq++}`, project_id: data.project_id ?? null, parent_id: parent?.id ?? null, text, done: false, completed_at: null,
         working_since: null, cancelled_at: null, total_seconds: 0,
-        sort_order: Math.max(0, ...todos.map((x) => x.sort_order)) + 1, created_at: new Date().toISOString(),
+        // A top-level to-do can be asked for the front (a sort_order before every other); otherwise it goes to the back
+        sort_order: data.position === "top" && !parent ? Math.min(0, ...todos.map((x) => x.sort_order)) - 1 : Math.max(0, ...todos.map((x) => x.sort_order)) + 1,
+        created_at: new Date().toISOString(),
       };
       todos = [...todos, created];
       touch(created.project_id);
@@ -401,7 +408,7 @@ export function createDemoApi() {
       if (task.project_id || task.parent_id) throw httpError(422, "Only a task can be turned into a project");
       const stamp = new Date().toISOString();
       const created = {
-        id: `demo-p${seq++}`, name: task.text.slice(0, 80), color: "#8b5cf6", icon: "folder", notes: "",
+        id: `demo-p${seq++}`, name: task.text.slice(0, 80), color: "#8b5cf6", icon: "folder", notes: "", cadence_days: 0,
         status_id: firstOpen().id, sort_order: nextOrder(projects), created_at: stamp, updated_at: stamp,
         skipped_at: null, archived_at: null, cancelled_at: null,
       };
@@ -571,10 +578,88 @@ export function createDemoApi() {
       return null;
     },
 
-    // Habits: a few sample ones. There is no Drive in the demo, so there is nothing to sync.
-    listHabits: async () => ({ habits: demoHabits(), configured: false, synced_at: null, source_file: "" }),
+    // The plan ("next up"), kept in memory like everything else here
+    listPlan: async () => planItems.map((x) => ({ ...x })),
+    addToPlan: async (data) => {
+      const ref = { project: data.project_id, todo: data.todo_id, habit: data.habit_id, chore: String(data.label ?? "").trim() }[data.kind];
+      if (!ref) throw httpError(422, "Say what to add");
+      const same = (x) => x.kind === data.kind && (x.project_id ?? x.todo_id ?? x.habit_id ?? x.label) === ref;
+      const existing = planItems.find(same);
+      if (existing) return { ...existing };
+      const item = {
+        id: `demo-n${seq++}`, kind: data.kind, project_id: data.kind === "project" ? ref : null, todo_id: data.kind === "todo" ? ref : null,
+        habit_id: data.kind === "habit" ? ref : null, label: data.kind === "chore" ? ref : "",
+        position: Math.max(0, ...planItems.map((x) => x.position)) + 1, added_at: new Date().toISOString(),
+      };
+      planItems = [...planItems, item];
+      return { ...item };
+    },
+    orderPlan: async (ids) => {
+      const first = ids.map((id) => planItems.find((x) => x.id === id)).filter(Boolean);
+      const rest = planItems.filter((x) => !first.includes(x));
+      planItems = [...first, ...rest].map((x, i) => ({ ...x, position: i + 1 }));
+      return planItems.map((x) => ({ ...x }));
+    },
+    removeFromPlan: async (id) => {
+      if (!planItems.some((x) => x.id === id)) throw httpError(404, "Plan item not found");
+      planItems = planItems.filter((x) => x.id !== id);
+      return null;
+    },
+
+    // Habits: a few sample ones, made "here" so they can be tried. There is no Drive in the demo, so there is nothing to sync.
+    listHabits: async () => ({ habits: habitList.map(habitOut), configured: false, synced_at: null, source_file: "" }),
     syncHabits: async () => {
       throw httpError(503, "The demo has no Drive to sync from");
+    },
+    listDriveHabits: async () => {
+      throw httpError(503, "The demo has no Drive to sync from");
+    },
+    importHabits: async () => {
+      throw httpError(503, "The demo has no Drive to sync from");
+    },
+    createHabit: async (data) => {
+      const name = String(data.name ?? "").trim();
+      if (!name) throw httpError(422, "Write a name first");
+      const numerical = data.value_type === "numerical";
+      const created = {
+        id: `demo-h${seq++}`, source: "app", name: name.slice(0, 120), question: data.question ?? "", value_type: numerical ? "numerical" : "boolean",
+        unit: numerical ? data.unit ?? "" : "", target_type: numerical && data.target_value ? data.target_type ?? "at_least" : null,
+        target_value: numerical ? data.target_value ?? null : null, freq_num: data.freq_num ?? 1, freq_den: data.freq_den ?? 1,
+        position: Math.max(0, ...habitList.map((h) => h.position)) + 1, archived: false, removed_at: null, entries: [],
+      };
+      habitList = [...habitList, created];
+      return habitOut(created);
+    },
+    updateHabit: async (id, data) => {
+      const found = habitList.find((h) => h.id === id);
+      if (!found) throw httpError(404, "Habit not found");
+      const changes = Object.fromEntries(Object.entries(data).filter(([k, v]) => v !== undefined && (k !== "name" || String(v).trim())));
+      if (found.value_type === "boolean") for (const k of ["unit", "target_type", "target_value"]) delete changes[k];
+      const next = { ...found, ...changes };
+      habitList = habitList.map((h) => (h.id === id ? next : h));
+      return habitOut(next);
+    },
+    deleteHabit: async (id) => {
+      if (!habitList.some((h) => h.id === id)) throw httpError(404, "Habit not found");
+      habitList = habitList.filter((h) => h.id !== id);
+      return null;
+    },
+    setHabitDay: async (id, day, data) => {
+      const found = habitList.find((h) => h.id === id);
+      if (!found) throw httpError(404, "Habit not found");
+      const others = found.entries.filter((e) => e.entry_date !== day);
+      let entries = others;
+      if (data.status !== "unknown") {
+        const numerical = found.value_type === "numerical";
+        if (numerical && (data.status === "yes" || data.status === "no")) throw httpError(422, "A numerical habit takes a number or skip");
+        if (!numerical && data.status === "value") throw httpError(422, "A yes/no habit takes yes, no or skip");
+        if (data.status === "value" && data.value == null) throw httpError(422, "Say how much");
+        const value = data.status === "value" ? data.value : data.status === "yes" ? 1 : null;
+        entries = [...others, { entry_date: day, status: data.status, value }];
+      }
+      const next = { ...found, entries };
+      habitList = habitList.map((h) => (h.id === id ? next : h));
+      return habitOut(next);
     },
   };
 }
@@ -588,7 +673,7 @@ function demoHabits() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   };
   const days = (make) => Array.from({ length: 90 }, (_, i) => make(i)).filter(Boolean);
-  const base = { target_type: null, target_value: null, freq_num: 1, freq_den: 1, archived: false, removed_at: null, unit: "" };
+  const base = { source: "app", target_type: null, target_value: null, freq_num: 1, freq_den: 1, archived: false, removed_at: null, unit: "" };
   return [
     {
       ...base, id: "demo-h1", name: "Read", question: "Did you read today?", value_type: "boolean", position: 0,

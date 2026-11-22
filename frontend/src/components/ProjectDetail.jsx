@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { format } from "../lib/dates";
-import { ArchiveRestore, ArrowDownToLine, ArrowUpDown, Ban, Check, ChevronDown, CircleDot, Copy, GripVertical, ListChecks, History, Pencil, Play, Plus, Square, Tag, Trash2, Undo2 } from "lucide-react";
+import { ArchiveRestore, ArrowDownToLine, ArrowUpDown, Ban, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, CircleDot, Copy, GripVertical, ListChecks, ListMinus, ListPlus, History, Pencil, Play, Plus, Square, Tag, Trash2, Undo2 } from "lucide-react";
 import { copyText, todoAsText } from "../lib/clipboard";
 import { SORTS, loadSort, saveSort, sortTodos } from "../lib/todoSort";
+import { loadFolded, saveFolded } from "../lib/foldState";
 import { Button } from "./Modal";
 import ActionMenu from "./ActionMenu";
 import TabBar from "./TabBar";
@@ -10,6 +11,7 @@ import ParentTag from "./ParentTag";
 import { ON_INK, inkFor, iconFor } from "../lib/palette";
 import { fmtClock, fmtHM, fmtTime, sessionSeconds } from "../lib/time";
 import { useReorder } from "../hooks/useReorder";
+import { usePlanContext } from "../lib/planContext";
 import { __, __r, useT } from "../i18n";
 
 const RECENT = 8;
@@ -22,6 +24,8 @@ export default function ProjectDetail({
   onEdit, onToggleTimer, onRestore, onCancel, onSaveSessionNote, todoOps, timedTodoId = null, onTimeTodo,
 }) {
   useT();
+  const planCtx = usePlanContext();
+  const planned = planCtx?.has("project", project.id);
   const Icon = iconFor(project.icon);
   const finished = status.is_done;
   const [tab, setTab] = useState("todos");
@@ -50,7 +54,7 @@ export default function ProjectDetail({
             <span className="figures not-italic text-text">{pomodoroCount}</span> {pomodoroCount === 1 ? __("pomodoro") : __("pomodoros")}
           </span>
         )}
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
           {project.cancelled_at && <span className="font-serif text-[13px] italic text-muted">{__("Cancelled")}</span>}
           {archived && (
             <Button variant="outline" className="h-8" onClick={onRestore}>
@@ -74,6 +78,16 @@ export default function ProjectDetail({
                   <Play size={11} fill="currentColor" />{" "}{__("Start")}</>
               )}
             </button>
+          )}
+          {planCtx && !finished && !archived && (
+            <Button
+              variant="outline"
+              className="h-8"
+              onClick={() => planCtx.toggle("project", project.id)}
+              aria-pressed={planned}
+              title={planned ? __("On the plan: click to take it off") : __("Add to the plan (next up)")}
+            >
+              {planned ? <ListMinus size={14} /> : <ListPlus size={14} />}{" "}{planned ? __("On the plan") : __("Plan")}</Button>
           )}
           <Button variant="outline" className="h-8" onClick={onEdit}>
             <Pencil size={14} />{" "}{__("Edit")}</Button>
@@ -166,7 +180,17 @@ export function TodoList({ todos, projectId, ops, rowExtra, rowMenu, hideDone = 
   useT();
   const [draft, setDraft] = useState("");
   const [showDone, setShowDone] = useState(false);
-  const [collapsed, setCollapsed] = useState(() => new Set()); // parents whose sub-to-dos are folded away
+  const foldKey = projectId ?? "tasks";
+  const [collapsed, setCollapsedState] = useState(() => loadFolded(foldKey)); // parents whose sub-to-dos are folded away; remembered
+  // Folding is remembered per list; the ids of to-dos that are gone are dropped as it saves
+  const setCollapsed = (update) =>
+    setCollapsedState((prev) => {
+      const next = typeof update === "function" ? update(prev) : update;
+      if (next !== prev) saveFolded(foldKey, next, todosRef.current.map((t) => t.id));
+      return next;
+    });
+  const todosRef = useRef(todos);
+  todosRef.current = todos;
   const sortKey = projectId ? "project" : "tasks";
   const [sortMode, setSortMode] = useState(() => loadSort(sortKey));
   const manual = sortMode === "manual";
@@ -181,6 +205,7 @@ export function TodoList({ todos, projectId, ops, rowExtra, rowMenu, hideDone = 
     if (t.parent_id && ids.has(t.parent_id)) subsOf.set(t.parent_id, [...(subsOf.get(t.parent_id) ?? []), t]);
   }
   for (const [id, list] of subsOf) subsOf.set(id, sortTodos(list, sortMode));
+  const allFolded = subsOf.size > 0 && [...subsOf.keys()].every((id) => collapsed.has(id));
   const top = sortTodos(todos.filter((t) => !t.parent_id || !ids.has(t.parent_id)), sortMode);
   const open = top.filter((t) => !t.done);
   const done = top.filter((t) => t.done);
@@ -234,10 +259,11 @@ export function TodoList({ todos, projectId, ops, rowExtra, rowMenu, hideDone = 
     const text = draft.trim();
     if (!text) return;
     setDraft("");
-    if (!(await ops.add(projectId, text))) setDraft(text);
+    // In Manual order a new to-do goes on top; sorted any other way the position hardly shows, so it goes to the back
+    if (!(await ops.add(projectId, text, null, manual ? "top" : "bottom"))) setDraft(text);
   };
 
-  const [copied, setCopied] = useState(false);
+const [copied, setCopied] = useState(false);
   const copyList = async () => {
     const text = open.map((t) => todoAsText(t, (subsOf.get(t.id) ?? []).filter((s) => !s.done))).join("\n");
     if (!text || !(await copyText(text))) return;
@@ -257,6 +283,18 @@ export function TodoList({ todos, projectId, ops, rowExtra, rowMenu, hideDone = 
           aria-label={label}
           className="h-10 min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-faint"
         />
+        {subsOf.size > 0 && (
+          <button
+            type="button"
+            onClick={() => setCollapsed(allFolded ? new Set() : new Set(subsOf.keys()))}
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 px-2 text-xs font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-text"
+            title={allFolded ? __("Show every sub-to-do") : __("Fold every sub-to-do away")}
+            aria-label={allFolded ? __("Expand all") : __("Collapse all")}
+          >
+            {allFolded ? <ChevronsUpDown size={13} aria-hidden="true" /> : <ChevronsDownUp size={13} aria-hidden="true" />}
+            <span className="@max-[26rem]:sr-only">{allFolded ? __("Expand all") : __("Collapse all")}</span>
+          </button>
+        )}
         {todos.length > 1 && (
           <label
             className="inline-flex h-7 shrink-0 items-center gap-1.5 px-2 text-xs font-semibold text-muted transition-colors focus-within:bg-surface-2 hover:bg-surface-2 hover:text-text"
@@ -376,9 +414,16 @@ function TodoRow({ todo, sort, ops, projectId, subs = [], folded = false, onTogg
   };
 
   const working = Boolean(todo.working_since) && !todo.done;
+  const planCtx = usePlanContext();
+  const planned = planCtx?.has("todo", todo.id);
   // Everything that is only sometimes wanted lives under the row's "more" menu, so it never covers the text
   const menuItems = [
     ...(rowMenu?.(todo) ?? []),
+    planCtx && !todo.done && !cancelled && {
+      label: planned ? __("Take it off the plan") : __("Add to the plan"),
+      icon: planned ? ListMinus : ListPlus,
+      onClick: () => planCtx.toggle("todo", todo.id),
+    },
     !todo.done && !working && { label: __("Mark as working on"), icon: CircleDot, onClick: () => ops.update(todo.id, { working: true }) },
     (!todo.done || cancelled) && {
       label: cancelled ? __("Take back the cancelling") : __("Cancel (call it off)"),

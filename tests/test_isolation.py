@@ -222,6 +222,14 @@ def test_habits_are_private_and_only_the_admin_syncs(client, other):
     theirs = other.get("/api/habits").json()
     assert theirs["habits"] == [] and theirs["configured"] is False
     assert other.post("/api/habits/sync").status_code == 403
+    assert other.get("/api/habits/drive").status_code == 403
+    assert other.post("/api/habits/import", json={"uuids": ["x"]}).status_code == 403
+
+    # Someone else's habit can't be changed, logged or removed by id
+    mine_id = client.get("/api/habits").json()["habits"][0]["id"]
+    assert other.delete(f"/api/habits/{mine_id}").status_code == 404
+    assert other.patch(f"/api/habits/{mine_id}", json={"name": "x"}).status_code == 404
+    assert other.put(f"/api/habits/{mine_id}/entries/{date.today().isoformat()}", json={"status": "yes"}).status_code == 404
 
 
 def test_the_same_habit_uuid_can_exist_in_two_accounts(client, other):

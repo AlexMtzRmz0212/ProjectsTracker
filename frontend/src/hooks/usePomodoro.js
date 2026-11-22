@@ -13,7 +13,7 @@ const CYCLE_KEY = "pt-pomodoro-cycle";
 // A set of pomodoros carries on only while they follow each other: more than this after the last one
 // finished, the count starts again from 1 (yesterday's 2/4 is not tomorrow's)
 const SET_GAP = 60 * 60_000;
-const IDLE = { lastDoneAt: 0, done: 0, phase: "idle", kind: "short", until: 0, left: 0, startedAt: 0, pausedAt: 0, held: null, carry: 0, carryId: null, focusFor: null };
+const IDLE = { lastDoneAt: 0, done: 0, phase: "idle", kind: "short", until: 0, left: 0, startedAt: 0, pausedAt: 0, held: null, carry: 0, carryId: null, focusFor: null, confirmedAt: 0 };
 const PHASES = ["idle", "focus", "focusPaused", "breakWait", "break", "breakPaused", "ready"];
 
 const clamp = (n, [lo, hi]) => Math.min(hi, Math.max(lo, Math.round(n)));
@@ -40,10 +40,12 @@ function write(key, value) {
 function readCycle(key) {
   const saved = { ...IDLE, ...read(key) };
   if (!PHASES.includes(saved.phase)) return { ...IDLE, lastDoneAt: saved.lastDoneAt, done: saved.done };
-  const { lastDoneAt, done, phase, kind, until, left, startedAt, pausedAt, held, carry, carryId } = saved;
-  // A chore typed as a plain tag in an earlier version is a chore label here
-  const focusFor = saved.focusFor ?? (saved.tag ? { project_id: null, todo_id: null, label: String(saved.tag) } : null);
-  return { lastDoneAt, done, phase, kind, until, left, startedAt, pausedAt, held, carry, carryId, focusFor };
+  const { lastDoneAt, done, phase, kind, until, left, startedAt, pausedAt, held, carry, carryId, confirmedAt } = saved;
+  // What a focus is for is a chore or a project, never both: a project is now only ever the one being timed, so one
+  // saved with a project (an earlier version) is dropped. A chore typed as a plain tag in an earlier version is a chore label here
+  const savedFor = saved.focusFor && !saved.focusFor.project_id ? saved.focusFor : null;
+  const focusFor = savedFor ?? (saved.tag ? { project_id: null, todo_id: null, label: String(saved.tag) } : null);
+  return { lastDoneAt, done, phase, kind, until, left, startedAt, pausedAt, held, carry, carryId, focusFor, confirmedAt };
 }
 
 /** The count once the focus in `cycle` has run out: one more than before if it started within `SET_GAP` of the
@@ -110,11 +112,12 @@ function chime() {
  * timer is never paused, and there is no "Break now".
  * A focus and a break can both be paused.
  *
- * What a focus is for can be said (`setFocusFor`): { project_id (a project, or a task's key), todo_id, label }: a
- * project, a task, or, with no project_id, a chore or activity of no project's, a few words of the person's own. A
- * project or task stays for the set (until the pomodoro is stopped, or the set lapses). A chore is only for that
- * moment: it goes with the focus it was set for, however that ends. Left unsaid, the pomodoro is saved for whatever
- * project or task is being timed when it ends, if any. `tag` is the chore's words, "" when it isn't one.
+ * What a focus is for is one or the other, never both: a project or task (the one being timed when the focus ends, so
+ * starting its timer says it), or a chore or activity of no project's, a few words of the person's own, set with
+ * `setFocusFor({ project_id: null, todo_id: null, label })`. A chore is only for that moment: it goes with the focus it
+ * was set for, however that ends, and setting one lets go of a project held for the break. Starting a focus on a
+ * project (`startFocusOn`) drops the chore, and so does the caller when a project's timer is started by hand.
+ * `tag` is the chore's words, "" when there is none.
  *
  * A focus that ends is handed to `onFocusDone({ start, end, completed, ...forWhat })` to be saved: `start` is
  * when it was first started (pauses included). When the countdown runs out, `end` is that moment and
@@ -191,21 +194,27 @@ export function usePomodoro({ running, startTimer, stopTimer, onFocusDone, scope
 
   // Save a focus that is being stopped or cut short. Kept in a ref like holdRunning, so the actions below keep their identity.
   const cutShort = useRef(null);
-  cutShort.current = () => {
+  // `endAt` (ms) is when it ended if that wasn't now (nobody answered "still working?": it ended when asked)
+  cutShort.current = (endAt) => {
     if ((phase !== "focus" && phase !== "focusPaused") || !cycle.startedAt) return;
-    const end = phase === "focusPaused" && cycle.pausedAt ? cycle.pausedAt : Date.now();
+    const end = typeof endAt === "number" ? endAt : phase === "focusPaused" && cycle.pausedAt ? cycle.pausedAt : Date.now();
     if (end - cycle.startedAt < MIN_TIMER_SECONDS * 1000) return;
     focusDone.current?.({ start: new Date(cycle.startedAt), end: new Date(end), completed: false });
   };
 
-  const beginFocus = useCallback(() => {
+  // A focus begun by hand is a sign that someone is here (`confirmedAt`); one that follows a break by itself (`auto`) is not
+  const beginFocus = useCallback((auto = false) => {
     const started = Date.now();
-    setCycle((c) => ({ ...c, phase: "focus", left: 0, held: null, startedAt: started, until: started + settings.focus * 60_000 }));
+    setCycle((c) => ({
+      ...c, phase: "focus", left: 0, held: null, startedAt: started, until: started + settings.focus * 60_000,
+      ...(auto === true ? {} : { confirmedAt: started }),
+    }));
   }, [settings.focus, setCycle]);
 
-  /** Start a focus, and the project timer that was paused for the break, if there is one. */
-  const startFocus = useCallback(() => {
-    beginFocus();
+  /** Start a focus, and the project timer that was paused for the break, if there is one. `{ auto: true }`: it
+   *  follows the break by itself, so it doesn't count as someone being here. */
+  const startFocus = useCallback((opts) => {
+    beginFocus(opts?.auto === true);
     if (cycle.held) startTimer(cycle.held);
   }, [beginFocus, cycle.held, startTimer]);
 
@@ -215,7 +224,8 @@ export function usePomodoro({ running, startTimer, stopTimer, onFocusDone, scope
   const startFocusOn = useCallback(
     (id, todoId = null) => {
       beginFocus();
-      setCycle((c) => (c.carryId === id ? c : { ...c, carry: 0, carryId: null }));
+      // A project's focus has no chore beside it
+      setCycle((c) => ({ ...(c.carryId === id ? c : { ...c, carry: 0, carryId: null }), focusFor: null }));
       startTimer(id, todoId);
     },
     [beginFocus, setCycle, startTimer]
@@ -273,18 +283,18 @@ export function usePomodoro({ running, startTimer, stopTimer, onFocusDone, scope
     if (phase !== "break" || breakRemaining > 0) return;
     if (settings.sound) chime();
     const fresh = Date.now() - cycle.until < 10_000;
-    if (settings.autoStart && fresh) startFocus();
+    if (settings.autoStart && fresh) startFocus({ auto: true });
     else setCycle((c) => ({ ...c, phase: "ready" }));
   }, [phase, breakRemaining, cycle.until, settings.autoStart, settings.sound, startFocus, setCycle]);
 
   /** Pause the focus: the time left stands still until Resume. A project timer is left alone. */
   const pause = useCallback(
-    () => setCycle((c) => ({ ...c, phase: "focusPaused", pausedAt: Date.now(), left: Math.max(1, Math.round((c.until - Date.now()) / 1000)) })),
+    () => setCycle((c) => ({ ...c, phase: "focusPaused", pausedAt: Date.now(), confirmedAt: Date.now(), left: Math.max(1, Math.round((c.until - Date.now()) / 1000)) })),
     [setCycle]
   );
 
   const resume = useCallback(
-    () => setCycle((c) => ({ ...c, phase: "focus", until: Date.now() + c.left * 1000 })),
+    () => setCycle((c) => ({ ...c, phase: "focus", confirmedAt: Date.now(), until: Date.now() + c.left * 1000 })),
     [setCycle]
   );
 
@@ -301,7 +311,7 @@ export function usePomodoro({ running, startTimer, stopTimer, onFocusDone, scope
   const breakNow = useCallback(() => {
     cutShort.current();
     holdRunning.current();
-    setCycle((c) => ({ ...c, phase: "break", kind: "short", left: 0, until: Date.now() + settings.shortBreak * 60_000 }));
+    setCycle((c) => ({ ...c, phase: "break", kind: "short", left: 0, confirmedAt: Date.now(), until: Date.now() + settings.shortBreak * 60_000 }));
   }, [settings.shortBreak, setCycle]);
 
   /** A break that was waiting: begin counting it down. A project timer running by now (one started after
@@ -309,28 +319,35 @@ export function usePomodoro({ running, startTimer, stopTimer, onFocusDone, scope
    *  the focus ended. */
   const startBreak = useCallback(() => {
     holdRunning.current();
-    setCycle((c) => ({ ...c, phase: "break", until: Date.now() + (c.kind === "long" ? settings.longBreak : settings.shortBreak) * 60_000 }));
+    setCycle((c) => ({ ...c, phase: "break", confirmedAt: Date.now(), until: Date.now() + (c.kind === "long" ? settings.longBreak : settings.shortBreak) * 60_000 }));
   }, [settings.longBreak, settings.shortBreak, setCycle]);
 
   const pauseBreak = useCallback(
-    () => setCycle((c) => ({ ...c, phase: "breakPaused", left: Math.max(1, Math.round((c.until - Date.now()) / 1000)) })),
+    () => setCycle((c) => ({ ...c, phase: "breakPaused", confirmedAt: Date.now(), left: Math.max(1, Math.round((c.until - Date.now()) / 1000)) })),
     [setCycle]
   );
 
   const resumeBreak = useCallback(
-    () => setCycle((c) => ({ ...c, phase: "break", until: Date.now() + c.left * 1000 })),
+    () => setCycle((c) => ({ ...c, phase: "break", confirmedAt: Date.now(), until: Date.now() + c.left * 1000 })),
     [setCycle]
   );
 
   /** Stop whatever the pomodoro is doing and go back to idle. A focus stopped part-way is saved as cut
    *  short. The day's count stays; a project paused for the break stays stopped. */
-  const dismiss = useCallback(() => {
-    cutShort.current();
+  const dismiss = useCallback((endAt) => {
+    cutShort.current(endAt); // a click passes an event here: only a number is a time
     setCycle((c) => ({ ...c, phase: "idle", left: 0, until: 0, held: null, carry: c.held ? 0 : c.carry, focusFor: null }));
   }, [setCycle]);
 
-  /** Say what the focus is for (see above), or take it back with null. */
-  const setFocusFor = useCallback((value) => setCycle((c) => ({ ...c, focusFor: value })), [setCycle]);
+  /** Say the focus is for a chore (see above), or take it back with null. A chore lets go of the project held for
+   *  the break: the next focus is for the chore, not for it. */
+  const setFocusFor = useCallback(
+    (value) => setCycle((c) => ({ ...c, focusFor: value, ...(value ? { held: null, carry: 0, carryId: null } : {}) })),
+    [setCycle]
+  );
+
+  /** Someone answered "still working?": that is the moment they were last known to be here. */
+  const confirm = useCallback(() => setCycle((c) => ({ ...c, confirmedAt: Date.now() })), [setCycle]);
 
   const done = lapsed(cycle, now.getTime()) ? 0 : cycle.done;
 
@@ -367,6 +384,9 @@ export function usePomodoro({ running, startTimer, stopTimer, onFocusDone, scope
     continuous: !settings.breaks,
     focusFor: cycle.focusFor,
     setFocusFor,
+    // When someone last did something with it (or said they were here), ms; 0 if unknown. See useStillWorking.
+    confirmedAt: cycle.confirmedAt || cycle.startedAt,
+    confirm,
     tag: cycle.focusFor && !cycle.focusFor.project_id ? cycle.focusFor.label : "",
     startFocus,
     startFocusOn,

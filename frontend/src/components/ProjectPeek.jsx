@@ -11,6 +11,8 @@ const MIN_WIDTH = 352;
 const DEFAULT_WIDTH = MIN_WIDTH; // it opens at its least width
 const GAP = 40; // the strip of window always left beside it, where its tab sits
 const SLIDE_MS = 260; // a little over the time it takes to slide away
+const DOUBLE_CLICK_MS = 300; // how long a click on the tab waits to see whether it is the first of two
+const FULL_SLACK = 4; // px short of the widest it can be and still count as all the way out
 const fitWidth = (w) => Math.round(Math.max(MIN_WIDTH, Math.min(w, window.innerWidth - GAP)));
 // A press on a window open over the page (or the menus and pickers a row opens) is not a press "elsewhere"
 const KEEP_WIDE = '[role="dialog"], [role="menu"]';
@@ -20,8 +22,8 @@ const KEEP_WIDE = '[role="dialog"], [role="menu"]';
  * stays in reach beside it, so another project can be clicked straight into it. Where the window is wide
  * enough the page gives way to it (`onWidth` says how much it covers); otherwise it goes over the page. Its tab stays on
  * screen when it is away, to bring the same project back. The tab is also its handle: click it to
- * open or put away the peek, drag it to set how wide the peek is, or drag it most of the way to the right edge
- * to put it away. With the tab focused, the left and right arrow keys widen and narrow it. The peek is always
+ * open or put away the peek, double-click it to open it all the way (or, from all the way, back to its least width),
+ * drag it to set how wide the peek is, or drag it most of the way to the right edge to put it away. With the tab focused, the left and right arrow keys widen and narrow it. The peek is always
  * at its least width to begin with: a width pulled out lasts until a press lands elsewhere on the page, or
  * the peek is put away. `widthResetKey` going up brings it back to that width too. Esc puts it away too, except while a window is open
  * on top, while `escPaused`, and inside a text box (a sub-to-do uses it to cancel).
@@ -35,6 +37,8 @@ export default function ProjectPeek({ open, onOpenChange, onWidth, widthResetKey
   const [dragW, setDragW] = useState(null); // the width the tab has been pulled to, while it is being dragged
   const drag = useRef(null);
   const dragged = useRef(false); // a drag must not also count as the tab's click
+  const closeTimer = useRef(0); // a click on the tab of an open peek closes it after DOUBLE_CLICK_MS, unless a second click comes
+  useEffect(() => () => clearTimeout(closeTimer.current), []);
 
   const setAndSave = (w) => setWidth(fitWidth(w));
 
@@ -136,9 +140,22 @@ export default function ProjectPeek({ open, onOpenChange, onWidth, widthResetKey
       {/* The tab stays on screen when the panel is away, so there is always something to pull it in by */}
       <button
         {...tabDrag}
-        onClick={() => {
-          if (!dragged.current) onOpenChange(!open);
-          dragged.current = false;
+        onClick={(e) => {
+          if (dragged.current) {
+            dragged.current = false;
+            return;
+          }
+          clearTimeout(closeTimer.current);
+          if (e.detail >= 2) {
+            // Double click: out to the full width, or, from there, back to the least width
+            setAndSave(panel.current.offsetWidth >= fitWidth(Infinity) - FULL_SLACK ? DEFAULT_WIDTH : Infinity);
+            onOpenChange(true);
+          } else if (!open) {
+            onOpenChange(true);
+          } else {
+            // Closing waits a moment, so the first click of a double click isn't a close
+            closeTimer.current = setTimeout(() => onOpenChange(false), DOUBLE_CLICK_MS);
+          }
         }}
         onKeyDown={onTabKey}
         className={`absolute right-full top-12 flex w-7 cursor-col-resize touch-none flex-col items-center gap-1 border-y border-l border-line-strong py-2 transition-colors hover:text-text ${
@@ -148,7 +165,7 @@ export default function ProjectPeek({ open, onOpenChange, onWidth, widthResetKey
           open ? __("Close the side peek on {name}. Drag, or use the left and right arrow keys, to resize it", { name })
           : project ? __("Peek at {name}", { name: project.name }) : __("Open the side peek")
         }
-        title={open ? __("Click to close, drag to resize") : project ? __("Peek at {name} (click, or drag out to a width)", { name: project.name }) : __("Side peek: click a project to open it here")}
+        title={open ? __("Click to close, double-click to widen or narrow, drag to resize") : project ? __("Peek at {name} (click, or drag out to a width)", { name: project.name }) : __("Side peek: click a project to open it here")}
         aria-expanded={open}
         aria-controls={id}
       >

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ArrowRight, Check, X } from "lucide-react";
-import { planChanges } from "../lib/aiTasks";
+import { planChanges, planOrder } from "../lib/aiTasks";
 import { __, __r, _n, useT } from "../i18n";
 
 /**
@@ -12,15 +12,18 @@ export default function TaskAiPanel({ tasks, subsOf, todoOps, onClose }) {
   useT();
   const [raw, setRaw] = useState("");
   const [changes, setChanges] = useState(null);
+  const [order, setOrder] = useState([]);
   const [error, setError] = useState("");
   const [applying, setApplying] = useState(false);
 
   const preview = () => {
     try {
       setChanges(planChanges(raw, tasks, subsOf));
+      setOrder(planOrder(raw, tasks));
       setError("");
     } catch (e) {
       setChanges(null);
+      setOrder([]);
       setError(e.message);
     }
   };
@@ -33,6 +36,8 @@ export default function TaskAiPanel({ tasks, subsOf, todoOps, onClose }) {
       for (const { sub, text: subText } of editSubs) await todoOps.update(sub.id, { text: subText });
       for (const sub of addSubs) await todoOps.add(null, sub, task.id);
     }
+    // The tasks in the order the AI listed them (shortest first); only swaps the places they already hold
+    if (order.length > 1) await todoOps.reorder(order);
     setApplying(false);
     onClose();
   };
@@ -76,9 +81,13 @@ export default function TaskAiPanel({ tasks, subsOf, todoOps, onClose }) {
 
       {changes && (
         <div className="mt-3">
-          {changes.length === 0 ? (
+          {changes.length === 0 && order.length === 0 ? (
             <p className="text-[13px] text-muted">{__("Nothing to change: the reply matches what you already have.")}</p>
           ) : (
+            <>
+            {order.length > 0 && (
+              <p className="mb-2 text-[13px] text-muted">{_n(order.length, "Reorders {n} task, shortest first.", "Reorders {n} tasks, shortest first.")}</p>
+            )}
             <ul className="max-h-72 divide-y divide-rule overflow-y-auto border-y border-rule">
               {changes.map(({ task, text, addSubs, editSubs }) => (
                 <li key={task.id} className="py-2 text-[13px]">
@@ -108,19 +117,20 @@ export default function TaskAiPanel({ tasks, subsOf, todoOps, onClose }) {
                 </li>
               ))}
             </ul>
+            </>
           )}
         </div>
       )}
 
       <div className="mt-3 flex items-center gap-2">
-        {changes && changes.length > 0 ? (
+        {changes && (changes.length > 0 || order.length > 0) ? (
           <button
             onClick={apply}
             disabled={applying}
             className="inline-flex h-8 items-center gap-1.5 border border-text bg-text px-3 text-xs font-semibold text-bg transition-opacity disabled:opacity-50"
           >
             <Check size={13} aria-hidden="true" />
-            {_n(changes.length, "Apply {n} task", "Apply {n} tasks")}
+            {changes.length > 0 ? _n(changes.length, "Apply {n} task", "Apply {n} tasks") : __("Apply the order")}
             {subCount > 0 && `, ${_n(subCount, "{n} sub-task", "{n} sub-tasks")}`}
           </button>
         ) : (

@@ -51,6 +51,9 @@ def init_db(engine: Engine) -> None:
     # Tasks of their own are to-dos with no project, and their time is sessions with no project
     _make_nullable(engine, models.Todo.__table__, "project_id")
     _make_nullable(engine, models.Session.__table__, "project_id")
+    # Habits made here have no Drive key (loop_uuid), and say where they came from (source)
+    _add_habit_columns(engine)
+    _make_nullable(engine, models.Habit.__table__, "loop_uuid")
     with DbSession(engine) as db:
         _seed_statuses(db)
         _backfill_status_ids(db)
@@ -123,6 +126,13 @@ def _add_user_columns(engine: Engine) -> None:
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_habits_user_loop ON habits (user_id, loop_uuid)"))
 
 
+def _add_habit_columns(engine: Engine) -> None:
+    """Habits made before `source` existed all came from Drive."""
+    if "source" not in {c["name"] for c in inspect(engine).get_columns("habits")}:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE habits ADD COLUMN source VARCHAR(8) NOT NULL DEFAULT 'drive'"))
+
+
 def _add_language_column(engine: Engine) -> None:
     """Accounts made before the app had a second language speak English."""
     if "language" not in {c["name"] for c in inspect(engine).get_columns("users")}:
@@ -173,7 +183,8 @@ def _add_project_columns(engine: Engine) -> None:
     and SQLite can't drop a column that has a foreign key.
 
     skipped_at (the Feed's skip) is NULL for projects made before it existed: never skipped.
-    archived_at is NULL for those too: they are on the board, not in the archive."""
+    archived_at is NULL for those too: they are on the board, not in the archive.
+    cadence_days is 0 for those too: no cadence."""
     columns = _project_columns(engine)
     with engine.begin() as conn:
         if "status_id" not in columns:
@@ -194,6 +205,9 @@ def _add_project_columns(engine: Engine) -> None:
             column_type = models.Project.__table__.c.updated_at.type.compile(dialect=engine.dialect)
             conn.execute(text(f"ALTER TABLE projects ADD COLUMN updated_at {column_type}"))
             conn.execute(text("UPDATE projects SET updated_at = created_at WHERE updated_at IS NULL"))
+        if "cadence_days" not in columns:
+            # Projects made before it existed have no cadence
+            conn.execute(text("ALTER TABLE projects ADD COLUMN cadence_days INTEGER NOT NULL DEFAULT 0"))
 
 
 def _add_todo_columns(engine: Engine) -> None:

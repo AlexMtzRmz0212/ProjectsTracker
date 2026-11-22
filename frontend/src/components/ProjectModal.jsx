@@ -24,6 +24,9 @@ export default function ProjectModal({ project, statuses, defaultStatusId = null
   const [statusId, setStatusId] = useState(
     project?.status_id ?? defaultStatusId ?? statuses.find((s) => !s.is_done)?.id ?? statuses[0]?.id
   );
+  // How often it is done, in days (0: no cadence). Kept as text while typing, so the field can be emptied
+  const [cadence, setCadence] = useState(String(project?.cadence_days ?? 0));
+  const cadenceDays = Math.min(365, Math.max(0, Math.round(Number(cadence) || 0)));
   const [saving, setSaving] = useState(false);
   const Icon = iconFor(icon);
   const valid = name.trim().length > 0;
@@ -32,7 +35,7 @@ export default function ProjectModal({ project, statuses, defaultStatusId = null
     e?.preventDefault();
     if (!valid || saving) return;
     setSaving(true);
-    const ok = await onSave({ name: name.trim(), color, icon, status_id: statusId });
+    const ok = await onSave({ name: name.trim(), color, icon, status_id: statusId, cadence_days: cadenceDays });
     setSaving(false);
     if (ok) onClose();
   };
@@ -69,6 +72,39 @@ export default function ProjectModal({ project, statuses, defaultStatusId = null
         </label>
 
         <Choice label={__("Status")} value={statusId} onChange={setStatusId} options={statuses} />
+
+        <fieldset>
+          <legend className="mb-2 text-xs font-semibold text-muted">{__("Done every")}</legend>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <label className="flex items-center gap-2 text-[13px]">
+              <input
+                type="number"
+                min={0}
+                max={365}
+                inputMode="numeric"
+                value={cadence}
+                onChange={(e) => setCadence(e.target.value)}
+                aria-label={__("Days between times it is done (0 for none)")}
+                className="figures h-9 w-20 border-0 border-b border-line-strong bg-transparent px-0 text-[15px] outline-none focus:border-b-2 focus:border-accent-2"
+              />
+              {__("days")}
+            </label>
+            {[[0, __("No cadence")], [1, __("Daily")], [7, __("Weekly")], [30, __("Monthly")]].map(([days, label]) => (
+              <button
+                key={days}
+                type="button"
+                onClick={() => setCadence(String(days))}
+                aria-pressed={cadenceDays === days}
+                className={`inline-flex h-7 items-center border-b-2 text-[13px] transition-colors ${
+                  cadenceDays === days ? "border-text text-text" : "border-transparent text-muted hover:text-text"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-xs text-faint">{__("In the Feed's “Rotation, plus days” order, a project waits this long after it is worked on before it comes back on top.")}</p>
+        </fieldset>
 
         <fieldset>
           <legend className="mb-2 text-xs font-semibold text-muted">{__("Color")}</legend>

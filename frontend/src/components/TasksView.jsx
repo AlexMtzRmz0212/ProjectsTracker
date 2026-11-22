@@ -160,6 +160,7 @@ export default function TasksView({
           <label className="flex h-8 min-w-[10rem] flex-1 items-center gap-2 border border-line-strong px-2 focus-within:border-text sm:max-w-[16rem]">
             <Search size={14} className="shrink-0 text-muted" aria-hidden="true" />
             <input
+              id="task-filter"
               value={filter.q}
               onChange={(e) => setFilter({ ...filter, q: e.target.value })}
               placeholder={__("Search tasks")}

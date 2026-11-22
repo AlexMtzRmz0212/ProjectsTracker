@@ -119,6 +119,27 @@ def test_projects_made_before_skipped_at_keep_working(tmp_path):
         assert conn.execute(text("SELECT skipped_at FROM projects WHERE id = 'p1'")).scalar() is None
 
 
+def test_projects_made_before_cadence_days_have_no_cadence(tmp_path):
+    """A projects table that predates cadence_days gets the column; old rows start at 0 (no cadence)."""
+    engine = create_engine(f"sqlite:///{tmp_path / 'old-cadence.db'}")
+    init_db(engine)
+    with engine.begin() as conn:
+        status_id = conn.execute(text("SELECT id FROM statuses WHERE name = 'Active'")).scalar()
+        conn.execute(
+            text("INSERT INTO projects (id, name, color, icon, status_id, sort_order, created_at) "
+                 "VALUES ('p1', 'Old', '#2f5d8a', 'code', :s, 1, '2026-02-01')"),
+            {"s": status_id},
+        )
+        conn.execute(text("ALTER TABLE projects DROP COLUMN cadence_days"))
+
+    init_db(engine)
+    init_db(engine)  # repeatable
+
+    assert "cadence_days" in {c["name"] for c in inspect(engine).get_columns("projects")}
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT cadence_days FROM projects WHERE id = 'p1'")).scalar() == 0
+
+
 def test_projects_made_before_updated_at_start_from_when_they_were_made(tmp_path):
     """A projects table that predates updated_at gets the column, filled with created_at; pomodoros get theirs too."""
     engine = create_engine(f"sqlite:///{tmp_path / 'old-updated.db'}")
@@ -386,3 +407,27 @@ def test_accounts_made_before_languages_existed_speak_english(tmp_path, monkeypa
 
     with engine.connect() as conn:
         assert conn.execute(text("SELECT language FROM users")).scalar() == "en"
+
+
+def test_habits_made_before_source_came_from_drive_and_new_ones_need_no_drive_key(tmp_path):
+    """An old habits table has loop_uuid NOT NULL and no `source`: it gets the column (old rows are Drive habits) and the
+    key may now be empty, for habits made in the app (several can have none)."""
+    engine = create_engine(f"sqlite:///{tmp_path / 'old-habits.db'}")
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE habits (id VARCHAR PRIMARY KEY, user_id VARCHAR, loop_uuid VARCHAR(64) NOT NULL, "
+            "name VARCHAR(120) NOT NULL, question VARCHAR(300) NOT NULL DEFAULT '', unit VARCHAR(40) NOT NULL DEFAULT '', "
+            "value_type VARCHAR(12) NOT NULL, target_type VARCHAR(12), target_value FLOAT, freq_num INTEGER, freq_den INTEGER, "
+            "position INTEGER NOT NULL, archived BOOLEAN NOT NULL DEFAULT 0, removed_at DATETIME)"
+        ))
+        conn.execute(text("INSERT INTO habits (id, loop_uuid, name, value_type, position) VALUES ('h1', 'u1', 'Run', 'boolean', 0)"))
+
+    init_db(engine)
+    init_db(engine)  # repeatable
+
+    columns = {c["name"]: c for c in inspect(engine).get_columns("habits")}
+    assert columns["loop_uuid"]["nullable"] and "source" in columns
+    with engine.begin() as conn:
+        assert conn.execute(text("SELECT source FROM habits WHERE id = 'h1'")).scalar() == "drive"
+        for n in (2, 3):
+            conn.execute(text(f"INSERT INTO habits (id, name, value_type, position, source) VALUES ('h{n}', 'Mine {n}', 'boolean', {n}, 'app')"))

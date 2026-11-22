@@ -95,6 +95,9 @@ class Project(Base):
     skipped_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # How often it is meant to be done, in days: after it is worked on, the Feed (in its "rotation + days" order)
+    # keeps it behind the others for this long. 0 is no cadence: it comes back as soon as the rotation reaches it.
+    cadence_days: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     sessions: Mapped[list["Session"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
@@ -220,10 +223,12 @@ class InterestMessage(Base):
 
 
 class Habit(Base):
-    """A habit from the My Habits app (a Loop Habit Tracker fork), copied in from its Drive backup (see habits.py).
-    `loop_uuid` is the habit's key in that app: a sync updates the row it matches and adds the rest. `value_type`
-    is boolean (yes/no), numerical, or time (minutes since midnight). `removed_at` is when a sync found it missing
-    from the newest backup; its days are kept. Read-only here: habits are edited in the other app."""
+    """A habit: one from the My Habits app (a Loop Habit Tracker fork), picked from its Drive backup and copied in
+    (`source` "drive", see habits.py), or one made here (`source` "app", also called a continuous task).
+    `loop_uuid` is a Drive habit's key in that app: a sync updates the row it matches (an in-app habit has none).
+    `value_type` is boolean (yes/no), numerical, or time (minutes since midnight). `removed_at` is when a sync found
+    a Drive habit missing from the newest backup; its days are kept. A Drive habit is read-only here (it is edited in
+    the other app, and the next sync would undo a change); an in-app habit is edited, and its days logged, here."""
 
     __tablename__ = "habits"
     # A habit's uuid is unique per account, not across the whole database
@@ -231,7 +236,8 @@ class Habit(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     user_id: Mapped[Optional[str]] = _owner()
-    loop_uuid: Mapped[str] = mapped_column(String(64), index=True)
+    loop_uuid: Mapped[Optional[str]] = mapped_column(String(64), index=True, nullable=True)
+    source: Mapped[str] = mapped_column(String(8), default="drive", server_default="drive")  # drive | app
     name: Mapped[str] = mapped_column(String(120))
     question: Mapped[str] = mapped_column(String(300), default="", server_default="")
     unit: Mapped[str] = mapped_column(String(40), default="", server_default="")
@@ -269,3 +275,22 @@ class HabitSync(Base):
     md5: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     synced_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
+
+
+class PlanItem(Base):
+    """One thing on the Workspace's "next up" list, in the order the user wants to do them. `kind` says what it is:
+    a project (`project_id`), a to-do (`todo_id`: a project's to-do or sub-to-do, or a task or sub-task), a habit
+    (`habit_id`) or a chore (`label`, just words). A thing is on the list once. Items whose target has been finished
+    (a ticked to-do, an archived project, an archived habit) are dropped when the list is read."""
+
+    __tablename__ = "plan_items"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    user_id: Mapped[Optional[str]] = _owner()
+    kind: Mapped[str] = mapped_column(String(8))  # project | todo | habit | chore
+    project_id: Mapped[Optional[str]] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True)
+    todo_id: Mapped[Optional[str]] = mapped_column(ForeignKey("todos.id", ondelete="CASCADE"), nullable=True, index=True)
+    habit_id: Mapped[Optional[str]] = mapped_column(ForeignKey("habits.id", ondelete="CASCADE"), nullable=True, index=True)
+    label: Mapped[str] = mapped_column(String(120), default="", server_default="")
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    added_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

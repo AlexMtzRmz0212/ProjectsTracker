@@ -129,6 +129,7 @@ class ProjectCreate(BaseModel):
     icon: Annotated[str, Field(min_length=1, max_length=40)] = "folder"
     status_id: Optional[str] = None  # omitted: the first open status
     notes: Annotated[str, Field(max_length=NOTES_MAX)] = ""
+    cadence_days: Annotated[int, Field(ge=0, le=365)] = 0  # how often it is done, in days; 0: no cadence
 
 
 class ProjectUpdate(BaseModel):
@@ -137,6 +138,7 @@ class ProjectUpdate(BaseModel):
     icon: Optional[Annotated[str, Field(min_length=1, max_length=40)]] = None
     status_id: Optional[str] = None
     notes: Optional[Annotated[str, Field(max_length=NOTES_MAX)]] = None
+    cadence_days: Optional[Annotated[int, Field(ge=0, le=365)]] = None
     sort_order: Optional[int] = None
 
 
@@ -149,6 +151,7 @@ class ProjectOut(BaseModel):
     icon: str
     status_id: str
     notes: str
+    cadence_days: int = 0  # how often it is done, in days; 0: no cadence
     sort_order: int
     created_at: UTCDateTime
     updated_at: UTCDateTime  # last edited (details, status, notes or to-dos)
@@ -167,6 +170,7 @@ class TodoCreate(BaseModel):
     project_id: Optional[str] = None  # none: a task of its own
     text: TodoText
     parent_id: Optional[str] = None
+    position: Literal["top", "bottom"] = "bottom"  # where it goes in the list: the front, or the back
 
 
 class TodoUpdate(BaseModel):
@@ -301,6 +305,7 @@ class HabitOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    source: str = "drive"  # drive: picked from the My Habits backup (read-only here); app: made here (editable)
     name: str
     question: str = ""
     unit: str = ""
@@ -326,6 +331,89 @@ class HabitSyncOut(BaseModel):
     changed: bool
     file_name: str
     habits: int
+
+
+class DriveHabitOut(BaseModel):
+    """A habit in the newest Drive backup, to choose from."""
+
+    uuid: str
+    name: str
+    value_type: str
+    unit: str = ""
+    archived: bool = False
+    imported: bool = False  # the user already has it
+
+
+class DriveHabitsOut(BaseModel):
+    file_name: str
+    habits: list[DriveHabitOut]
+
+
+class HabitImportBody(BaseModel):
+    uuids: Annotated[list[Annotated[str, Field(min_length=1, max_length=64)]], Field(min_length=1, max_length=200)]
+
+
+class HabitCreate(BaseModel):
+    """A habit made here (a continuous task). Yes/no, or a number to reach (or stay under) a day."""
+
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+    question: Annotated[str, Field(max_length=300)] = ""
+    value_type: Literal["boolean", "numerical"] = "boolean"
+    unit: Annotated[str, Field(max_length=40)] = ""
+    target_type: Optional[Literal["at_least", "at_most"]] = None
+    target_value: Optional[Annotated[float, Field(gt=0)]] = None
+    freq_num: Annotated[int, Field(ge=1, le=31)] = 1  # freq_num times every freq_den days
+    freq_den: Annotated[int, Field(ge=1, le=31)] = 1
+
+
+class HabitUpdate(BaseModel):
+    name: Optional[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]] = None
+    question: Optional[Annotated[str, Field(max_length=300)]] = None
+    unit: Optional[Annotated[str, Field(max_length=40)]] = None
+    target_type: Optional[Literal["at_least", "at_most"]] = None
+    target_value: Optional[Annotated[float, Field(gt=0)]] = None
+    freq_num: Optional[Annotated[int, Field(ge=1, le=31)]] = None
+    freq_den: Optional[Annotated[int, Field(ge=1, le=31)]] = None
+    archived: Optional[bool] = None
+
+
+class HabitEntryIn(BaseModel):
+    """One day of an in-app habit. `unknown` clears the day. A numerical habit takes `value` (the number)."""
+
+    status: Literal["yes", "no", "skip", "value", "unknown"]
+    value: Optional[Annotated[float, Field(ge=0, le=1_000_000)]] = None
+
+
+# ── The Workspace's plan ("next up") ────────────────────────────────────────
+
+class PlanItemCreate(BaseModel):
+    """Add something to the plan: a project (`project_id`), a to-do or task (`todo_id`), a habit (`habit_id`) or a
+    chore (`label`), according to `kind`."""
+
+    kind: Literal["project", "todo", "habit", "chore"]
+    project_id: Optional[str] = None
+    todo_id: Optional[str] = None
+    habit_id: Optional[str] = None
+    label: Annotated[str, StringConstraints(strip_whitespace=True, max_length=120)] = ""
+
+
+class PlanItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    kind: str
+    project_id: Optional[str] = None
+    todo_id: Optional[str] = None
+    habit_id: Optional[str] = None
+    label: str = ""
+    position: int
+    added_at: UTCDateTime
+
+
+class PlanOrderBody(BaseModel):
+    """Every item of the plan, in the new order. Ones left out keep their place after these."""
+
+    ids: Annotated[list[str], Field(max_length=500)]
 
 
 # ── Interest counter (public) ───────────────────────────────────────────────

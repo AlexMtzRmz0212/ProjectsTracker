@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { CircleDot, ListChecks, Play, Plus, Search, Square, Tag, Target } from "lucide-react";
+import { Check, CircleDot, GripVertical, ListChecks, ListMinus, ListPlus, ListTodo, Play, Plus, Search, Sparkles, Square, Tag, Target, X } from "lucide-react";
+import { useReorder } from "../hooks/useReorder";
+import { usePlanContext } from "../lib/planContext";
 import { dayState, entriesByDay, dayKey, streakOf } from "../lib/habits";
 import { TASK_INK, iconFor, inkText } from "../lib/palette";
 import { __, __r, useT } from "../i18n";
@@ -13,11 +15,26 @@ const LIMIT = 6; // rows a group shows before "Show all"
  * - projects and tasks start their timer (a pomodoro goes with it if none is going);
  * - habits and chores have no timer: starting one starts a focus (a pomodoro) with its name as what it is for.
  * `chores` are the words earlier focuses were for; a new one can be typed in. The box above searches all of it.
+ *
+ * "Next up" at the top is the plan: what to do next, in the order to do it, dragged into place. Anything below (and a to-do's
+ * menu, a project's peek, a Feed card) can be added to it with the list button (`usePlanContext`). `plan` is its rows,
+ * [{ planId, kind, name, context?, icon?, color?, running, onStart }], `onPlanReorder(ids)` and `onPlanRemove(planId)`.
+ * "Copy for AI" copies everything that could be worked on as a prompt for an AI to say what to do first (`onCopyForAi`,
+ * which resolves to whether it worked).
  */
 export default function WorkspaceView({
   working, projects, tasks, habits, chores, runningId, timedTodoId = null, focusLabel, today, onStartSubject, onStartTodo, onStartChore, onStop,
+  plan = [], onPlanReorder, onPlanRemove, onCopyForAi,
 }) {
   useT();
+  const planCtx = usePlanContext();
+  const planFor = (kind, ref) => (planCtx ? { on: planCtx.has(kind, ref), onToggle: () => planCtx.toggle(kind, ref) } : null);
+  const [copied, setCopied] = useState(false);
+  const copyForAi = async () => {
+    if (!(await onCopyForAi?.())) return;
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const has = (text) => !q || text.toLowerCase().includes(q);
@@ -28,6 +45,7 @@ export default function WorkspaceView({
   const taskRows = tasks.filter((p) => has(p.name));
   const habitRows = habits.filter((h) => has(h.name));
   const choreRows = chores.filter(has);
+  const planRows = plan.filter((r) => has(r.name) || has(r.context ?? ""));
   const nothing = workingRows.length + projectRows.length + taskRows.length + habitRows.length + choreRows.length === 0;
 
   const key = dayKey(today);
@@ -38,12 +56,23 @@ export default function WorkspaceView({
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2 className="font-serif text-[17px] font-semibold">{__("Workspace")}</h2>
         <span className="font-serif text-xs italic text-muted">{__("what to work on")}</span>
+        {onCopyForAi && (
+          <button
+            onClick={copyForAi}
+            className="ml-auto inline-flex h-8 items-center gap-1.5 border border-line-strong px-2.5 text-xs font-semibold transition-colors hover:border-text hover:bg-surface-2"
+            title={__("Copy every project, to-do, task, habit and chore as a prompt, to ask an AI what to do first")}
+          >
+            {copied ? <Check size={13} aria-hidden="true" /> : <Sparkles size={13} aria-hidden="true" />}
+            {copied ? __("Copied") : __("Copy for AI")}
+          </button>
+        )}
       </div>
       <p className="mt-0.5 mb-3 text-[13px] text-muted">{__("Pick one: projects, tasks and to-dos start their timer, and habits and chores start a pomodoro for them.")}</p>
 
       <label className="mb-2 flex h-9 shrink-0 items-center gap-2 border border-line-strong px-2.5 focus-within:border-text">
         <Search size={14} className="shrink-0 text-muted" aria-hidden="true" />
         <input
+          id="workspace-search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && typedIsNew && (onStartChore(query.trim().slice(0, 120)), setQuery(""))}
@@ -54,7 +83,11 @@ export default function WorkspaceView({
         />
       </label>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+      <div data-scroll className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+        {planCtx && (plan.length > 0 || !q) && (
+          <NextUp rows={planRows} empty={plan.length === 0} onReorder={onPlanReorder} onRemove={onPlanRemove} onStop={onStop} />
+        )}
+
         {typedIsNew && (
           <Row
             icon={<Plus size={14} className="text-muted" aria-hidden="true" />}
@@ -73,6 +106,7 @@ export default function WorkspaceView({
                 name={w.todo.text}
                 meta={w.context}
                 running={running}
+                plan={planFor("todo", w.todo.id)}
                 action={running ? { label: __("Stop"), icon: Square, onClick: onStop } : { label: __("Start"), icon: Play, onClick: () => onStartTodo(w.todo) }}
               />
             );
@@ -89,6 +123,7 @@ export default function WorkspaceView({
                 icon={<Icon size={14} style={{ color: inkText(p.color) }} aria-hidden="true" />}
                 name={p.name}
                 running={running}
+                plan={planFor("project", p.id)}
                 action={running ? { label: __("Stop"), icon: Square, onClick: onStop } : { label: __("Start"), icon: Play, onClick: () => onStartSubject(p.id) }}
               />
             );
@@ -105,6 +140,7 @@ export default function WorkspaceView({
                 icon={<Icon size={14} style={{ color: TASK_INK }} aria-hidden="true" />}
                 name={p.name}
                 running={running}
+                plan={planFor("todo", p.todoId)}
                 action={running ? { label: __("Stop"), icon: Square, onClick: onStop } : { label: __("Start"), icon: Play, onClick: () => onStartSubject(p.id) }}
               />
             );
@@ -124,6 +160,7 @@ export default function WorkspaceView({
                   .filter(Boolean)
                   .join(", ")}
                 running={focusing(h.name)}
+                plan={planFor("habit", h.id)}
                 action={{ label: focusing(h.name) ? __("Focusing") : __("Start"), icon: Play, onClick: () => onStartChore(h.name), disabled: focusing(h.name) }}
               />
             );
@@ -137,6 +174,7 @@ export default function WorkspaceView({
               icon={<Tag size={14} className="text-muted" aria-hidden="true" />}
               name={label}
               running={focusing(label)}
+              plan={planFor("chore", label)}
               action={{ label: focusing(label) ? __("Focusing") : __("Start"), icon: Play, onClick: () => onStartChore(label), disabled: focusing(label) }}
             />
           )}
@@ -173,7 +211,8 @@ function Group({ title, icon: Icon, rows, order, children }) {
   );
 }
 
-function Row({ icon, name, meta, running = false, action }) {
+function Row({ icon, name, meta, running = false, action, plan = null }) {
+  useT();
   const Action = action.icon;
   return (
     <li className={`flex min-h-10 items-center gap-2.5 border-b border-rule ${running ? "bg-[color-mix(in_srgb,var(--accent)_7%,transparent)] shadow-[inset_3px_0_0_var(--accent)]" : ""}`}>
@@ -182,6 +221,7 @@ function Row({ icon, name, meta, running = false, action }) {
         <span className="break-words">{name}</span>
         {meta && <span className="ml-2 font-serif text-xs italic text-muted">{meta}</span>}
       </span>
+      {plan && <PlanButton plan={plan} name={name} />}
       <button
         onClick={action.onClick}
         disabled={action.disabled}
@@ -192,5 +232,92 @@ function Row({ icon, name, meta, running = false, action }) {
         <Action size={11} fill="currentColor" aria-hidden="true" /> {action.label}
       </button>
     </li>
+  );
+}
+
+/** Add something to the plan, or take it off: a list button on a row. */
+function PlanButton({ plan, name }) {
+  const Icon = plan.on ? ListMinus : ListPlus;
+  const label = plan.on ? __("Take \"{name}\" off the plan", { name }) : __("Add \"{name}\" to the plan", { name });
+  return (
+    <button
+      onClick={plan.onToggle}
+      aria-label={label}
+      aria-pressed={plan.on}
+      title={plan.on ? __("On the plan: click to take it off") : __("Add to the plan (next up)")}
+      className={`grid size-8 shrink-0 place-items-center transition-colors hover:bg-surface-2 ${plan.on ? "text-accent" : "text-muted hover:text-text"}`}
+    >
+      <Icon size={15} aria-hidden="true" />
+    </button>
+  );
+}
+
+/** The plan: what to do next, in the order to do it. Drag a row's handle (or use the arrow keys on it) to reorder. */
+function NextUp({ rows, empty, onReorder, onRemove, onStop }) {
+  useT();
+  const order = useReorder(rows.map((r) => r.planId), (ids) => onReorder?.(ids));
+  return (
+    <section className="mb-4">
+      <h3 className="flex items-center gap-1.5 border-b border-rule py-1 font-serif text-xs italic text-muted">
+        <ListTodo size={12} aria-hidden="true" /> {__("Next up")} <span className="figures not-italic">{rows.length}</span>
+      </h3>
+      {empty ? (
+        <p className="py-3 font-serif text-sm italic text-muted">
+          {__("Nothing lined up yet. Add things with the list button on a row below, or “Add to plan” in a to-do's menu.")}
+        </p>
+      ) : (
+        <ul className={order.held ? "select-none" : ""}>
+          {rows.map((r, i) => {
+            const row = order.rowProps(i);
+            const Icon = r.kind === "project" ? iconFor(r.icon) : r.kind === "habit" ? Target : r.kind === "chore" ? Tag : ListChecks;
+            return (
+              <li
+                key={r.planId}
+                {...row}
+                className={`flex min-h-10 items-center gap-1.5 border-b border-rule ${row.className ?? "bg-surface"} ${
+                  r.running ? "shadow-[inset_3px_0_0_var(--accent)]" : ""
+                }`}
+              >
+                <button
+                  {...order.gripProps(r.planId, i)}
+                  aria-label={__("Move \"{name}\": drag, or use the up and down arrow keys", { name: r.name })}
+                  title={__("Drag to reorder")}
+                  className={`grid h-8 w-6 shrink-0 touch-none place-items-center text-faint transition-colors hover:text-text ${
+                    order.held === r.planId ? "cursor-grabbing text-text" : "cursor-grab"
+                  }`}
+                >
+                  <GripVertical size={15} />
+                </button>
+                <span className="figures w-4 shrink-0 text-right text-xs text-faint" aria-hidden="true">{i + 1}</span>
+                <span className="grid size-5 shrink-0 place-items-center">
+                  <Icon size={14} style={r.color ? { color: inkText(r.color) } : undefined} className={r.color ? "" : "text-muted"} aria-hidden="true" />
+                </span>
+                <span className="min-w-0 flex-1 py-1.5 text-[14px]">
+                  <span className="break-words">{r.name}</span>
+                  {r.context && <span className="ml-2 font-serif text-xs italic text-muted">{r.context}</span>}
+                </span>
+                <button
+                  onClick={r.running ? onStop : r.onStart}
+                  className={`inline-flex h-8 shrink-0 items-center gap-1.5 border px-2.5 text-xs font-semibold transition-colors ${
+                    r.running ? "border-accent text-accent" : "border-line-strong hover:border-text hover:bg-surface-2"
+                  }`}
+                >
+                  {r.running ? <Square size={11} fill="currentColor" aria-hidden="true" /> : <Play size={11} fill="currentColor" aria-hidden="true" />}
+                  {r.running ? __("Stop") : __("Start")}
+                </button>
+                <button
+                  onClick={() => onRemove?.(r.planId)}
+                  aria-label={__("Take \"{name}\" off the plan", { name: r.name })}
+                  title={__("Take it off the plan")}
+                  className="mr-1 grid size-8 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
+                >
+                  <X size={15} aria-hidden="true" />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }

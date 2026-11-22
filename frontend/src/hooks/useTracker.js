@@ -423,11 +423,12 @@ export function useTracker(api = realApi) {
   // ── To-dos ─────────────────────────────────────────────────────────────────
 
   const todoOps = {
-    /** A to-do on a project, or with no project (`projectId` null), a task of its own. */
-    add: (projectId, text, parentId = null) =>
+    /** A to-do on a project, or with no project (`projectId` null), a task of its own. It goes to the back of the
+     *  list, or to the front with `position` "top" (the server keeps a sub-to-do at the back of its parent). */
+    add: (projectId, text, parentId = null, position = "bottom") =>
       attempt(async () => {
-        const created = await api.createTodo({ project_id: projectId, text, parent_id: parentId });
-        setTodos((prev) => [...prev, created]);
+        const created = await api.createTodo({ project_id: projectId, text, parent_id: parentId, position });
+        setTodos((prev) => (created.sort_order < Math.min(0, ...prev.map((x) => x.sort_order)) ? [created, ...prev] : [...prev, created]));
         touchProject(projectId);
       }),
     // Ticking and deleting show at once; a failure resyncs from the server (see attempt)
@@ -573,6 +574,8 @@ export function useTracker(api = realApi) {
 
   const running = useMemo(() => sessions.find((s) => !s.end) ?? null, [sessions]);
   const dismissNotice = useCallback(() => setNotice(null), []);
+  /** Show a message at the bottom of the screen: `{ text, tone?: "info", action? }` (see Toast). */
+  const notify = useCallback((message) => setNotice({ id: Date.now(), ...message }), []);
 
   return {
     projects,
@@ -589,6 +592,7 @@ export function useTracker(api = realApi) {
     status,
     notice,
     dismissNotice,
+    notify,
     reload: load,
     connecting,
     failures,

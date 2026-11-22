@@ -1,5 +1,5 @@
-"""Habits copied in from a My Habits (Loop) backup. Drive itself is never called: the download is replaced by a
-backup built here."""
+"""Habits picked from a My Habits (Loop) backup, and habits made in the app. Drive itself is never called: the
+download is replaced by a backup built here."""
 
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
@@ -89,10 +89,19 @@ def test_listing_with_nothing_synced_says_whether_drive_is_set_up(client, monkey
     assert answer.status_code == 503 and "GOOGLE_DRIVE_FOLDER_ID" in answer.json()["detail"]
 
 
+ALL = ["u-run", "u-water", "u-bed"]
+
+
+def import_habits(client, uuids=ALL):
+    res = client.post("/api/habits/import", json={"uuids": uuids})
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
 def test_sync_copies_habits_and_recent_days(client, drive):
     rows, reps = standard(drive.today)
     drive.set(rows, reps)
-    result = client.post("/api/habits/sync").json()
+    result = import_habits(client)
     assert result == {"changed": True, "file_name": "a.db", "habits": 3}
 
     listing = client.get("/api/habits").json()
@@ -100,6 +109,7 @@ def test_sync_copies_habits_and_recent_days(client, drive):
     by_name = {h["name"]: h for h in listing["habits"]}
     assert [h["name"] for h in listing["habits"]] == ["Run", "Water", "Bedtime"]  # in the app's order
     assert by_name["Run"]["value_type"] == "boolean" and by_name["Run"]["question"] == "Did you run?"
+    assert {h["source"] for h in listing["habits"]} == {"drive"}
     assert {e["entry_date"]: e["status"] for e in by_name["Run"]["entries"]} == {
         drive.today.isoformat(): "yes",
         (drive.today - timedelta(days=1)).isoformat(): "no",
@@ -114,15 +124,15 @@ def test_sync_copies_habits_and_recent_days(client, drive):
 def test_the_same_backup_is_not_copied_twice_unless_forced(client, drive):
     rows, reps = standard(drive.today)
     drive.set(rows, reps)
-    assert client.post("/api/habits/sync").json()["changed"] is True
-    assert client.post("/api/habits/sync").json()["changed"] is False
+    import_habits(client)
+    assert client.post("/api/habits/sync").json()["changed"] is False  # the backup the import came from
     assert client.post("/api/habits/sync?force=true").json()["changed"] is True
 
 
 def test_a_newer_backup_updates_days_and_retires_missing_habits(client, drive):
     rows, reps = standard(drive.today)
     drive.set(rows, reps, md5="a")
-    client.post("/api/habits/sync")
+    import_habits(client)
 
     # Water is gone from the app, Run's today became a no, and a new habit appeared
     rows2 = [rows[0], rows[2], (4, "u-read", "Read", "", "", "", 0, 0, 0, 1, 1, 3, 0)]
@@ -130,8 +140,9 @@ def test_a_newer_backup_updates_days_and_retires_missing_habits(client, drive):
     drive.set(rows2, reps2, md5="b")
     assert client.post("/api/habits/sync").json()["changed"] is True
 
+    # A sync only keeps what was added up to date: the new habit waits to be chosen
     by_name = {h["name"]: h for h in client.get("/api/habits").json()["habits"]}
-    assert set(by_name) == {"Run", "Bedtime", "Water", "Read"}
+    assert set(by_name) == {"Run", "Bedtime", "Water"}
     assert by_name["Water"]["removed_at"] is not None and by_name["Water"]["entries"]  # kept, marked
     assert by_name["Run"]["removed_at"] is None
     today_entry = next(e for e in by_name["Run"]["entries"] if e["entry_date"] == drive.today.isoformat())
@@ -141,7 +152,7 @@ def test_a_newer_backup_updates_days_and_retires_missing_habits(client, drive):
 def test_an_empty_or_missing_backup_changes_nothing(client, drive, monkeypatch):
     rows, reps = standard(drive.today)
     drive.set(rows, reps)
-    client.post("/api/habits/sync")
+    import_habits(client)
 
     drive.set([], [], md5="empty")
     answer = client.post("/api/habits/sync")
@@ -151,3 +162,112 @@ def test_an_empty_or_missing_backup_changes_nothing(client, drive, monkeypatch):
     # Nothing in the folder at all
     monkeypatch.setattr(habits, "fetch_latest_backup", lambda: None)
     assert client.post("/api/habits/sync").status_code == 404
+
+
+def test_drive_habits_can_be_chosen_one_by_one(client, drive):
+    rows, reps = standard(drive.today)
+    drive.set(rows, reps)
+
+    shown = client.get("/api/habits/drive").json()
+    assert shown["file_name"] == "a.db"
+    assert [(h["uuid"], h["imported"]) for h in shown["habits"]] == [("u-run", False), ("u-water", False), ("u-bed", False)]
+    assert client.get("/api/habits").json()["habits"] == []  # looking changes nothing
+
+    import_habits(client, ["u-run"])
+    assert [h["name"] for h in client.get("/api/habits").json()["habits"]] == ["Run"]
+    assert [h["imported"] for h in client.get("/api/habits/drive").json()["habits"]] == [True, False, False]
+
+    # Adding another keeps the first, and a sync only ever refreshes what was added
+    import_habits(client, ["u-bed"])
+    assert [h["name"] for h in client.get("/api/habits").json()["habits"]] == ["Run", "Bedtime"]
+    assert client.post("/api/habits/sync?force=true").json()["habits"] == 2
+
+    # A habit the backup doesn't hold is refused, and nothing is added
+    assert client.post("/api/habits/import", json={"uuids": ["u-nope"]}).status_code == 409
+    assert client.post("/api/habits/import", json={"uuids": []}).status_code == 422
+    assert len(client.get("/api/habits").json()["habits"]) == 2
+
+
+def test_syncing_with_nothing_added_says_so(client, drive):
+    rows, reps = standard(drive.today)
+    drive.set(rows, reps)
+    answer = client.post("/api/habits/sync")
+    assert answer.status_code == 409 and "imported" in answer.json()["detail"]
+
+
+def test_an_added_drive_habit_can_be_removed_and_added_again(client, drive):
+    rows, reps = standard(drive.today)
+    drive.set(rows, reps)
+    import_habits(client, ["u-run"])
+    habit = client.get("/api/habits").json()["habits"][0]
+    assert client.delete(f"/api/habits/{habit['id']}").status_code == 204
+    assert client.get("/api/habits").json()["habits"] == []
+    assert client.delete(f"/api/habits/{habit['id']}").status_code == 404
+    import_habits(client, ["u-run"])
+    assert len(client.get("/api/habits").json()["habits"][0]["entries"]) == 3
+
+
+def test_a_habit_made_here_is_edited_and_logged_here(client, drive):
+    made = client.post("/api/habits", json={"name": "  Stretch ", "question": "Did you stretch?"})
+    assert made.status_code == 201, made.text
+    habit = made.json()
+    assert habit["source"] == "app" and habit["name"] == "Stretch" and habit["value_type"] == "boolean" and habit["entries"] == []
+
+    today = drive.today.isoformat()
+
+    def day(d, **body):
+        return client.put(f"/api/habits/{habit['id']}/entries/{d}", json=body)
+
+    assert day(today, status="yes").json()["entries"] == [{"entry_date": today, "status": "yes", "value": 1.0}]
+    assert day(today, status="no").json()["entries"][0]["status"] == "no"  # a day is replaced, not added
+    yesterday = (drive.today - timedelta(days=1)).isoformat()
+    assert len(day(yesterday, status="skip").json()["entries"]) == 2
+    assert day(today, status="unknown").json()["entries"] == [{"entry_date": yesterday, "status": "skip", "value": None}]  # cleared
+    assert day(today, status="value", value=3).status_code == 422  # a yes/no habit has no number
+    assert day((drive.today + timedelta(days=10)).isoformat(), status="yes").status_code == 422  # not yet
+
+    changed = client.patch(f"/api/habits/{habit['id']}", json={"name": "Stretch daily", "archived": True}).json()
+    assert changed["name"] == "Stretch daily" and changed["archived"] is True
+    assert client.patch(f"/api/habits/{habit['id']}", json={"name": None}).status_code == 422
+
+    assert [h["name"] for h in client.get("/api/habits").json()["habits"]] == ["Stretch daily"]
+    assert client.delete(f"/api/habits/{habit['id']}").status_code == 204
+    assert client.get("/api/habits").json()["habits"] == []
+
+
+def test_a_numerical_habit_made_here_takes_a_number(client, drive):
+    habit = client.post("/api/habits", json={"name": "Water", "value_type": "numerical", "unit": "glasses", "target_value": 8}).json()
+    assert habit["unit"] == "glasses" and habit["target_value"] == 8 and habit["target_type"] == "at_least"
+    today = drive.today.isoformat()
+
+    def put(**body):
+        return client.put(f"/api/habits/{habit['id']}/entries/{today}", json=body)
+
+    assert put(status="value", value=6.5).json()["entries"][0]["value"] == 6.5
+    assert put(status="yes").status_code == 422  # not a yes/no habit
+    assert put(status="value").status_code == 422  # how much?
+
+    # A yes/no habit drops a unit and target it was given
+    plain = client.post("/api/habits", json={"name": "Read", "unit": "pages", "target_value": 5}).json()
+    assert plain["unit"] == "" and plain["target_value"] is None
+
+
+def test_a_drive_habit_cannot_be_changed_or_logged_here(client, drive):
+    rows, reps = standard(drive.today)
+    drive.set(rows, reps)
+    import_habits(client, ["u-run"])
+    habit = client.get("/api/habits").json()["habits"][0]
+    assert client.patch(f"/api/habits/{habit['id']}", json={"name": "Jog"}).status_code == 409
+    assert client.put(f"/api/habits/{habit['id']}/entries/{drive.today.isoformat()}", json={"status": "no"}).status_code == 409
+
+
+def test_a_sync_leaves_habits_made_here_alone(client, drive):
+    rows, reps = standard(drive.today)
+    drive.set(rows, reps)
+    mine = client.post("/api/habits", json={"name": "Stretch"}).json()
+    import_habits(client, ["u-run"])
+    drive.set([rows[1]], [], md5="b")  # Run is gone from the backup
+    client.post("/api/habits/sync")
+    by_name = {h["name"]: h for h in client.get("/api/habits").json()["habits"]}
+    assert by_name["Stretch"]["removed_at"] is None and by_name["Stretch"]["id"] == mine["id"]
+    assert by_name["Run"]["removed_at"] is not None

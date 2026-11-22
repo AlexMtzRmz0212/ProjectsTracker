@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { formatDistanceToNowStrict } from "../lib/dates";
-import { ArrowDownToLine, ArrowUpToLine, Layers, Pin, PinOff, Play, Plus, SkipForward, Square } from "lucide-react";
+import { ArrowDownToLine, ArrowUpToLine, Layers, ListMinus, ListPlus, Pin, PinOff, Play, Plus, SkipForward, Square } from "lucide-react";
+import { usePlanContext } from "../lib/planContext";
 import { ON_INK, iconFor, inkFor, inkText, tint } from "../lib/palette";
 import { fmtClock } from "../lib/time";
 import { Button } from "./Modal";
 import ParentTag from "./ParentTag";
 import FeedSwipe from "./FeedSwipe";
 import { FEED_MODES } from "../lib/feedOrder";
+import { loadSort } from "../lib/todoSort";
 import { __, _n, useT } from "../i18n";
 
 
@@ -61,7 +63,10 @@ export default function FeedView({
   return (
     <div className="pb-4">
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-        <p className="min-w-0 flex-1 basis-56 font-serif text-[13px] italic text-muted">{__(mode.note)} {__("Pinned cards stay on top.")}</p>
+        <p className="min-w-0 flex-1 basis-56 font-serif text-[13px] italic text-muted">
+          {__(mode.note)} {feedOrder.displace && ["rotation", "tasks", "projects"].includes(feedOrder.mode) && `${__("A project waits its “done every N days” before it is back on top.")} `}
+          {__("Pinned cards stay on top.")}
+        </p>
         <label className="flex items-center gap-1.5 text-xs text-muted">
           {__("Order")}
           <select
@@ -76,6 +81,20 @@ export default function FeedView({
             ))}
           </select>
         </label>
+        {/* The rotation can count each project's "done every N days": it then waits that long before it is due again */}
+        {["rotation", "tasks", "projects"].includes(feedOrder.mode) && (
+          <label className="flex items-center gap-1.5 text-xs text-muted" title={__("Direct: by last work. Plus days: each project also waits its “done every N days”.")}>
+            {__("Rotation")}
+            <select
+              value={feedOrder.displace ? "days" : "direct"}
+              onChange={(e) => feedOrder.setDisplace(e.target.value === "days")}
+              className="h-8 border border-line-strong bg-surface px-2 text-[13px] font-semibold text-text outline-none focus:border-text"
+            >
+              <option value="direct">{__("Direct")}</option>
+              <option value="days">{__("Plus days")}</option>
+            </select>
+          </label>
+        )}
         {deck.length > 1 && (
           <button
             onClick={() => setSorting(true)}
@@ -128,6 +147,8 @@ function FeedCard({
 }) {
   useT();
   const { color, name } = project;
+  const planCtx = usePlanContext();
+  const planned = planCtx?.has("project", project.id);
   // The tasks, as one card: each is timed on its own (not the card), and a new line adds a task
   const isTasks = project.kind === "tasks";
   const Icon = iconFor(project.icon);
@@ -139,6 +160,7 @@ function FeedCard({
   return (
     // The sides are set one by one: a changing `borderColor` next to `borderLeftColor` makes React warn
     <li
+      data-card={project.id} // a find in the Feed scrolls to it
       className={`paper-card relative border border-l-[3px] bg-surface ${position === 1 ? "taped" : ""}`}
       style={{
         borderTopColor: edge,
@@ -166,12 +188,25 @@ function FeedCard({
             {isNext && (
               <span className="mt-0.5 shrink-0 border border-line-strong px-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">{__("Up next")}</span>
             )}
+            {planCtx && project.kind !== "tasks" && (
+              <button
+                onClick={() => planCtx.toggle("project", project.id)}
+                aria-pressed={planned}
+                aria-label={planned ? __("Take {name} off the plan", { name }) : __("Add {name} to the plan", { name })}
+                title={planned ? __("On the plan: click to take it off") : __("Add to the plan (next up)")}
+                className={`ml-auto grid size-6 shrink-0 place-items-center transition-colors hover:bg-surface-2 hover:text-text ${
+                  planned ? "text-accent" : "text-faint"
+                }`}
+              >
+                {planned ? <ListMinus size={13} /> : <ListPlus size={13} />}
+              </button>
+            )}
             <button
               onClick={onPin}
               aria-pressed={pinned}
               aria-label={pinned ? __("Unpin {name}", { name }) : __("Pin {name} to the top of the Feed", { name })}
               title={pinned ? __("Pinned to the top. Click to unpin") : __("Pin to the top of the Feed")}
-              className={`ml-auto grid size-6 shrink-0 place-items-center transition-colors hover:bg-surface-2 hover:text-text ${
+              className={`${planCtx && project.kind !== "tasks" ? "" : "ml-auto "}grid size-6 shrink-0 place-items-center transition-colors hover:bg-surface-2 hover:text-text ${
                 pinned ? "text-accent" : "text-faint"
               }`}
             >
@@ -192,6 +227,11 @@ function FeedCard({
                   ? __("Last worked {formatDistanceToNowStrict}", { formatDistanceToNowStrict: formatDistanceToNowStrict(lastWorked, { addSuffix: true }) })
                   : __("Never worked")}
             </span>
+            {project.cadence_days > 0 && (
+              <span className="font-serif italic" title={__("How often it is meant to be done")}>
+                {_n(project.cadence_days, "Every {n} day", "Every {n} days")}
+              </span>
+            )}
           </p>
         </div>
       </div>
@@ -354,7 +394,9 @@ function AddTodo({ projectId, name, noun = "to-do", ops }) {
     const text = draft.trim();
     if (!text) return;
     setDraft("");
-    if (!(await ops.add(projectId, text))) setDraft(text);
+    // The card lists to-dos in their stored order, so with the list on Manual a new one goes to the front, where it shows
+    const position = loadSort(projectId ? "project" : "tasks") === "manual" ? "top" : "bottom";
+    if (!(await ops.add(projectId, text, null, position))) setDraft(text);
   };
 
   return (

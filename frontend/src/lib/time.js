@@ -157,8 +157,9 @@ export function mostNeglected(projects, sessions, now, todos = []) {
   return found;
 }
 
-/** The Feed's queue: [{ project, lastWorked }] with the project to work on next first, where
- *  `lastWorked` is a Date, or null if it never has been. Projects are ranked by the later of when
+/** The Feed's queue: [{ project, lastWorked, rank }] with the project to work on next first, where
+ *  `lastWorked` is a Date, or null if it never has been, and `rank` the millisecond stamp the order is made from
+ *  (the later of its last work and its last skip; 0 if neither). Projects are ranked by the later of when
  *  they were last worked on and when they were last skipped (a missing moment counts as 0), so
  *  the least recently touched comes first, never-touched ones lead (oldest-created first), and a
  *  skip sends a project behind everything else until the others have had their turn. The running
@@ -177,7 +178,7 @@ export function feedQueue(projects, sessions, now, runningId, todos = []) {
       a.rank - b.rank ||
       new Date(a.project.created_at) - new Date(b.project.created_at)
   );
-  return items.map(({ project, lastWorked }) => ({ project, lastWorked }));
+  return items.map(({ project, lastWorked, rank }) => ({ project, lastWorked, rank }));
 }
 
 /** Consecutive days with at least a minute logged, ending today (or yesterday

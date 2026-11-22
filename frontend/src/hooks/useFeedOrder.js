@@ -12,6 +12,7 @@ function load(key) {
       mode: modes.has(saved?.mode) ? saved.mode : DEFAULT_ORDER.mode,
       manual: ids(saved?.manual),
       pinned: ids(saved?.pinned),
+      displace: saved?.displace === true,
     };
   } catch {
     return DEFAULT_ORDER;
@@ -49,9 +50,11 @@ export function useFeedOrder(scope) {
   const unpin = useCallback((id) => change((o) => (o.pinned.includes(id) ? { ...o, pinned: o.pinned.filter((x) => x !== id) } : o)), [change]);
   /** Save an order (card ids, first on top) and switch to it. Cards in `released` lose their pin, so they land where put. */
   const setManual = useCallback(
-    (manual, released = []) => change((o) => ({ mode: "manual", manual, pinned: o.pinned.filter((x) => !released.includes(x)) })),
+    (manual, released = []) => change((o) => ({ ...o, mode: "manual", manual, pinned: o.pinned.filter((x) => !released.includes(x)) })),
     [change]
   );
+  /** Order the rotation by when each project is due again (its cadence counted), or straight by rotation. */
+  const setDisplace = useCallback((displace) => change((o) => ({ ...o, displace: Boolean(displace) })), [change]);
 
-  return { ...order, setMode, togglePin, unpin, setManual };
+  return { ...order, setMode, togglePin, unpin, setManual, setDisplace };
 }

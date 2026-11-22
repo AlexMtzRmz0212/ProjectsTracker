@@ -110,6 +110,7 @@ export default function PomodoroScreen({
     if (live) {
       if (id !== runningProject?.id || todoId) onStartTimer(id, todoId);
     } else {
+      pomodoro.setFocusFor(null); // a chore and a chosen project are never both
       setChosenId(id);
       setChosenTodoId(todoId);
     }
@@ -305,8 +306,19 @@ export default function PomodoroScreen({
               ))}
             </div>
 
-            {/* What this focus is for, saved with the pomodoro: a project, a task, or a chore (which goes when the focus ends) */}
-            <FocusTag value={pomodoro.focusFor} onChange={pomodoro.setFocusFor} choices={projects}>
+            {/* What this focus is for, saved with the pomodoro: a project or task (chosen below) or a chore, never both; a chore goes when the focus ends */}
+            <FocusTag
+              value={pomodoro.focusFor}
+              onChange={(v) => {
+                // A project is chosen for the next focus (as the search does); a chore takes the place of any chosen one
+                if (v?.project_id) pickFound(v.project_id, v.todo_id ?? null);
+                else {
+                  if (v) setChosenId(null);
+                  pomodoro.setFocusFor(v);
+                }
+              }}
+              choices={projects}
+            >
               {(open, toggle) => (
                 <button
                   onClick={toggle}
@@ -366,6 +378,11 @@ export default function PomodoroScreen({
           onClose={() => setSearchOpen(false)}
           onPick={pickFound}
           onTasks={onTasks}
+          onChore={(label) => {
+            setSearchOpen(false);
+            setChosenId(null); // a chore takes the place of any chosen project
+            pomodoro.setFocusFor({ project_id: null, todo_id: null, label });
+          }}
         />
       )}
     </div>,

@@ -29,7 +29,7 @@ const GROUPS = [
       [N_("Open item"), N_("Work started and left open, which can run for days next to the timer. Closing it turns it into a session.")],
       [N_("Pomodoro"), N_("One focus countdown, with breaks between them. It can say what it was for: a project, a task, or a chore.")],
       [N_("Chore"), N_("A few words for a focus that isn't a project or task, like \"laundry\". It's only for that one focus.")],
-      [N_("Habit"), N_("Copied in from the My Habits app's backup, on the Habits tab. Read-only here: edit habits in that app.")],
+      [N_("Habit"), N_("Made on the Habits tab (In-app: click a day's square to log it) or picked from the My Habits app's Drive backup (read-only here: edit those in that app).")],
     ],
   },
 ];

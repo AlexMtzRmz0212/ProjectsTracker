@@ -23,6 +23,7 @@ export function buildPrompt(tasks, subsOf) {
     '1. Break it into short, concrete sub-tasks (at most 8, each under 80 characters, in the order to do them). Keep the sub-tasks it already has, word for word (you may reorder them), and add new ones only for steps they don\'t cover.',
     '2. Estimate how long each sub-task takes, and put the estimate at the very end of the sub-task like "(~15m)" or "(~1h)". Do this for the sub-tasks it already has too: add or update only the estimate, never their wording.',
     '3. Estimate how long the whole task takes (about the sum of its sub-tasks), and put the estimate at the very end of its "text" like "(~45m)" or "(~2h)". Change nothing else in the text, and keep it under 190 characters.',
+    "4. Sort the tasks in your answer from shortest to longest estimated total time (shortest first). Only the tasks are sorted this way; each task's sub-tasks stay in the order to do them.",
     "",
     "Reply with ONLY a JSON object. No markdown fences, no commentary. Keep every task's id exactly as given, and answer for every task:",
     '{"tasks":[{"id":"<id>","text":"<task text> (~45m)","subtasks":["<step> (~15m)","<step> (~30m)"]}]}',
@@ -46,6 +47,28 @@ function extractJson(raw) {
   } catch {
     throw new Error(__("That reply isn't valid JSON. Ask the AI to answer with only the JSON object."));
   }
+}
+
+/**
+ * The ids of the tasks in the order the reply lists them (the prompt asks for shortest first), when that differs
+ * from the order they are in now; an empty list when the order stays. `tasks` are the open tasks in their current order.
+ */
+export function planOrder(raw, tasks) {
+  const data = extractJson(raw);
+  const rows = Array.isArray(data) ? data : data?.tasks;
+  if (!Array.isArray(rows)) return [];
+  const known = new Set(tasks.map((t) => String(t.id)));
+  const seen = new Set();
+  const asked = [];
+  for (const row of rows) {
+    const id = String(row?.id);
+    if (!known.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    asked.push(id);
+  }
+  const current = tasks.map((t) => String(t.id)).filter((id) => seen.has(id));
+  const original = new Map(tasks.map((t) => [String(t.id), t.id]));
+  return asked.length > 1 && asked.some((id, i) => id !== current[i]) ? asked.map((id) => original.get(id)) : [];
 }
 
 /**
@@ -89,4 +112,27 @@ export function planChanges(raw, tasks, subsOf) {
   }
   if (matched === 0) throw new Error(__("None of the ids in that reply match your tasks. Copy the list again and ask the AI to keep the ids."));
   return changes;
+}
+
+/**
+ * The text to copy for an AI to decide what to work on first: the instructions, then everything that could be worked on
+ * as JSON. `data` is { now (text), projects, tasks, habits, chores, plan }: the projects each with their open to-dos (and
+ * those with their sub-to-dos), the tasks the same, the habits with their streaks, the chores, and the ids already lined
+ * up in the plan, in order. Every thing has an `id` of its own ("project:...", "todo:...", "habit:...", "chore:..."), which
+ * the reply has to use exactly. The AI answers with { order: [{ id, why }] }.
+ */
+export function buildPlanPrompt({ now, projects, tasks, habits, chores, plan }) {
+  const payload = { projects, tasks, habits, chores, plan };
+  return [
+    `Help me decide what to work on first. Below is everything I could work on, as JSON: my open projects (each with its open to-dos), my tasks, my habits and some chores. It is ${now}.`,
+    "",
+    '1. Choose what I should do first, and in what order. Favour what has waited longest ("lastWorked"), what is already being worked on ("working": true), projects whose "everyDays" cadence says they are due, quick wins (a to-do or task with a short estimate like "(~15m)" in its text), and habits not logged today. What is already in "plan" is what I lined up myself: keep it near the top unless something else clearly matters more.',
+    "2. List at most 12 things, from first to last. For each, give its id exactly as it appears below (a project, a to-do, a habit or a chore) and one short reason.",
+    "",
+    "Reply with ONLY a JSON object. No markdown fences, no commentary:",
+    '{"order":[{"id":"<id>","why":"<short reason>"}]}',
+    "",
+    "What I can work on:",
+    JSON.stringify(payload, null, 2),
+  ].join("\n");
 }

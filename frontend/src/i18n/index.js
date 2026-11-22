@@ -67,7 +67,7 @@ export function __(text, params) {
 /** Like __, with elements for the {names}: __r("Press {button} to sync", { button: <b>Sync</b> }). The words around
  *  them are translated whole, so the sentence can put them wherever the language wants. */
 export function __r(text, nodes) {
-  const parts = (DICTIONARIES[current]?.[text] ?? text).split(/{(w+)}/);
+  const parts = (DICTIONARIES[current]?.[text] ?? text).split(/\{(\w+)\}/);
   return parts.map((part, i) => (i % 2 === 0 ? part : createElement(Fragment, { key: i }, nodes?.[part] ?? `{${part}}`)));
 }
 

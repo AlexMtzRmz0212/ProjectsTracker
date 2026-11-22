@@ -10,7 +10,7 @@ wrote (/api/interest/messages), the habits sync and /api/admin/* are for the adm
 """
 
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Response, status
@@ -22,7 +22,7 @@ from . import auth, habits as habits_sync, schemas
 from .bootstrap import init_db
 from .database import engine, get_db
 from .models import (
-    Habit, HabitSync, InterestMessage, InterestVote, OpenItem, Pomodoro, Project, Session, Status, Todo, User, utcnow,
+    Habit, HabitEntry, HabitSync, InterestMessage, InterestVote, OpenItem, PlanItem, Pomodoro, Project, Session, Status, Todo, User, utcnow,
 )
 
 init_db(engine)
@@ -80,6 +80,11 @@ def _first_open_status(db: DbSession, user: User) -> Status:
 
 def _next_order(db: DbSession, model, user: User) -> int:
     return (db.scalar(select(func.max(model.sort_order)).where(model.user_id == user.id)) or 0) + 1
+
+
+def _prev_order(db: DbSession, model, user: User) -> int:
+    """A sort_order before every other of the user's: the front of whatever list it goes in."""
+    return min(0, db.scalar(select(func.min(model.sort_order)).where(model.user_id == user.id)) or 0) - 1
 
 
 def _touch_project(db: DbSession, project_id: Optional[str]) -> None:
@@ -237,6 +242,8 @@ def update_project(
     changes = body.model_dump(exclude_unset=True)
     if changes.get("notes", "") is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Notes can't be null")
+    if changes.get("cadence_days", 0) is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The cadence can't be null (0 is none)")
     if "status_id" in changes:
         if changes["status_id"] is None:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A project always has a status")
@@ -402,7 +409,11 @@ def create_todo(body: schemas.TodoCreate, user: User = Depends(auth.current_user
         parent = _get_todo(db, user, body.parent_id)
         if parent.project_id != body.project_id or parent.parent_id is not None:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A sub-to-do goes under a top-level to-do of the same project")
-    todo = Todo(**body.model_dump(), user_id=user.id, sort_order=_next_order(db, Todo, user))
+    fields = body.model_dump(exclude={"position"})
+    # A new to-do goes to the back, unless it is asked for the front (a sub-to-do always goes to the back of its parent)
+    front = body.position == "top" and body.parent_id is None
+    order = _prev_order(db, Todo, user) if front else _next_order(db, Todo, user)
+    todo = Todo(**fields, user_id=user.id, sort_order=order)
     db.add(todo)
     _touch_project(db, todo.project_id)
     db.commit()
@@ -763,10 +774,19 @@ def create_pomodoro(body: schemas.PomodoroCreate, user: User = Depends(auth.curr
 # ─────────────────────────────────────────────────────────────────────────────
 #region Habits
 
+def _get_habit(db: DbSession, user: User, habit_id: str) -> Habit:
+    return _get_owned(db, Habit, habit_id, user, "Habit")
+
+
+def _habit_out(db: DbSession, habit: Habit) -> Habit:
+    db.refresh(habit)  # its days, as they are now
+    return habit
+
+
 @api.get("/habits", response_model=schemas.HabitsOut)
 def list_habits(user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
-    """The user's habits copied in from the My Habits backup, with their last days (see habits.py).
-    Only the admin can sync, so `configured` (which shows the sync button) is false for everyone else."""
+    """The user's habits: the ones picked from the My Habits backup (see habits.py) and the ones made here, with
+    their last days. Only the admin can sync, so `configured` (which shows the Drive buttons) is false for everyone else."""
     found = db.scalars(
         select(Habit).where(Habit.user_id == user.id).options(selectinload(Habit.entries)).order_by(Habit.position, Habit.name)
     ).all()
@@ -779,14 +799,214 @@ def list_habits(user: User = Depends(auth.current_user), db: DbSession = Depends
     }
 
 
+@api.get("/habits/drive", response_model=schemas.DriveHabitsOut)
+def list_drive_habits(user: User = Depends(auth.require_admin), db: DbSession = Depends(get_db)):
+    """Admin only. The habits in the newest Drive backup, to choose which to add (nothing is changed)."""
+    try:
+        return habits_sync.list_drive_habits(db, user.id)
+    except habits_sync.HabitsError as error:
+        raise HTTPException(error.status, str(error))
+
+
+@api.post("/habits/import", response_model=schemas.HabitSyncOut)
+def import_habits(body: schemas.HabitImportBody, user: User = Depends(auth.require_admin), db: DbSession = Depends(get_db)):
+    """Admin only. Add the chosen habits from the newest Drive backup, and refresh the ones already added."""
+    try:
+        return habits_sync.import_habits(db, user.id, body.uuids)
+    except habits_sync.HabitsError as error:
+        raise HTTPException(error.status, str(error))
+
+
 @api.post("/habits/sync", response_model=schemas.HabitSyncOut)
 def sync_habits(force: bool = False, user: User = Depends(auth.require_admin), db: DbSession = Depends(get_db)):
-    """Admin only (the Drive folder is the admin's). Copy the newest backup in the folder in, unless it is the one
-    already copied (`force` copies it anyway)."""
+    """Admin only (the Drive folder is the admin's). Bring the habits already added from Drive up to date with the
+    newest backup, unless it is the one already copied (`force` copies it anyway)."""
     try:
         return habits_sync.sync(db, user.id, force=force)
     except habits_sync.HabitsError as error:
         raise HTTPException(error.status, str(error))
+
+
+@api.post("/habits", response_model=schemas.HabitOut, status_code=status.HTTP_201_CREATED)
+def create_habit(body: schemas.HabitCreate, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    """A habit made here (a continuous task), at the end of the list. It has no Drive key."""
+    if body.value_type == "boolean":  # a yes/no habit has no unit or target to reach
+        data = body.model_dump(exclude={"unit", "target_type", "target_value"})
+    else:
+        data = body.model_dump()
+        if data["target_value"] is not None and data["target_type"] is None:
+            data["target_type"] = "at_least"
+    position = (db.scalar(select(func.max(Habit.position)).where(Habit.user_id == user.id)) or 0) + 1
+    habit = Habit(**data, user_id=user.id, source="app", loop_uuid=None, position=position)
+    db.add(habit)
+    db.commit()
+    db.refresh(habit)
+    return habit
+
+
+def _own_habit(db: DbSession, user: User, habit_id: str) -> Habit:
+    """A habit that can be changed here: one made here. A Drive habit is edited in My Habits, and the next sync would undo it."""
+    habit = _get_habit(db, user, habit_id)
+    if habit.source != "app":
+        raise HTTPException(status.HTTP_409_CONFLICT, "That habit comes from My Habits: change it there")
+    return habit
+
+
+@api.patch("/habits/{habit_id}", response_model=schemas.HabitOut)
+def update_habit(habit_id: str, body: schemas.HabitUpdate, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    habit = _own_habit(db, user, habit_id)
+    changes = body.model_dump(exclude_unset=True)
+    for field in ("name", "question", "unit", "freq_num", "freq_den", "archived"):
+        if field in changes and changes[field] is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{field} can't be null")
+    if habit.value_type == "boolean":
+        changes.pop("unit", None)
+        changes.pop("target_type", None)
+        changes.pop("target_value", None)
+    for field, value in changes.items():
+        setattr(habit, field, value)
+    db.commit()
+    return _habit_out(db, habit)
+
+
+@api.delete("/habits/{habit_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_habit(habit_id: str, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    """Remove a habit and its days: one made here, or one added from Drive (it can be added again; Drive itself is never touched)."""
+    db.delete(_get_habit(db, user, habit_id))
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@api.put("/habits/{habit_id}/entries/{day}", response_model=schemas.HabitOut)
+def set_habit_day(
+    habit_id: str, day: date, body: schemas.HabitEntryIn, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)
+):
+    """Log one day of a habit made here. `unknown` clears the day. A yes/no habit takes yes, no or skip; a numerical
+    one takes a value (or skip)."""
+    habit = _own_habit(db, user, habit_id)
+    if day > date.today() + timedelta(days=1):  # a day or so of slack for the person's own time zone
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "That day hasn't happened yet")
+    entry = db.get(HabitEntry, (habit.id, day))
+    if body.status == "unknown":
+        if entry is not None:
+            db.delete(entry)
+    else:
+        numerical = habit.value_type == "numerical"
+        if numerical and body.status in ("yes", "no"):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A numerical habit takes a number or skip")
+        if not numerical and body.status == "value":
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A yes/no habit takes yes, no or skip")
+        if body.status == "value" and body.value is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Say how much")
+        value = body.value if body.status == "value" else 1.0 if body.status == "yes" else None
+        if entry is None:
+            db.add(HabitEntry(habit_id=habit.id, entry_date=day, status=body.status, value=value))
+        else:
+            entry.status, entry.value = body.status, value
+    db.commit()
+    return _habit_out(db, habit)
+
+#endregion
+# ─────────────────────────────────────────────────────────────────────────────
+#region Plan (the Workspace's "next up" list)
+
+def _plan_items(db: DbSession, user: User) -> list[PlanItem]:
+    """The user's plan, in order. Items whose target has been finished or is gone (a ticked or cancelled to-do, an
+    archived or finished project, an archived or removed habit) are dropped from it here, so the list never holds
+    anything that can't be worked on."""
+    items = db.scalars(select(PlanItem).where(PlanItem.user_id == user.id).order_by(PlanItem.position, PlanItem.added_at)).all()
+    if not items:
+        return []
+    projects = {
+        p.id: p
+        for p in db.scalars(select(Project).where(Project.user_id == user.id, Project.id.in_([i.project_id for i in items if i.project_id])))
+    }
+    done_statuses = set(db.scalars(select(Status.id).where(Status.user_id == user.id, Status.is_done.is_(True))))
+    todos = {t.id: t for t in db.scalars(select(Todo).where(Todo.user_id == user.id, Todo.id.in_([i.todo_id for i in items if i.todo_id])))}
+    habits = {h.id: h for h in db.scalars(select(Habit).where(Habit.user_id == user.id, Habit.id.in_([i.habit_id for i in items if i.habit_id])))}
+
+    def alive(item: PlanItem) -> bool:
+        if item.kind == "project":
+            p = projects.get(item.project_id)
+            return p is not None and p.archived_at is None and p.status_id not in done_statuses
+        if item.kind == "todo":
+            t = todos.get(item.todo_id)
+            return t is not None and not t.done and t.cancelled_at is None
+        if item.kind == "habit":
+            h = habits.get(item.habit_id)
+            return h is not None and not h.archived and h.removed_at is None
+        return bool(item.label)
+
+    kept = [i for i in items if alive(i)]
+    if len(kept) != len(items):
+        for item in items:
+            if item not in kept:
+                db.delete(item)
+        db.commit()
+    return kept
+
+
+@api.get("/plan", response_model=list[schemas.PlanItemOut])
+def list_plan(user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    return _plan_items(db, user)
+
+
+@api.post("/plan", response_model=schemas.PlanItemOut, status_code=status.HTTP_201_CREATED)
+def add_to_plan(
+    body: schemas.PlanItemCreate, response: Response, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)
+):
+    """Put something at the end of the plan. Already on it: that item is answered (200) and nothing changes."""
+    refs = {"project": body.project_id, "todo": body.todo_id, "habit": body.habit_id, "chore": body.label or None}
+    ref = refs[body.kind]
+    if not ref:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Say what to add")
+    if body.kind == "project":
+        project = _get_project(db, user, ref)
+        if project.archived_at is not None or _get_status(db, user, project.status_id).is_done:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "That project is finished")
+    elif body.kind == "todo":
+        todo = _get_todo(db, user, ref)
+        if todo.done or todo.cancelled_at is not None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "That is already finished")
+    elif body.kind == "habit":
+        habit = _get_habit(db, user, ref)
+        if habit.archived or habit.removed_at is not None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "That habit isn't active")
+    column = {"project": PlanItem.project_id, "todo": PlanItem.todo_id, "habit": PlanItem.habit_id, "chore": PlanItem.label}[body.kind]
+    existing = db.scalar(select(PlanItem).where(PlanItem.user_id == user.id, PlanItem.kind == body.kind, column == ref))
+    if existing is not None:
+        response.status_code = status.HTTP_200_OK
+        return existing
+    position = (db.scalar(select(func.max(PlanItem.position)).where(PlanItem.user_id == user.id)) or 0) + 1
+    item = PlanItem(user_id=user.id, kind=body.kind, position=position)
+    if body.kind == "chore":
+        item.label = ref
+    else:
+        setattr(item, f"{body.kind}_id", ref)
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@api.put("/plan/order", response_model=list[schemas.PlanItemOut])
+def order_plan(body: schemas.PlanOrderBody, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    """Set the order of the plan: the ids given come first, in that order; any the list left out follow, as they were."""
+    items = _plan_items(db, user)
+    by_id = {i.id: i for i in items}
+    first = [by_id[i] for i in dict.fromkeys(body.ids) if i in by_id]
+    rest = [i for i in items if i not in first]
+    for position, item in enumerate(first + rest, start=1):
+        item.position = position
+    db.commit()
+    return first + rest
+
+
+@api.delete("/plan/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_from_plan(item_id: str, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    db.delete(_get_owned(db, PlanItem, item_id, user, "Plan item"))
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 #endregion
 # ─────────────────────────────────────────────────────────────────────────────

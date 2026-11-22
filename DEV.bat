@@ -1,39 +1,37 @@
 @echo off
 title ProjectsTracker Dev
 setlocal
+cd /d "%~dp0"
+
+rem DEV.bat        start the API and the web server in the background, open the page, close this window
+rem DEV.bat stop   stop both background servers
 
 :: --- Configuration ---
 set BACKEND_PORT=8001
 set FRONTEND_PORT=5174
 set FRONTEND_DIR=frontend
 
-echo ============================================
-echo   PROJECTS TRACKER - DEV ENVIRONMENT
-echo ============================================
+if /i "%~1"=="stop" goto :stop
 
 :: 1. Free the ports in case a previous run is still holding them.
-echo [1/3] Clearing ports %BACKEND_PORT% and %FRONTEND_PORT%...
 call :FREE_PORTS
 
 :: 2. Make sure setup has been done at least once
-echo [2/3] Validating environment...
 if not exist .venv goto :FAIL_MSG
 if not exist "%FRONTEND_DIR%\node_modules" goto :FAIL_MSG
 
-:: 3. API and web in this one window: the API in the background (its log lines show here too),
-:: the web server in front. Vite opens the browser once it's ready.
-:: Ctrl+C or closing the window stops both.
-echo [3/3] Starting API (port %BACKEND_PORT%) and web (port %FRONTEND_PORT%)...
-echo       Ctrl+C or closing this window stops both.
-echo.
-start "" /b ".venv\Scripts\python.exe" -m uvicorn backend.main:app --reload --port %BACKEND_PORT%
-pushd "%FRONTEND_DIR%"
-call npm run dev -- --open
-popd
+:: 3. Start both servers hidden. Their output goes to dev-api.log and dev-web.log.
+:: Vite opens the browser by itself once it's ready.
+powershell -NoProfile -Command "Start-Process -WindowStyle Hidden -FilePath cmd.exe -ArgumentList '/c .venv\Scripts\python.exe -m uvicorn backend.main:app --reload --port %BACKEND_PORT% > dev-api.log 2>&1' -WorkingDirectory '%~dp0'"
+powershell -NoProfile -Command "Start-Process -WindowStyle Hidden -FilePath cmd.exe -ArgumentList '/c npm run dev -- --open > ..\dev-web.log 2>&1' -WorkingDirectory '%~dp0%FRONTEND_DIR%'"
 
-:: The web server has stopped: make sure the API went with it
+:: "exit" (not "exit /b") closes the window even when this was started from an open prompt.
+exit
+
+:stop
 call :FREE_PORTS
-exit /b
+echo Dev servers stopped.
+goto :eof
 
 :: A listening socket can outlive the process netstat reports for it: when uvicorn's
 :: --reload supervisor is killed, its worker keeps the port and keeps serving old code.
@@ -57,4 +55,4 @@ echo (python venv + pip install, and npm install in frontend).
 echo ------------------------------------------------------------
 echo.
 pause
-exit /b
+exit /b 1

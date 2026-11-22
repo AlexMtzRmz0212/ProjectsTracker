@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { Check, Tag, X } from "lucide-react";
+import { Tag, X } from "lucide-react";
 import { useClickOutside } from "../hooks/useClickOutside";
 import { iconFor, inkText } from "../lib/palette";
 import { __, __r, useT } from "../i18n";
@@ -10,10 +10,11 @@ const EDGE = 8;
 
 /**
  * Says what a pomodoro is for: a project or task from `choices` (the open ones, [{ id, name, color, icon }], a task's
- * id being its key), or a few words of your own for a chore or activity that has no project. A project or task
- * stays for the set; a chore is only for that focus (the pomodoro hook drops it when the focus is over). It is saved
- * with the pomodoro, so the calendar can name it. `value` is { project_id, todo_id, label } or null; `onChange` gets
- * the same, or null to clear it. `children(open, toggle)` draws the button that opens it, so it can sit in the
+ * id being its key), or, when what is typed matches none, a few words of your own for a chore that has no project.
+ * It is one or the other: the caller (`onChange`) makes a project's timer the thing, or the chore the label, and lets
+ * go of the other. A chore is only for that focus (the pomodoro hook drops it when the focus is over). `value` is the
+ * chore, { project_id: null, todo_id: null, label }, or null; `onChange` gets that, a project pick
+ * ({ project_id, todo_id: null, label }), or null to clear it. `children(open, toggle)` draws the button that opens it, so it can sit in the
  * header chip or on the full screen. Esc, a press outside, or a pick closes it.
  */
 export default function FocusTag({ value, onChange, choices, up = false, children }) {
@@ -109,7 +110,6 @@ export function FocusPicker({ value, onChange, choices, onDone }) {
               <button onClick={() => pickChoice(c)} className={row}>
                 <Icon size={14} className="shrink-0" style={{ color: inkText(c.color) }} aria-hidden="true" />
                 <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                {value?.project_id === c.id && <Check size={13} aria-hidden="true" />}
               </button>
             </li>
           );
@@ -125,7 +125,7 @@ export function FocusPicker({ value, onChange, choices, onDone }) {
           </li>
         )}
       </ul>
-      <p className="mt-1.5 px-1 font-serif text-xs italic text-faint">{__("A chore is only for this focus; a project or task stays for the set.")}</p>
+      <p className="mt-1.5 px-1 font-serif text-xs italic text-faint">{__("A project or task starts its timer; anything else becomes a chore, only for this focus.")}</p>
       {value && (
         <button
           onClick={() => pick(null)}

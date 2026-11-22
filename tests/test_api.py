@@ -193,6 +193,20 @@ def test_project_notes(client):
     assert client.patch(f"/api/projects/{p['id']}", json={"name": "Renamed"}).json()["notes"] == ""  # untouched by other edits
 
 
+def test_project_cadence(client):
+    p = make_project(client)
+    assert p["cadence_days"] == 0  # no cadence unless one is set
+    made = client.post("/api/projects", json={"name": "Weekly", "cadence_days": 7}).json()
+    assert made["cadence_days"] == 7
+
+    assert client.patch(f"/api/projects/{p['id']}", json={"cadence_days": 30}).json()["cadence_days"] == 30
+    assert client.patch(f"/api/projects/{p['id']}", json={"name": "Renamed"}).json()["cadence_days"] == 30  # untouched by other edits
+    assert client.patch(f"/api/projects/{p['id']}", json={"cadence_days": 0}).json()["cadence_days"] == 0  # can be cleared
+    assert client.patch(f"/api/projects/{p['id']}", json={"cadence_days": None}).status_code == 422
+    assert client.patch(f"/api/projects/{p['id']}", json={"cadence_days": -1}).status_code == 422
+    assert client.patch(f"/api/projects/{p['id']}", json={"cadence_days": 366}).status_code == 422
+
+
 def make_todo(client, project_id, text="Write the intro"):
     res = client.post("/api/todos", json={"project_id": project_id, "text": text})
     assert res.status_code == 201, res.text
@@ -214,6 +228,28 @@ def test_todo_crud(client):
     assert client.delete(f"/api/todos/{b['id']}").status_code == 204
     assert [t["text"] for t in client.get("/api/todos").json()] == ["First, edited"]
     assert client.delete(f"/api/todos/{b['id']}").status_code == 404
+
+
+def test_todo_can_be_added_at_the_front(client):
+    p = make_project(client)
+    a = make_todo(client, p["id"], "First")
+    b = make_todo(client, p["id"], "Second")
+    front = client.post("/api/todos", json={"project_id": p["id"], "text": "On top", "position": "top"})
+    assert front.status_code == 201, front.text
+    assert front.json()["sort_order"] < min(a["sort_order"], b["sort_order"])
+    assert "position" not in front.json()
+    assert [t["text"] for t in client.get("/api/todos").json()] == ["On top", "First", "Second"]
+
+    # Another one on top goes ahead of that one, and the default is still the back
+    again = client.post("/api/todos", json={"project_id": p["id"], "text": "Newer", "position": "top"}).json()
+    assert again["sort_order"] < front.json()["sort_order"]
+    last = make_todo(client, p["id"], "Last")
+    assert last["sort_order"] > b["sort_order"]
+
+    # A sub-to-do goes to the back of the list, even when it asks for the front
+    sub = client.post("/api/todos", json={"project_id": p["id"], "text": "Step", "parent_id": a["id"], "position": "top"}).json()
+    assert sub["sort_order"] > last["sort_order"]
+    assert client.post("/api/todos", json={"project_id": p["id"], "text": "x", "position": "middle"}).status_code == 422
 
 
 def test_todo_completed_at_follows_done(client):
