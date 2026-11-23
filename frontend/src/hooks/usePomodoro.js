@@ -100,7 +100,8 @@ function chime() {
  * what lands in the log. The one link: when a break starts (the focus ending with auto-break,
  * "Break now", or Start break after the focus ended), a running project timer is paused for the
  * break (its session is stopped and kept) and the project is `held`. A focus that ends into a
- * waiting break pauses it then too. Starting the next focus starts it again, and its clock carries on from the time
+ * waiting break pauses it then too, and so does pausing the focus itself (Resume starts it again).
+ * Starting the next focus starts it again, and its clock carries on from the time
  * it had (`carry`) rather than from zero. Stopping the break, or starting a timer by hand
  * while it runs, lets the hold go. The link runs the other way too: starting a project timer by
  * hand starts the focus as well, if the pomodoro isn't already going (`followTimer`). A focus can also be
@@ -287,25 +288,39 @@ export function usePomodoro({ running, startTimer, stopTimer, onFocusDone, scope
     else setCycle((c) => ({ ...c, phase: "ready" }));
   }, [phase, breakRemaining, cycle.until, settings.autoStart, settings.sound, startFocus, setCycle]);
 
-  /** Pause the focus: the time left stands still until Resume. A project timer is left alone. */
-  const pause = useCallback(
-    () => setCycle((c) => ({ ...c, phase: "focusPaused", pausedAt: Date.now(), confirmedAt: Date.now(), left: Math.max(1, Math.round((c.until - Date.now()) / 1000)) })),
-    [setCycle]
-  );
+  /** Pause the focus: the time left stands still until Resume. A running project timer is paused with it
+   *  (held, like for a break) and starts again on Resume. */
+  const pause = useCallback(() => {
+    holdRunning.current();
+    setCycle((c) => ({ ...c, phase: "focusPaused", pausedAt: Date.now(), confirmedAt: Date.now(), left: Math.max(1, Math.round((c.until - Date.now()) / 1000)) }));
+  }, [setCycle]);
 
-  const resume = useCallback(
+  // Carry the focus on, leaving the project timer alone
+  const resumeFocus = useCallback(
     () => setCycle((c) => ({ ...c, phase: "focus", confirmedAt: Date.now(), until: Date.now() + c.left * 1000 })),
     [setCycle]
   );
+
+  /** Resume the focus, and the project timer that was paused with it, if there is one. */
+  const resume = useCallback(() => {
+    resumeFocus();
+    if (cycle.held) {
+      setCycle((c) => ({ ...c, held: null }));
+      startTimer(cycle.held);
+    }
+  }, [resumeFocus, cycle.held, setCycle, startTimer]);
 
   /** A project timer was just started by hand: bring the pomodoro along unless it is already going.
    *  A paused focus carries on, and one that hasn't started (or whose break is over) begins. A break,
    *  waiting or counting down, is left alone. The project timer isn't touched: a project that was paused
    *  for the break stays let go, the one just started takes its place. */
   const followTimer = useCallback(() => {
-    if (phase === "focusPaused") resume();
-    else if (phase === "idle" || phase === "ready") beginFocus();
-  }, [phase, resume, beginFocus]);
+    // The timer was just started by hand, so a project held by the pause is let go rather than restarted
+    if (phase === "focusPaused") {
+      resumeFocus();
+      setCycle((c) => ({ ...c, held: null }));
+    } else if (phase === "idle" || phase === "ready") beginFocus();
+  }, [phase, resumeFocus, setCycle, beginFocus]);
 
   /** End the focus early and rest now. It's saved as cut short: it doesn't count toward the set. */
   const breakNow = useCallback(() => {

@@ -486,7 +486,7 @@ function ProjectCard({ runningProject, runningSession, clock, heldProject, heldS
   return (
     <section className="w-full max-w-2xl shrink-0" aria-label={__("Project")}>
       <h2 className="mb-1.5 text-xs font-semibold text-muted">
-        {runningProject ? __("Working on") : chosen ? __("Next focus on") : heldProject ? __("Paused for the break") : __("Project")}
+        {runningProject ? __("Working on") : chosen ? __("Next focus on") : heldProject ? __("Paused") : __("Project")}
       </h2>
 
       {runningProject ? (

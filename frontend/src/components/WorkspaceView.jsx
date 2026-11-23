@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Check, CircleDot, GripVertical, ListChecks, ListMinus, ListPlus, ListTodo, Play, Plus, Search, Sparkles, Square, Tag, Target, X } from "lucide-react";
+import { Check, CircleDot, ClipboardPaste, GripVertical, ListChecks, ListMinus, ListPlus, ListTodo, Play, Search, Sparkles, Square, Target, X } from "lucide-react";
 import { useReorder } from "../hooks/useReorder";
+import PlanAiPanel from "./PlanAiPanel";
 import { usePlanContext } from "../lib/planContext";
 import { dayState, entriesByDay, dayKey, streakOf } from "../lib/habits";
 import { TASK_INK, iconFor, inkText } from "../lib/palette";
-import { __, __r, useT } from "../i18n";
+import { __, useT } from "../i18n";
 
 const LIMIT = 6; // rows a group shows before "Show all"
 
@@ -13,23 +14,25 @@ const LIMIT = 6; // rows a group shows before "Show all"
  * Start button that does what starting it does elsewhere:
  * - what is already being worked on (to-dos marked so) comes first;
  * - projects and tasks start their timer (a pomodoro goes with it if none is going);
- * - habits and chores have no timer: starting one starts a focus (a pomodoro) with its name as what it is for.
- * `chores` are the words earlier focuses were for; a new one can be typed in. The box above searches all of it.
+ * - habits have no timer: starting one starts a focus (a pomodoro) with its name as what it is for.
+ * The box above searches all of it.
  *
  * "Next up" at the top is the plan: what to do next, in the order to do it, dragged into place. Anything below (and a to-do's
  * menu, a project's peek, a Feed card) can be added to it with the list button (`usePlanContext`). `plan` is its rows,
  * [{ planId, kind, name, context?, icon?, color?, running, onStart }], `onPlanReorder(ids)` and `onPlanRemove(planId)`.
  * "Copy for AI" copies everything that could be worked on as a prompt for an AI to say what to do first (`onCopyForAi`,
- * which resolves to whether it worked).
+ * which resolves to whether it worked); "Paste AI reply" takes its answer back: `resolvePlanId(id)` says what one of the
+ * prompt's ids is and `onPlanArrange(picks)` puts what the AI chose at the front of the plan (see PlanAiPanel).
  */
 export default function WorkspaceView({
-  working, projects, tasks, habits, chores, runningId, timedTodoId = null, focusLabel, today, onStartSubject, onStartTodo, onStartChore, onStop,
-  plan = [], onPlanReorder, onPlanRemove, onCopyForAi,
+  working, projects, tasks, habits, runningId, timedTodoId = null, focusLabel, today, onStartSubject, onStartTodo, onStartChore, onStop,
+  plan = [], onPlanReorder, onPlanRemove, onCopyForAi, resolvePlanId, onPlanArrange,
 }) {
   useT();
   const planCtx = usePlanContext();
   const planFor = (kind, ref) => (planCtx ? { on: planCtx.has(kind, ref), onToggle: () => planCtx.toggle(kind, ref) } : null);
   const [copied, setCopied] = useState(false);
+  const [pasting, setPasting] = useState(false);
   const copyForAi = async () => {
     if (!(await onCopyForAi?.())) return;
     setCopied(true);
@@ -38,15 +41,13 @@ export default function WorkspaceView({
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const has = (text) => !q || text.toLowerCase().includes(q);
-  const typedIsNew = q && ![...chores, ...habits.map((h) => h.name)].some((c) => c.toLowerCase() === q);
 
   const workingRows = working.filter((w) => has(w.todo.text) || has(w.context));
   const projectRows = projects.filter((p) => has(p.name));
   const taskRows = tasks.filter((p) => has(p.name));
   const habitRows = habits.filter((h) => has(h.name));
-  const choreRows = chores.filter(has);
   const planRows = plan.filter((r) => has(r.name) || has(r.context ?? ""));
-  const nothing = workingRows.length + projectRows.length + taskRows.length + habitRows.length + choreRows.length === 0;
+  const nothing = workingRows.length + projectRows.length + taskRows.length + habitRows.length === 0;
 
   const key = dayKey(today);
   const focusing = (label) => focusLabel === label;
@@ -56,18 +57,33 @@ export default function WorkspaceView({
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2 className="font-serif text-[17px] font-semibold">{__("Workspace")}</h2>
         <span className="font-serif text-xs italic text-muted">{__("what to work on")}</span>
-        {onCopyForAi && (
-          <button
-            onClick={copyForAi}
-            className="ml-auto inline-flex h-8 items-center gap-1.5 border border-line-strong px-2.5 text-xs font-semibold transition-colors hover:border-text hover:bg-surface-2"
-            title={__("Copy every project, to-do, task, habit and chore as a prompt, to ask an AI what to do first")}
-          >
-            {copied ? <Check size={13} aria-hidden="true" /> : <Sparkles size={13} aria-hidden="true" />}
-            {copied ? __("Copied") : __("Copy for AI")}
-          </button>
-        )}
+        <div className="ml-auto flex flex-wrap gap-2">
+          {onCopyForAi && (
+            <button
+              onClick={copyForAi}
+              className="inline-flex h-8 items-center gap-1.5 border border-line-strong px-2.5 text-xs font-semibold transition-colors hover:border-text hover:bg-surface-2"
+              title={__("Copy every project, to-do, task and habit as a prompt, to ask an AI what to do first")}
+            >
+              {copied ? <Check size={13} aria-hidden="true" /> : <Sparkles size={13} aria-hidden="true" />}
+              {copied ? __("Copied") : __("Copy for AI")}
+            </button>
+          )}
+          {onPlanArrange && resolvePlanId && (
+            <button
+              onClick={() => setPasting((p) => !p)}
+              aria-pressed={pasting}
+              className={`inline-flex h-8 items-center gap-1.5 border px-2.5 text-xs font-semibold transition-colors hover:border-text hover:bg-surface-2 ${pasting ? "border-text bg-surface-2" : "border-line-strong"}`}
+              title={__("Paste an AI's answer to line up what to do first")}
+            >
+              <ClipboardPaste size={13} aria-hidden="true" />
+              {__("Paste AI reply")}
+            </button>
+          )}
+        </div>
       </div>
-      <p className="mt-0.5 mb-3 text-[13px] text-muted">{__("Pick one: projects, tasks and to-dos start their timer, and habits and chores start a pomodoro for them.")}</p>
+      <p className="mt-0.5 mb-3 text-[13px] text-muted">{__("Pick one: projects, tasks and to-dos start their timer, and habits start a pomodoro for them.")}</p>
+
+      {pasting && onPlanArrange && resolvePlanId && <PlanAiPanel resolve={resolvePlanId} onApply={onPlanArrange} onClose={() => setPasting(false)} />}
 
       <label className="mb-2 flex h-9 shrink-0 items-center gap-2 border border-line-strong px-2.5 focus-within:border-text">
         <Search size={14} className="shrink-0 text-muted" aria-hidden="true" />
@@ -75,8 +91,7 @@ export default function WorkspaceView({
           id="workspace-search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && typedIsNew && (onStartChore(query.trim().slice(0, 120)), setQuery(""))}
-          placeholder={__("Search, or type a chore and press Enter")}
+          placeholder={__("Search what to work on")}
           aria-label={__("Search what to work on")}
           maxLength={120}
           className="min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-faint"
@@ -86,14 +101,6 @@ export default function WorkspaceView({
       <div data-scroll className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         {planCtx && (plan.length > 0 || !q) && (
           <NextUp rows={planRows} empty={plan.length === 0} onReorder={onPlanReorder} onRemove={onPlanRemove} onStop={onStop} />
-        )}
-
-        {typedIsNew && (
-          <Row
-            icon={<Plus size={14} className="text-muted" aria-hidden="true" />}
-            name={__r("Use “{name}” as a chore", { name: <b>{query.trim()}</b> })}
-            action={{ label: __("Start"), icon: Play, onClick: () => (onStartChore(query.trim().slice(0, 120)), setQuery("")) }}
-          />
         )}
 
         <Group title={__("Being worked on")} icon={CircleDot} rows={workingRows}>
@@ -165,19 +172,6 @@ export default function WorkspaceView({
               />
             );
           }}
-        </Group>
-
-        <Group title={__("Chores")} icon={Tag} rows={choreRows}>
-          {(label) => (
-            <Row
-              key={label}
-              icon={<Tag size={14} className="text-muted" aria-hidden="true" />}
-              name={label}
-              running={focusing(label)}
-              plan={planFor("chore", label)}
-              action={{ label: focusing(label) ? __("Focusing") : __("Start"), icon: Play, onClick: () => onStartChore(label), disabled: focusing(label) }}
-            />
-          )}
         </Group>
 
         {nothing && !typedIsNew && <p className="py-4 font-serif text-sm italic text-muted">{__("Nothing matches “{query}”.", { query: query.trim() })}</p>}
@@ -269,7 +263,7 @@ function NextUp({ rows, empty, onReorder, onRemove, onStop }) {
         <ul className={order.held ? "select-none" : ""}>
           {rows.map((r, i) => {
             const row = order.rowProps(i);
-            const Icon = r.kind === "project" ? iconFor(r.icon) : r.kind === "habit" ? Target : r.kind === "chore" ? Tag : ListChecks;
+            const Icon = r.kind === "project" ? iconFor(r.icon) : r.kind === "habit" ? Target : ListChecks;
             return (
               <li
                 key={r.planId}

@@ -114,20 +114,47 @@ export function planChanges(raw, tasks, subsOf) {
   return changes;
 }
 
+const MAX_PICKS = 12; // what the plan prompt asks for at most
+
+/**
+ * The plan an AI answered with ({ "order": [{ "id", "why" }] }), as what to put on the plan in the order given:
+ * `{ picks: [{ ...found, why }], unknown }`. `resolve(id)` turns one of the ids the prompt gave ("project:…", "todo:…",
+ * "habit:…") into { kind, ref, name, context?, icon?, color? }, or null when it isn't there (any more);
+ * `unknown` counts those. Throws an Error with a message for the person when the reply can't be used.
+ */
+export function planFromReply(raw, resolve) {
+  const data = extractJson(raw);
+  const rows = Array.isArray(data) ? data : data?.order ?? data?.plan;
+  if (!Array.isArray(rows)) throw new Error(__("The JSON needs an \"order\" list."));
+  const seen = new Set();
+  const picks = [];
+  let unknown = 0;
+  for (const row of rows) {
+    const id = squash(typeof row === "string" ? row : row?.id);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const found = resolve(id);
+    if (!found) unknown++;
+    else if (picks.length < MAX_PICKS) picks.push({ ...found, why: squash(row?.why).slice(0, 200) });
+  }
+  if (picks.length === 0) throw new Error(__("None of the ids in that reply match what you can work on. Copy the prompt again and ask the AI to keep the ids."));
+  return { picks, unknown };
+}
+
 /**
  * The text to copy for an AI to decide what to work on first: the instructions, then everything that could be worked on
- * as JSON. `data` is { now (text), projects, tasks, habits, chores, plan }: the projects each with their open to-dos (and
- * those with their sub-to-dos), the tasks the same, the habits with their streaks, the chores, and the ids already lined
- * up in the plan, in order. Every thing has an `id` of its own ("project:...", "todo:...", "habit:...", "chore:..."), which
+ * as JSON. `data` is { now (text), projects, tasks, habits, plan }: the projects each with their open to-dos (and
+ * those with their sub-to-dos), the tasks the same, the habits with their streaks, and the ids already lined
+ * up in the plan, in order. Every thing has an `id` of its own ("project:...", "todo:...", "habit:..."), which
  * the reply has to use exactly. The AI answers with { order: [{ id, why }] }.
  */
-export function buildPlanPrompt({ now, projects, tasks, habits, chores, plan }) {
-  const payload = { projects, tasks, habits, chores, plan };
+export function buildPlanPrompt({ now, projects, tasks, habits, plan }) {
+  const payload = { projects, tasks, habits, plan };
   return [
-    `Help me decide what to work on first. Below is everything I could work on, as JSON: my open projects (each with its open to-dos), my tasks, my habits and some chores. It is ${now}.`,
+    `Help me decide what to work on first. Below is everything I could work on, as JSON: my open projects (each with its open to-dos), my tasks and my habits. It is ${now}.`,
     "",
     '1. Choose what I should do first, and in what order. Favour what has waited longest ("lastWorked"), what is already being worked on ("working": true), projects whose "everyDays" cadence says they are due, quick wins (a to-do or task with a short estimate like "(~15m)" in its text), and habits not logged today. What is already in "plan" is what I lined up myself: keep it near the top unless something else clearly matters more.',
-    "2. List at most 12 things, from first to last. For each, give its id exactly as it appears below (a project, a to-do, a habit or a chore) and one short reason.",
+    "2. List at most 12 things, from first to last. For each, give its id exactly as it appears below (a project, a to-do or a habit) and one short reason.",
     "",
     "Reply with ONLY a JSON object. No markdown fences, no commentary:",
     '{"order":[{"id":"<id>","why":"<short reason>"}]}',

@@ -60,6 +60,7 @@ with the time you worked, and a year-long activity heatmap.
   projects ran inside it and for how long. The header, the Stats strip and a project's detail show
   the counts. When a break starts (the focus ending with auto-break, *Break now*, or *Start break*), a running project
   timer is paused for the break: its time so far is saved and it shows as paused beside the break.
+  Pausing the focus pauses a running project timer the same way, and *Resume* starts it back up.
   Pressing *Focus* again starts it back up, with its clock carrying on from where it was. Stopping
   the break, or starting a timer by hand during it, leaves the project stopped. Lengths, the long
   break interval, auto-start and the chime are set in a top peek: its tab hangs from the top edge of the

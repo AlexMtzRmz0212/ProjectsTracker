@@ -200,7 +200,7 @@ function HeldChip({ project, seconds }) {
     <div
       className="relative flex h-[34px] min-w-0 items-center gap-2 border border-dashed pl-3 pr-2.5 text-muted"
       style={{ borderColor: tint(project.color, 55) }}
-      title={__("{name} is paused for the break. It starts again with the next focus.", { name: project.name })}
+      title={__("{name} is paused. It starts again with the focus.", { name: project.name })}
     >
       <Pause size={11} fill="currentColor" className="shrink-0" aria-hidden="true" />
       <span className="hidden max-w-[10rem] truncate font-serif text-[15px] italic lg:block">{project.name}</span>

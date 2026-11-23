@@ -17,7 +17,8 @@ const body = (kind, ref) => ({
  * failure puts the server's list back.
  *
  * `items` is the plan in order; `has(kind, ref)` whether something is on it; `toggle(kind, ref)` adds it (at the end)
- * or takes it off; `add`, `remove(id)` and `reorder(ids)` do the parts. `kind` is project | todo | habit | chore and `ref`
+ * or takes it off; `add`, `remove(id)` and `reorder(ids)` do the parts, and `arrange(picks)` puts a list of things at the
+ * front of it in order (what an AI's reply is applied with). `kind` is project | todo | habit | chore and `ref`
  * the project, to-do or habit id, or the chore's words (a task or sub-task is a to-do).
  */
 export function usePlan(api = realApi) {
@@ -88,6 +89,27 @@ export function usePlan(api = realApi) {
     [api, load]
   );
 
+  /** Put these at the front of the plan, in this order ([{ kind, ref }]): the ones not on it yet are added, the ones
+   *  already on it move up, and anything else on the plan stays after them. Resolves to whether it worked. */
+  const arrange = useCallback(
+    async (picks) => {
+      setError("");
+      try {
+        const ids = [];
+        // One at a time: each is added at the end, and a failure part-way leaves what was added so far
+        for (const { kind, ref } of picks) ids.push((await api.addToPlan(body(kind, ref))).id);
+        await api.orderPlan(ids);
+        await load();
+        return true;
+      } catch (e) {
+        if (alive.current) setError(e.message || __("Something went wrong"));
+        await load();
+        return false;
+      }
+    },
+    [api, load]
+  );
+
   const find = (kind, ref) => items.find((x) => x.kind === kind && planRef(x) === ref);
   const has = (kind, ref) => Boolean(find(kind, ref));
   const toggle = (kind, ref) => {
@@ -95,5 +117,5 @@ export function usePlan(api = realApi) {
     return found ? remove(found.id) : add(kind, ref);
   };
 
-  return { items, error, has, toggle, add, remove, reorder, reload: load };
+  return { items, error, has, toggle, add, remove, reorder, arrange, reload: load };
 }

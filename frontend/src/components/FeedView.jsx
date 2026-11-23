@@ -13,6 +13,10 @@ import { __, _n, useT } from "../i18n";
 
 
 const SHOWN_TODOS = 5; // more than this and the rest are behind "+N more", which opens the project
+const DAY_MS = 86_400_000;
+const ROTATION_MODES = ["rotation", "tasks", "projects"];
+const daysUntil = (back, today) => Math.max(1, Math.round((back - today) / DAY_MS));
+const whenLabel = (days) => (days === 1 ? __("tomorrow") : __("in {n} days", { n: days }));
 
 /**
  * What to work on next: the open projects as a queue, the one idle longest first, each with
@@ -23,20 +27,27 @@ const SHOWN_TODOS = 5; // more than this and the rest are behind "+N more", whic
  * `todosByProject` maps a project id to its open to-dos, `todosById` holds every to-do (to name
  * a sub-to-do's parent) and `todoOps` is the tracker's add / update. `queue` arrives already in the order to
  * show (see orderQueue); `feedOrder` is that order's settings (the mode, the pinned cards) and `onOrder(ids, released)`
- * saves one made by the Sort deck.
+ * saves one made by the Sort deck. `waiting` holds the projects kept out of the Feed until their "done every N days"
+ * has passed ({ project, backOn }, soonest first) and `today` is the local midnight that opens today.
  */
 export default function FeedView({
-  queue, todosByProject, todosById, todoOps, statusesById, runningId, elapsed, feedOrder, onOrder, onOpen, onStart, onStartTask, onStop, onSkip,
+  queue, waiting = [], today, todosByProject, todosById, todoOps, statusesById, runningId, elapsed, feedOrder, onOrder, onOpen, onStart, onStartTask, onStop, onSkip,
 }) {
   useT();
   const [sorting, setSorting] = useState(false);
   if (queue.length === 0) {
+    const allWaiting = waiting.length > 0;
     return (
-      <div className="mx-auto grid min-h-[16rem] max-w-3xl place-items-center border border-dashed border-line-strong p-6 text-center">
-        <div>
-          <p className="font-serif text-lg font-semibold">{__("Nothing to work on")}</p>
-          <p className="mt-1 text-[13px] text-muted">{__("Finished and archived projects don't show up here.")}</p>
+      <div className="mx-auto max-w-3xl">
+        <div className="grid min-h-[16rem] place-items-center border border-dashed border-line-strong p-6 text-center">
+          <div>
+            <p className="font-serif text-lg font-semibold">{allWaiting ? __("Nothing due right now") : __("Nothing to work on")}</p>
+            <p className="mt-1 text-[13px] text-muted">
+              {allWaiting ? __("Every project is waiting out its “done every N days”.") : __("Finished and archived projects don't show up here.")}
+            </p>
+          </div>
         </div>
+        <WaitingFooter waiting={waiting} today={today} onOpen={onOpen} />
       </div>
     );
   }
@@ -64,7 +75,8 @@ export default function FeedView({
     <div className="pb-4">
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
         <p className="min-w-0 flex-1 basis-56 font-serif text-[13px] italic text-muted">
-          {__(mode.note)} {feedOrder.displace && ["rotation", "tasks", "projects"].includes(feedOrder.mode) && `${__("A project waits its “done every N days” before it is back on top.")} `}
+          {__(mode.note)} {feedOrder.displace && ROTATION_MODES.includes(feedOrder.mode) && `${__("A project waits its “done every N days” before it is back on top.")} `}
+          {feedOrder.hide && ROTATION_MODES.includes(feedOrder.mode) && `${__("A project stays out of the Feed until its “done every N days” has passed.")} `}
           {__("Pinned cards stay on top.")}
         </p>
         <label className="flex items-center gap-1.5 text-xs text-muted">
@@ -81,17 +93,21 @@ export default function FeedView({
             ))}
           </select>
         </label>
-        {/* The rotation can count each project's "done every N days": it then waits that long before it is due again */}
-        {["rotation", "tasks", "projects"].includes(feedOrder.mode) && (
-          <label className="flex items-center gap-1.5 text-xs text-muted" title={__("Direct: by last work. Plus days: each project also waits its “done every N days”.")}>
+        {/* The rotation can count each project's "done every N days": it then waits that long before it is due again, or stays out of the Feed until then */}
+        {ROTATION_MODES.includes(feedOrder.mode) && (
+          <label
+            className="flex items-center gap-1.5 text-xs text-muted"
+            title={__("Direct: by last work. Plus days: each project also waits its “done every N days”. Hide until due: it stays out of the Feed until then.")}
+          >
             {__("Rotation")}
             <select
-              value={feedOrder.displace ? "days" : "direct"}
-              onChange={(e) => feedOrder.setDisplace(e.target.value === "days")}
+              value={feedOrder.hide ? "hide" : feedOrder.displace ? "days" : "direct"}
+              onChange={(e) => feedOrder.setRotation(e.target.value)}
               className="h-8 border border-line-strong bg-surface px-2 text-[13px] font-semibold text-text outline-none focus:border-text"
             >
               <option value="direct">{__("Direct")}</option>
               <option value="days">{__("Plus days")}</option>
+              <option value="hide">{__("Hide until due")}</option>
             </select>
           </label>
         )}
@@ -138,6 +154,41 @@ export default function FeedView({
           />
         ))}
       </ol>
+      <WaitingFooter waiting={waiting} today={today} onOpen={onOpen} />
+    </div>
+  );
+}
+
+/** The line under the Feed for the projects kept out of it until their "done every N days" has passed: how many, when
+ *  the first is back, and (opened) which ones. */
+function WaitingFooter({ waiting, today, onOpen }) {
+  useT();
+  const [open, setOpen] = useState(false);
+  if (waiting.length === 0) return null;
+  const when = whenLabel(daysUntil(waiting[0].backOn, today));
+  return (
+    <div className="mt-3 border-t border-rule pt-2 text-xs text-muted">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="font-serif italic underline-offset-2 transition-colors hover:text-text hover:underline"
+      >
+        {_n(waiting.length, "{n} project waiting", "{n} projects waiting")}
+        {" · "}
+        {waiting.length === 1 ? __("back {when}", { when }) : __("next back {when}", { when })}
+      </button>
+      {open && (
+        <ul className="mt-1.5 space-y-0.5">
+          {waiting.map(({ project, backOn }) => (
+            <li key={project.id} className="flex items-center gap-2">
+              <button onClick={() => onOpen(project.id)} title={project.name} className="min-w-0 truncate text-left underline-offset-2 hover:text-text hover:underline">
+                {project.name}
+              </button>
+              <span className="shrink-0 font-serif italic text-faint">{__("back {when}", { when: whenLabel(daysUntil(backOn, today)) })}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

@@ -8,7 +8,7 @@ import { useHabits } from "./hooks/useHabits";
 import { useNow } from "./hooks/useNow";
 import { usePomodoro } from "./hooks/usePomodoro";
 import { useFeedOrder } from "./hooks/useFeedOrder";
-import { orderQueue } from "./lib/feedOrder";
+import { orderQueue, splitWaiting } from "./lib/feedOrder";
 import { useMiniPlayer } from "./hooks/useMiniPlayer";
 import {
   aggregateByDay, dayKey, daySeconds, feedQueue, fmtClock, fmtCountdown, fmtHM, fmtTime, completedPomodoros, firstActivityDate, pomodorosOnDay, projectPomodoroCount, projectTagCounts, sessionSeconds, streak, withLive,
@@ -335,9 +335,15 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
   );
   // How the Feed is ordered (kept in this browser): rotation is the queue above; the other modes and the pins re-sort it
   const feedOrder = useFeedOrder(demo ? "demo" : "app");
+  // With "Hide until due" the projects whose "done every N days" has not passed wait outside the Feed (`waiting`)
+  const feedRunning = isTaskKey(runningId) ? FEED_TASKS : runningId;
+  const { ready: readyQueue, waiting: waitingCards } = useMemo(
+    () => splitWaiting(queue, { mode: feedOrder.mode, hide: feedOrder.hide, pinned: feedOrder.pinned }, feedRunning, today),
+    [queue, feedOrder.mode, feedOrder.hide, feedOrder.pinned, feedRunning, today]
+  );
   const shownQueue = useMemo(
-    () => orderQueue(queue, { mode: feedOrder.mode, manual: feedOrder.manual, pinned: feedOrder.pinned, displace: feedOrder.displace }, isTaskKey(runningId) ? FEED_TASKS : runningId),
-    [queue, feedOrder.mode, feedOrder.manual, feedOrder.pinned, feedOrder.displace, runningId]
+    () => orderQueue(readyQueue, { mode: feedOrder.mode, manual: feedOrder.manual, pinned: feedOrder.pinned, displace: feedOrder.displace }, feedRunning),
+    [readyQueue, feedOrder.mode, feedOrder.manual, feedOrder.pinned, feedOrder.displace, feedRunning]
   );
   /** Skip a Feed card to the back: in the rotation by stamping it, in "My order" by moving it to the end of that
    *  order. Either way it loses its pin, or it would stay on top. */
@@ -708,30 +714,68 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
 
   if (t.status === "error") return <ServerDown onRetry={t.reload} connecting={t.connecting} failures={t.failures} auto={!demo} />;
 
+  // What a plan item is, when it can still be worked on: the open project, the open to-do (with the project or "Task" and
+  // the parent it sits under) or the active habit, else null. The plan's rows and an AI's reply are both read with these.
+  const openProject = (id) => {
+    const p = projectsById.get(id);
+    return p && !p.archived_at && isOpen(p) ? p : null;
+  };
+  const openTodo = (id) => {
+    const todo = todosById.get(id);
+    if (!todo || todo.done || todo.cancelled_at) return null;
+    const owner = todo.project_id ? projectsById.get(todo.project_id) : null;
+    const parent = todo.parent_id ? todosById.get(todo.parent_id) : null;
+    return { todo, owner, context: [owner?.name ?? __("Task"), parent?.text].filter(Boolean).join(": ") };
+  };
+  const activeHabit = (id) => {
+    const h = habits.habits.find((x) => x.id === id);
+    return h && isActiveHabit(h) ? h : null;
+  };
+
   // The plan as rows to show and start; what has been finished since it was made is left out
   const planRows = plan.items.flatMap((item) => {
     if (item.kind === "project") {
-      const p = projectsById.get(item.project_id);
-      if (!p || p.archived_at || !isOpen(p)) return [];
+      const p = openProject(item.project_id);
+      if (!p) return [];
       return [{ planId: item.id, kind: "project", name: p.name, icon: p.icon, color: p.color, running: runningId === p.id, onStart: () => startProject(p.id) }];
     }
     if (item.kind === "todo") {
-      const todo = todosById.get(item.todo_id);
-      if (!todo || todo.done || todo.cancelled_at) return [];
-      const owner = todo.project_id ? projectsById.get(todo.project_id) : null;
-      const parent = todo.parent_id ? todosById.get(todo.parent_id) : null;
-      const context = [owner?.name ?? __("Task"), parent?.text].filter(Boolean).join(": ");
+      const open = openTodo(item.todo_id);
+      if (!open) return [];
+      const { todo, owner, context } = open;
       return [{ planId: item.id, kind: "todo", name: todo.text, context, icon: owner?.icon, color: owner?.color, running: t.running?.todo_id === todo.id, onStart: () => startAnyTodo(todo) }];
     }
     if (item.kind === "habit") {
-      const h = habits.habits.find((x) => x.id === item.habit_id);
-      if (!h || !isActiveHabit(h)) return [];
+      const h = activeHabit(item.habit_id);
+      if (!h) return [];
       return [{ planId: item.id, kind: "habit", name: h.name, running: pomodoro.focusFor?.label === h.name, onStart: () => startChore(h.name) }];
     }
-    return [{ planId: item.id, kind: "chore", name: item.label, running: pomodoro.focusFor?.label === item.label, onStart: () => startChore(item.label) }];
+    return []; // chores aren't part of the Workspace: one put on the plan before is left out
   });
 
-  /** Copy everything that could be worked on (projects with their open to-dos, tasks, habits, chores, and the plan so far)
+  /** What one of the ids in the "Copy for AI" prompt ("project:…", "todo:…", "habit:…") is, for the plan; null
+   *  when it is gone, finished or made up. */
+  const resolvePlanId = (id) => {
+    const at = id.indexOf(":");
+    if (at < 0) return null;
+    const kind = id.slice(0, at);
+    const ref = id.slice(at + 1);
+    if (kind === "project") {
+      const p = openProject(ref);
+      return p ? { kind, ref: p.id, name: p.name, icon: p.icon, color: p.color } : null;
+    }
+    if (kind === "todo") {
+      const open = openTodo(ref);
+      return open ? { kind, ref: open.todo.id, name: open.todo.text, context: open.context, icon: open.owner?.icon, color: open.owner?.color } : null;
+    }
+    if (kind === "habit") {
+      const h = activeHabit(ref);
+      return h ? { kind, ref: h.id, name: h.name } : null;
+    }
+    return null;
+  };
+
+  /** Copy everything that could be worked on (projects with their open to-dos, tasks, habits, and the plan so far)
    *  as a prompt for an AI to say what to do first. Resolves to whether it was copied. */
   const copyPlanForAi = () => {
     const openOnes = (list) => list.filter((x) => !x.done && !x.cancelled_at);
@@ -760,8 +804,7 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
         projects: projectsData,
         tasks: openOnes(tasks.filter((x) => !x.parent_id)).map(asTodo),
         habits: habits.habits.filter(isActiveHabit).map((h) => ({ id: `habit:${h.id}`, name: h.name, streak: streakOf(h, today), loggedToday: entriesByDay(h).has(todayKeyText) })),
-        chores: chores.map((label) => ({ id: `chore:${label}`, name: label })),
-        plan: plan.items.map((item) => `${item.kind}:${planRef(item)}`),
+        plan: plan.items.filter((item) => item.kind !== "chore").map((item) => `${item.kind}:${planRef(item)}`),
       })
     );
   };
@@ -942,7 +985,6 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
                 projects={openProjects}
                 tasks={openTaskSubjects}
                 habits={habits.habits.filter(isActiveHabit)}
-                chores={chores}
                 runningId={runningId}
                 timedTodoId={t.running?.todo_id ?? null}
                 focusLabel={pomodoro.focusFor?.label ?? null}
@@ -950,6 +992,8 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
                 onPlanReorder={plan.reorder}
                 onPlanRemove={plan.remove}
                 onCopyForAi={copyPlanForAi}
+                resolvePlanId={resolvePlanId}
+                onPlanArrange={plan.arrange}
                 today={today}
                 onStartSubject={startProject}
                 onStartTodo={startAnyTodo}
@@ -962,6 +1006,8 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
               ) : (
                 <FeedView
                   queue={shownQueue}
+                  waiting={waitingCards}
+                  today={today}
                   feedOrder={feedOrder}
                   onOrder={feedOrder.setManual}
                   todosByProject={openTodosByProject}

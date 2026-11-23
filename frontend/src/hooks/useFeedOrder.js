@@ -13,6 +13,7 @@ function load(key) {
       manual: ids(saved?.manual),
       pinned: ids(saved?.pinned),
       displace: saved?.displace === true,
+      hide: saved?.hide === true,
     };
   } catch {
     return DEFAULT_ORDER;
@@ -53,8 +54,9 @@ export function useFeedOrder(scope) {
     (manual, released = []) => change((o) => ({ ...o, mode: "manual", manual, pinned: o.pinned.filter((x) => !released.includes(x)) })),
     [change]
   );
-  /** Order the rotation by when each project is due again (its cadence counted), or straight by rotation. */
-  const setDisplace = useCallback((displace) => change((o) => ({ ...o, displace: Boolean(displace) })), [change]);
+  /** How the rotation counts each project's "done every N days": "direct" (straight by rotation), "days" (ordered by when
+   *  each is due again) or "hide" (kept out of the Feed until it is due). */
+  const setRotation = useCallback((value) => change((o) => ({ ...o, displace: value === "days", hide: value === "hide" })), [change]);
 
-  return { ...order, setMode, togglePin, unpin, setManual, setDisplace };
+  return { ...order, setMode, togglePin, unpin, setManual, setRotation };
 }
