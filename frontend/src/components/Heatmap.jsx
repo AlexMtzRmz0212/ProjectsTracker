@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { format } from "../lib/dates";
-import FilterTab from "./FilterTab";
-import { iconFor, inkText } from "../lib/palette";
-import { HEATMAP_WEEKS, dayKey, daySeconds, fmtHM, heatmapStart, weekMonday } from "../lib/time";
+import ProjectMultiSelect from "./ProjectMultiSelect";
+import { inkText } from "../lib/palette";
+import { HEATMAP_WEEKS, dayKey, daySecondsOf, fmtHM, heatmapStart, weekMonday } from "../lib/time";
 import { N_, __, _n, useT } from "../i18n";
 
 
@@ -30,7 +30,7 @@ const LABEL_COLUMN = 26;
 /** `since` is the first day anything was logged (null if nothing yet): the heatmap starts at its week, not a year back. */
 export default function Heatmap({ byDay, projects, projectsById, today, selected, since, onSelect }) {
   useT();
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState(() => new Set()); // the projects picked; none picked is all of them
   const [tip, setTip] = useState(null);
   const scroller = useRef(null);
   const [fit, setFit] = useState(HEATMAP_WEEKS);
@@ -56,10 +56,11 @@ export default function Heatmap({ byDay, projects, projectsById, today, selected
     return () => observer.disconnect();
   }, []);
 
-  // The page-level category/status filter can hide the project picked here; fall back to "All"
-  const filterProject = filter === "all" ? null : projectsById.get(filter) ?? null;
-  // "All" is drawn in plain ink; a filtered project in its own ink.
-  const color = filterProject ? inkText(filterProject.color) : "var(--text)";
+  // A project picked here may be gone from the list (archived, say): only the ones still there count
+  const picked = useMemo(() => new Set([...filter].filter((id) => projectsById.has(id))), [filter, projectsById]);
+  // All of them, or several, are drawn in plain ink; exactly one in its own ink.
+  const only = picked.size === 1 ? projectsById.get([...picked][0]) : null;
+  const color = only ? inkText(only.color) : "var(--text)";
 
   // Columns of Monday→Sunday weeks, oldest on the left.
   const weeks = useMemo(() => {
@@ -76,14 +77,14 @@ export default function Heatmap({ byDay, projects, projectsById, today, selected
     for (const week of weeks) {
       for (const d of week) {
         if (d > today) continue;
-        const secs = daySeconds(byDay, d, filterProject?.id);
+        const secs = daySecondsOf(byDay, d, picked);
         total += secs;
         if (secs >= 60) active++;
         if (secs > best.secs) best = { secs, date: d };
       }
     }
     return { total, active, best };
-  }, [weeks, byDay, filterProject, today]);
+  }, [weeks, byDay, picked, today]);
 
   // The tooltip is position:fixed, so drop it as soon as anything scrolls.
   useEffect(() => {
@@ -120,18 +121,8 @@ export default function Heatmap({ byDay, projects, projectsById, today, selected
       </div>
 
       {projects.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1" role="radiogroup" aria-label={__("Filter by project")}>
-          <FilterTab active={!filterProject} onClick={() => setFilter("all")} color="var(--text)">{__("All")}</FilterTab>
-          {projects.map((p) => {
-            const Icon = iconFor(p.icon);
-            const ink = inkText(p.color);
-            return (
-              <FilterTab key={p.id} active={filterProject?.id === p.id} onClick={() => setFilter(p.id)} color={ink} title={p.name}>
-                <Icon size={13} style={{ color: ink }} />
-                <span className="max-w-[9rem] truncate">{p.name}</span>
-              </FilterTab>
-            );
-          })}
+        <div className="mt-3">
+          <ProjectMultiSelect projects={projects} selected={picked} onChange={setFilter} />
         </div>
       )}
 
@@ -162,7 +153,7 @@ export default function Heatmap({ byDay, projects, projectsById, today, selected
               ...week.map((d) => {
                 const key = dayKey(d);
                 if (d > today) return <span key={key} />;
-                const secs = daySeconds(byDay, d, filterProject?.id);
+                const secs = daySecondsOf(byDay, d, picked);
                 const isSelected = key === selectedKey;
                 return (
                   <button

@@ -397,12 +397,12 @@ function BreakChip({ pomodoro, onExpand, onMini, miniOpen }) {
   );
 }
 
-/** Opens the mini clock (a small floating window), or puts it away again while it is out. Not on phones. */
+/** Opens the mini clock (a small floating window), or puts it away again while it is out. At every width. */
 function MiniButton({ edge, onMini, open }) {
   useT();
   if (!onMini) return null;
   return (
-    <ChipButton edge={edge} onClick={onMini} label={open ? __("Close the mini clock") : __("Mini clock")} className="max-sm:hidden">
+    <ChipButton edge={edge} onClick={onMini} label={open ? __("Close the mini clock") : __("Mini clock")}>
       <PictureInPicture2 size={14} className={open ? "text-accent" : ""} />
     </ChipButton>
   );

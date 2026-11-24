@@ -187,7 +187,7 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
   const tag = pomodoro.tag ?? ""; // what this focus is for, while it has a tag
   const projectTime = project && !projectClock ? fmtClock(runningProject ? clock : heldSeconds) : null;
   const controls = controlsFor(pomodoro, pomodoro.startFocus, onStopFocus, Boolean(runningProject), onStopTimer);
-  const controlsW = controls.length * 40 + (onSearch ? 40 : 0) + (onTag ? 40 : 0);
+  const controlsW = controls.length * 48 + (onSearch ? 48 : 0) + (onTag ? 48 : 0);
   const wash = `linear-gradient(140deg, ${tint(big.color, 20)}, ${tint(big.color, 4)} 65%)`;
   // What is left to do on what's being worked on, the to-dos marked as being worked on first. A task is its
   // own to-do: it is listed, with its sub-to-dos, so they can be ticked off from here.
@@ -283,8 +283,9 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
   if (layout === "wide") {
     const glassH = Math.min(h - 24, (w * 0.3) / 0.6);
     const colW = w - 24 - glassH * 0.6 - 16;
-    const free = h - 24 - (20 + 3 + 36 + 3 * 8);
-    const withTodos = free >= 150 && colW >= 170;
+    const free = h - 24 - (20 + 3 + 44 + 3 * 8);
+    // Nothing to list (no project, or nothing left to do on it): the clock takes that room instead of leaving it empty
+    const withTodos = open.length > 0 && free >= 150 && colW >= 170;
     const bigH = withTodos ? clampNum(free * 0.32, 40, 110) : free;
     const besideLabel = colW - phaseReserve(colW) >= 110;
     return (
@@ -319,7 +320,9 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
 
   // Square, or tall: the cover is the whole window, or the top of it with the buttons and to-dos under it
   const tall = h >= w * 1.25 && h >= 300;
-  const artH = tall ? clampNum(w * 0.8, 150, h * 0.55) : h;
+  // With no to-dos to list, the cover takes everything above the buttons
+  const listed = open.length > 0;
+  const artH = tall ? (listed ? clampNum(w * 0.8, 150, h * 0.55) : h - 64) : h;
   const midH = artH - 20 - 18 - 22 - 16;
   const side = w >= midH * 1.1;
   const glassH = side ? Math.min(midH * 0.92, ((w - 20) * 0.3) / 0.6) : midH * 0.48;
@@ -349,7 +352,7 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
       {tall && (
         <div className="flex min-h-0 flex-1 flex-col gap-2 p-2.5">
           <div className="flex justify-center">{buttons}</div>
-          <TodoList project={project} open={open} todoOps={todoOps} timedTodoId={timedTodoId} onStopTimer={onStopTimer} />
+          {listed && <TodoList project={project} open={open} todoOps={todoOps} timedTodoId={timedTodoId} onStopTimer={onStopTimer} />}
         </div>
       )}
     </div>
@@ -426,26 +429,26 @@ function Controls({ controls, onSearch, onTag, tagged = false }) {
   return (
     <div className="flex shrink-0 items-center gap-1">
       {controls.map((c) => (
-        <ActionButton key={c.id} {...c} compact />
+        <ActionButton key={c.id} {...c} compact large />
       ))}
       {onTag && (
         <button
           onClick={onTag}
-          className={`grid size-9 place-items-center transition-colors hover:bg-surface-2 hover:text-text ${tagged ? "text-accent" : "text-muted"}`}
+          className={`grid size-11 place-items-center transition-colors hover:bg-surface-2 hover:text-text ${tagged ? "text-accent" : "text-muted"}`}
           aria-label={tagged ? __("What this pomodoro is for. Change it") : __("What is this pomodoro for?")}
           title={__("What is this pomodoro for?")}
         >
-          <Tag size={14} />
+          <Tag size={16} />
         </button>
       )}
       {onSearch && (
         <button
           onClick={onSearch}
-          className="grid size-9 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
+          className="grid size-11 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
           aria-label={__("Find a project, task or to-do")}
           title={__("Find a project, task or to-do (Ctrl F)")}
         >
-          <Search size={14} />
+          <Search size={16} />
         </button>
       )}
     </div>

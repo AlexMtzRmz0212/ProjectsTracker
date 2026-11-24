@@ -6,9 +6,10 @@ import { __ } from "../i18n";
 export const planRef = (item) =>
   item.kind === "project" ? item.project_id : item.kind === "todo" ? item.todo_id : item.kind === "habit" ? item.habit_id : item.label;
 
-const body = (kind, ref) => ({
+const body = (kind, ref, why = "") => ({
   kind,
   ...(kind === "project" ? { project_id: ref } : kind === "todo" ? { todo_id: ref } : kind === "habit" ? { habit_id: ref } : { label: ref }),
+  ...(why ? { why } : {}),
 });
 
 /**
@@ -90,14 +91,15 @@ export function usePlan(api = realApi) {
   );
 
   /** Put these at the front of the plan, in this order ([{ kind, ref }]): the ones not on it yet are added, the ones
-   *  already on it move up, and anything else on the plan stays after them. Resolves to whether it worked. */
+   *  already on it move up, and anything else on the plan stays after them. A pick's `why` is kept with it, to be shown
+   *  on the plan. Resolves to whether it worked. */
   const arrange = useCallback(
     async (picks) => {
       setError("");
       try {
         const ids = [];
         // One at a time: each is added at the end, and a failure part-way leaves what was added so far
-        for (const { kind, ref } of picks) ids.push((await api.addToPlan(body(kind, ref))).id);
+        for (const { kind, ref, why } of picks) ids.push((await api.addToPlan(body(kind, ref, why))).id);
         await api.orderPlan(ids);
         await load();
         return true;

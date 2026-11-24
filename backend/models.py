@@ -127,7 +127,7 @@ class Todo(Base):
     parent_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("todos.id", ondelete="CASCADE"), nullable=True, index=True
     )
-    text: Mapped[str] = mapped_column(String(200))
+    text: Mapped[str] = mapped_column(String(250))
     done: Mapped[bool] = mapped_column(Boolean, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -292,5 +292,7 @@ class PlanItem(Base):
     todo_id: Mapped[Optional[str]] = mapped_column(ForeignKey("todos.id", ondelete="CASCADE"), nullable=True, index=True)
     habit_id: Mapped[Optional[str]] = mapped_column(ForeignKey("habits.id", ondelete="CASCADE"), nullable=True, index=True)
     label: Mapped[str] = mapped_column(String(120), default="", server_default="")
+    # Why an AI put it on the plan (from its reply), shown under the row; empty for anything added by hand
+    why: Mapped[str] = mapped_column(String(200), default="", server_default="")
     position: Mapped[int] = mapped_column(Integer, default=0)
     added_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

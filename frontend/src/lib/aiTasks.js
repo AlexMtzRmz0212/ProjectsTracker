@@ -3,7 +3,7 @@ import { __ } from "../i18n";
 // reply comes back as JSON, and what it suggests is shown as changes to review before they're applied.
 // Estimates live in the task's own text, as a trailing "(~45m)" or "(~2h)", so nothing in the data changes.
 
-const MAX_TEXT = 200; // the server's limit on a task's text
+const MAX_TEXT = 250; // the server's limit on a task's text
 const MAX_SUBS = 12; // sub-tasks taken from one task's answer
 
 const squash = (text) => String(text ?? "").replace(/\s+/g, " ").trim();
@@ -153,8 +153,8 @@ export function buildPlanPrompt({ now, projects, tasks, habits, plan }) {
   return [
     `Help me decide what to work on first. Below is everything I could work on, as JSON: my open projects (each with its open to-dos), my tasks and my habits. It is ${now}.`,
     "",
-    '1. Choose what I should do first, and in what order. Favour what has waited longest ("lastWorked"), what is already being worked on ("working": true), projects whose "everyDays" cadence says they are due, quick wins (a to-do or task with a short estimate like "(~15m)" in its text), and habits not logged today. What is already in "plan" is what I lined up myself: keep it near the top unless something else clearly matters more.',
-    "2. List at most 12 things, from first to last. For each, give its id exactly as it appears below (a project, a to-do or a habit) and one short reason.",
+    '1. Choose what I should do first, and in what order. Favour what has waited longest: each project has "daysSinceWorked", the number of days since I last worked on it, so a HIGHER number has waited LONGER and goes earlier (999 means never worked on, which waited longest of all). A project worked on recently (a low "daysSinceWorked") should come late, not first, unless something else below applies. Also favour what is already being worked on ("working": true), projects whose "everyDays" cadence says they are due (daysSinceWorked is at least everyDays), quick wins (a to-do or task with a short estimate like "(~15m)" in its text), and habits not logged today. What is already in "plan" is what I lined up myself: keep it near the top unless something else clearly matters more.',
+    "2. List at most 12 things, from first to last. For each, give its id exactly as it appears below (a project, a to-do or a habit) and one short reason (it is shown to me beside that item, so say why it comes there, for example \"Not touched for 12 days\").",
     "",
     "Reply with ONLY a JSON object. No markdown fences, no commentary:",
     '{"order":[{"id":"<id>","why":"<short reason>"}]}',

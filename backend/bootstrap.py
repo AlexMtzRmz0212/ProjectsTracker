@@ -48,6 +48,7 @@ def init_db(engine: Engine) -> None:
     _add_session_columns(engine)
     _add_user_columns(engine)
     _add_language_column(engine)
+    _add_plan_columns(engine)
     # Tasks of their own are to-dos with no project, and their time is sessions with no project
     _make_nullable(engine, models.Todo.__table__, "project_id")
     _make_nullable(engine, models.Session.__table__, "project_id")
@@ -140,6 +141,13 @@ def _add_language_column(engine: Engine) -> None:
             conn.execute(text("ALTER TABLE users ADD COLUMN language VARCHAR(5) NOT NULL DEFAULT 'en'"))
 
 
+def _add_plan_columns(engine: Engine) -> None:
+    """Plan items made before `why` existed have no reason."""
+    if "why" not in {c["name"] for c in inspect(engine).get_columns("plan_items")}:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE plan_items ADD COLUMN why VARCHAR(200) NOT NULL DEFAULT ''"))
+
+
 def _migrate_habit_sync(engine: Engine) -> None:
     """habit_sync used to be one row (id = 1); it is now one row per account. It only remembers which backup was
     copied last, so the table is made again and the old row goes to the admin."""
@@ -216,6 +224,9 @@ def _add_todo_columns(engine: Engine) -> None:
     working_since is NULL for to-dos made before it existed: none is being worked on."""
     columns = {c["name"] for c in inspect(engine).get_columns("todos")}
     with engine.begin() as conn:
+        if engine.dialect.name != "sqlite":
+            # A to-do's text was 200 characters long and is 250 now (SQLite doesn't hold to a length, so only others change)
+            conn.execute(text("ALTER TABLE todos ALTER COLUMN text TYPE VARCHAR(250)"))
         if "completed_at" not in columns:
             column_type = models.Todo.__table__.c.completed_at.type.compile(dialect=engine.dialect)
             conn.execute(text(f"ALTER TABLE todos ADD COLUMN completed_at {column_type}"))

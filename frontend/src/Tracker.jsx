@@ -18,7 +18,7 @@ import PomodoroDrawer from "./components/PomodoroDrawer";
 import PomodoroScreen from "./components/PomodoroScreen";
 import MiniPlayer from "./components/MiniPlayer";
 import StatsStrip from "./components/StatsStrip";
-import { PomodoroTags, ProjectTime, WeekdayRhythm } from "./components/StatsPanels";
+import { PomodoroTags, ProjectTime, TopTodos, WeekdayRhythm } from "./components/StatsPanels";
 import ProjectBoard from "./components/ProjectBoard";
 import FeedView from "./components/FeedView";
 import TabBar from "./components/TabBar";
@@ -648,8 +648,8 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
 
   const peekProject = peekId && !isChoreKey(peekId) ? projectsById.get(peekId) ?? null : null; // a chore has no card
 
-  // A project found by name: its peek opens and the board is shown with its card scrolled into view and
-  // briefly marked. An archived project or a task has no card on the board, so only the peek opens.
+  // A project found by name: its peek opens, and on the board (or the Feed) its card is scrolled into view and
+  // briefly marked. Other tabs stay as they are. An archived project or a task has no card, so only the peek opens.
   const [revealId, setRevealId] = useState(null);
   // In the Feed the find stays in the Feed: its card (the Tasks card, for a task) is scrolled into view and marked.
   const revealProject = (id) => {
@@ -658,7 +658,8 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
     if (!found || found.archived_at || found.kind === "chore") return;
     if (tab === "feed") return setRevealId(found.kind === "task" ? FEED_TASKS : id);
     if (found.kind === "task") return; // a task has no card on the board: only the peek opens
-    setTab("projects");
+    // Any other tab stays where it is, with just the peek opened; only the board scrolls to the card
+    if (tab !== "projects") return;
     setRevealId(id);
   };
   /** The Tasks tab from a search: in the Feed, its card there (when it has one), otherwise the tab itself. */
@@ -737,18 +738,18 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
     if (item.kind === "project") {
       const p = openProject(item.project_id);
       if (!p) return [];
-      return [{ planId: item.id, kind: "project", name: p.name, icon: p.icon, color: p.color, running: runningId === p.id, onStart: () => startProject(p.id) }];
+      return [{ planId: item.id, ref: p.id, kind: "project", why: item.why, name: p.name, icon: p.icon, color: p.color, running: runningId === p.id, onStart: () => startProject(p.id) }];
     }
     if (item.kind === "todo") {
       const open = openTodo(item.todo_id);
       if (!open) return [];
       const { todo, owner, context } = open;
-      return [{ planId: item.id, kind: "todo", name: todo.text, context, icon: owner?.icon, color: owner?.color, running: t.running?.todo_id === todo.id, onStart: () => startAnyTodo(todo) }];
+      return [{ planId: item.id, ref: todo.id, kind: "todo", why: item.why, name: todo.text, context, icon: owner?.icon, color: owner?.color, running: t.running?.todo_id === todo.id, onStart: () => startAnyTodo(todo) }];
     }
     if (item.kind === "habit") {
       const h = activeHabit(item.habit_id);
       if (!h) return [];
-      return [{ planId: item.id, kind: "habit", name: h.name, running: pomodoro.focusFor?.label === h.name, onStart: () => startChore(h.name) }];
+      return [{ planId: item.id, kind: "habit", why: item.why, name: h.name, running: pomodoro.focusFor?.label === h.name, onStart: () => startChore(h.name) }];
     }
     return []; // chores aren't part of the Workspace: one put on the plan before is left out
   });
@@ -784,19 +785,26 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
       return { id: `todo:${x.id}`, text: x.text, ...(x.working_since ? { working: true } : {}), ...(subs.length ? { subtasks: subs } : {}) };
     };
     const lastWorkedOf = (id) => queue.find((e) => e.project.id === id)?.lastWorked ?? null;
-    const projectsData = openProjects.map((p) => {
-      const last = lastWorkedOf(p.id);
-      return {
-        id: `project:${p.id}`,
-        name: p.name,
-        status: statusesById.get(p.status_id)?.name,
-        hoursLogged: Math.round(p.total_seconds / 360) / 10,
-        lastWorked: last ? dayKey(last) : "never",
-        ...(p.cadence_days > 0 ? { everyDays: p.cadence_days } : {}),
-        ...(p.notes?.trim() ? { notes: p.notes.trim().slice(0, 300) } : {}),
-        todos: openOnes(t.todos.filter((x) => x.project_id === p.id && !x.parent_id)).slice(0, 15).map(asTodo),
-      };
-    });
+    // Whole days since it was last worked on (999 for never): a bigger number has waited longer, which a bare date
+    // doesn't say clearly enough, and the list goes out longest-waiting first
+    const daysSince = (last) => (last ? Math.max(0, Math.round((today - new Date(last.getFullYear(), last.getMonth(), last.getDate())) / 86_400_000)) : 999);
+    const projectsData = openProjects
+      .map((p) => ({ p, days: daysSince(lastWorkedOf(p.id)) }))
+      .sort((a, b) => b.days - a.days)
+      .map(({ p, days }) => {
+        const last = lastWorkedOf(p.id);
+        return {
+          id: `project:${p.id}`,
+          name: p.name,
+          status: statusesById.get(p.status_id)?.name,
+          hoursLogged: Math.round(p.total_seconds / 360) / 10,
+          daysSinceWorked: days,
+          lastWorked: last ? dayKey(last) : "never",
+          ...(p.cadence_days > 0 ? { everyDays: p.cadence_days } : {}),
+          ...(p.notes?.trim() ? { notes: p.notes.trim().slice(0, 300) } : {}),
+          todos: openOnes(t.todos.filter((x) => x.project_id === p.id && !x.parent_id)).slice(0, 15).map(asTodo),
+        };
+      });
     const todayKeyText = dayKey(today);
     return copyText(
       buildPlanPrompt({
@@ -985,6 +993,9 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
                 projects={openProjects}
                 tasks={openTaskSubjects}
                 habits={habits.habits.filter(isActiveHabit)}
+                todos={t.todos}
+                todoOps={t.todoOps}
+                onOpen={peek}
                 runningId={runningId}
                 timedTodoId={t.running?.todo_id ?? null}
                 focusLabel={pomodoro.focusFor?.label ?? null}
@@ -1021,6 +1032,7 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
                   onStartTask={(todo) => startProject(taskKey(todo.parent_id ?? todo.id), todo.id)}
                   onStop={t.stopTimer}
                   onSkip={skipCard}
+                  onCadence={(id, days) => t.updateProject(id, { cadence_days: days })}
                 />
               )
             ) : tab === "calendar" ? (
@@ -1111,8 +1123,9 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
                   />
                   <aside className="flex min-w-0 flex-col gap-7 pt-5 pb-2 @4xl:border-l @4xl:border-rule @4xl:pl-8">
                     <ProjectTime byDay={byDay} projectsById={projectsById} today={today} onOpenProject={peek} />
+                    <TopTodos todos={t.todos} projectsById={projectsById} today={today} onOpenProject={peek} />
                     <WeekdayRhythm byDay={byDay} today={today} />
-                    <PomodoroTags pomodoros={t.pomodoros} today={today} />
+                    <PomodoroTags pomodoros={t.pomodoros} today={today} onMerge={t.mergeTags} />
                   </aside>
                 </div>
               </>

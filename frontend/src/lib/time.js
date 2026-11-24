@@ -72,6 +72,16 @@ export function daySeconds(byDay, date, projectId) {
   return projectId ? day.byProject.get(projectId) ?? 0 : day.total;
 }
 
+/** The time logged on a day on any of the projects in `ids` (a Set); the whole day's when none are picked. */
+export function daySecondsOf(byDay, date, ids) {
+  const day = byDay.get(dayKey(date));
+  if (!day) return 0;
+  if (!ids || ids.size === 0) return day.total;
+  let secs = 0;
+  for (const id of ids) secs += day.byProject.get(id) ?? 0;
+  return secs;
+}
+
 // ── Pomodoros ────────────────────────────────────────────────────────────────
 // A pomodoro is a start, an end and whether its countdown ran out (`completed`; a focus that was
 // stopped or cut short is kept, but isn't counted). What it covered is whatever sessions ran inside it.

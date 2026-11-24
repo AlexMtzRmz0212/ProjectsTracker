@@ -6,6 +6,7 @@ import { ON_INK, iconFor, inkFor, inkText, tint } from "../lib/palette";
 import { fmtClock } from "../lib/time";
 import { Button } from "./Modal";
 import ParentTag from "./ParentTag";
+import CadenceChip from "./CadenceChip";
 import FeedSwipe from "./FeedSwipe";
 import { FEED_MODES } from "../lib/feedOrder";
 import { loadSort } from "../lib/todoSort";
@@ -31,7 +32,7 @@ const whenLabel = (days) => (days === 1 ? __("tomorrow") : __("in {n} days", { n
  * has passed ({ project, backOn }, soonest first) and `today` is the local midnight that opens today.
  */
 export default function FeedView({
-  queue, waiting = [], today, todosByProject, todosById, todoOps, statusesById, runningId, elapsed, feedOrder, onOrder, onOpen, onStart, onStartTask, onStop, onSkip,
+  queue, waiting = [], today, todosByProject, todosById, todoOps, statusesById, runningId, elapsed, feedOrder, onOrder, onOpen, onStart, onStartTask, onStop, onSkip, onCadence,
 }) {
   useT();
   const [sorting, setSorting] = useState(false);
@@ -97,7 +98,7 @@ export default function FeedView({
         {ROTATION_MODES.includes(feedOrder.mode) && (
           <label
             className="flex items-center gap-1.5 text-xs text-muted"
-            title={__("Direct: by last work. Plus days: each project also waits its “done every N days”. Hide until due: it stays out of the Feed until then.")}
+            title={__("Hide until due: a project stays out of the Feed until its “done every N days” has passed. Plus days: each project also waits its “done every N days”. Direct: by last work.")}
           >
             {__("Rotation")}
             <select
@@ -105,9 +106,9 @@ export default function FeedView({
               onChange={(e) => feedOrder.setRotation(e.target.value)}
               className="h-8 border border-line-strong bg-surface px-2 text-[13px] font-semibold text-text outline-none focus:border-text"
             >
-              <option value="direct">{__("Direct")}</option>
-              <option value="days">{__("Plus days")}</option>
               <option value="hide">{__("Hide until due")}</option>
+              <option value="days">{__("Plus days")}</option>
+              <option value="direct">{__("Direct")}</option>
             </select>
           </label>
         )}
@@ -151,6 +152,7 @@ export default function FeedView({
             onStartTask={onStartTask}
             onStop={() => onStop()}
             onSkip={() => onSkip(project.id)}
+            onCadence={onCadence}
           />
         ))}
       </ol>
@@ -194,7 +196,7 @@ function WaitingFooter({ waiting, today, onOpen }) {
 }
 
 function FeedCard({
-  position, project, lastWorked, status, todos, todosById, todoOps, isRunning, isNext, pinned, onPin, canSkip, elapsed, onOpen, onStart, onStartTask, onStop, onSkip,
+  position, project, lastWorked, status, todos, todosById, todoOps, isRunning, isNext, pinned, onPin, canSkip, elapsed, onOpen, onStart, onStartTask, onStop, onSkip, onCadence,
 }) {
   useT();
   const { color, name } = project;
@@ -278,11 +280,8 @@ function FeedCard({
                   ? __("Last worked {formatDistanceToNowStrict}", { formatDistanceToNowStrict: formatDistanceToNowStrict(lastWorked, { addSuffix: true }) })
                   : __("Never worked")}
             </span>
-            {project.cadence_days > 0 && (
-              <span className="font-serif italic" title={__("How often it is meant to be done")}>
-                {_n(project.cadence_days, "Every {n} day", "Every {n} days")}
-              </span>
-            )}
+            {/* "Done every N days" is set from here, not only from the project's edit window */}
+            {!isTasks && onCadence && <CadenceChip days={project.cadence_days || 0} onChange={(days) => onCadence(project.id, days)} />}
           </p>
         </div>
       </div>
@@ -397,7 +396,7 @@ function TodoLine({ todo, todosById, ops, canStart, canSkip, onTop, onStart }) {
             e.currentTarget.blur();
           }
         }}
-        maxLength={200}
+        maxLength={250}
         aria-label={__("To-do")}
         className="h-9 min-w-0 flex-1 bg-transparent text-[14px] outline-none focus:bg-surface-2"
       />
@@ -456,7 +455,7 @@ function AddTodo({ projectId, name, noun = "to-do", ops }) {
       <input
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        maxLength={200}
+        maxLength={250}
         placeholder={noun === "task" ? __("Add a task and press Enter") : __("Add a to-do and press Enter")}
         aria-label={projectId === null ? __("New task") : __("New to-do for {name}", { name })}
         className="h-9 min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-faint"

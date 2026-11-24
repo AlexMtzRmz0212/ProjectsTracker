@@ -58,6 +58,18 @@ def test_a_thing_is_on_the_plan_once(client):
     assert len(client.get("/api/plan").json()) == 2
 
 
+def test_an_ai_reason_is_kept_with_the_item(client):
+    p = project(client)
+    t = todo(client, "Outline")
+    assert add(client, kind="project", project_id=p["id"]).json()["why"] == ""
+    # Added again with a reason (what applying an AI's reply does): the item stays, the reason is kept
+    again = add(client, kind="project", project_id=p["id"], why="  Waited longest  ")
+    assert again.status_code == 200 and again.json()["why"] == "Waited longest"
+    assert add(client, kind="todo", todo_id=t["id"], why="Quick win").json()["why"] == "Quick win"
+    assert [i["why"] for i in client.get("/api/plan").json()] == ["Waited longest", "Quick win"]
+    assert add(client, kind="chore", label="Email", why="x" * 201).status_code == 422
+
+
 def test_what_to_add_has_to_be_said_and_open(client):
     p = project(client)
     t = todo(client, "Done already", project_id=p["id"])

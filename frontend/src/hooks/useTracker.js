@@ -243,6 +243,20 @@ export function useTracker(api = realApi) {
     [api, attempt]
   );
 
+  /** Merge pomodoro tags: everything tagged with one of `labels` (capitals ignored) is tagged `into` from now on. Only
+   *  tags that are just words are renamed. Resolves to whether it worked. */
+  const mergeTags = useCallback(
+    (labels, into) =>
+      attempt(async () => {
+        await api.mergePomodoroLabels(labels, into);
+        const names = new Set(labels.map((l) => l.trim().toLowerCase()));
+        setPomodoros((prev) =>
+          prev.map((p) => (!p.project_id && !p.todo_id && names.has((p.label ?? "").trim().toLowerCase()) ? { ...p, label: into } : p))
+        );
+      }),
+    [api, attempt]
+  );
+
   // ── Sessions ───────────────────────────────────────────────────────────────
 
   const addSession = useCallback(
@@ -586,6 +600,7 @@ export function useTracker(api = realApi) {
     sessions,
     pomodoros,
     addPomodoro,
+    mergeTags,
     openItems,
     openOps,
     running,

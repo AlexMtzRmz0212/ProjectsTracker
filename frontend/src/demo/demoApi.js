@@ -545,6 +545,19 @@ export function createDemoApi() {
       pomodoros = [...pomodoros, created].sort((a, b) => a.start - b.start);
       return { ...created };
     },
+    // Only tags that are just words (no project, no to-do) are renamed, as on the server
+    mergePomodoroLabels: async (labels, into) => {
+      const names = new Set(labels.map((l) => String(l).trim().toLowerCase()));
+      const name = String(into ?? "").trim().slice(0, 120);
+      if (!name || names.size === 0) throw httpError(422, "Say which tags to merge, and into what");
+      let updated = 0;
+      pomodoros = pomodoros.map((p) => {
+        if (p.project_id || p.todo_id || !names.has((p.label ?? "").trim().toLowerCase()) || p.label === name) return p;
+        updated++;
+        return { ...p, label: name };
+      });
+      return { updated };
+    },
 
     listOpenItems: async () => openItems.map((x) => ({ ...x })),
     createOpenItem: async (data) => {
@@ -585,10 +598,14 @@ export function createDemoApi() {
       if (!ref) throw httpError(422, "Say what to add");
       const same = (x) => x.kind === data.kind && (x.project_id ?? x.todo_id ?? x.habit_id ?? x.label) === ref;
       const existing = planItems.find(same);
-      if (existing) return { ...existing };
+      const why = String(data.why ?? "").trim().slice(0, 200);
+      if (existing) {
+        if (why) planItems = planItems.map((x) => (x === existing ? { ...x, why } : x));
+        return { ...existing, ...(why ? { why } : {}) };
+      }
       const item = {
         id: `demo-n${seq++}`, kind: data.kind, project_id: data.kind === "project" ? ref : null, todo_id: data.kind === "todo" ? ref : null,
-        habit_id: data.kind === "habit" ? ref : null, label: data.kind === "chore" ? ref : "",
+        habit_id: data.kind === "habit" ? ref : null, label: data.kind === "chore" ? ref : "", why,
         position: Math.max(0, ...planItems.map((x) => x.position)) + 1, added_at: new Date().toISOString(),
       };
       planItems = [...planItems, item];

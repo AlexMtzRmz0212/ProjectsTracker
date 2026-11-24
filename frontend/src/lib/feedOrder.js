@@ -10,7 +10,7 @@ export const FEED_MODES = [
   { id: "projects", label: N_("Projects first"), note: N_("The projects by rotation, then the Tasks card.") },
 ];
 
-export const DEFAULT_ORDER = { mode: "rotation", manual: [], pinned: [], displace: false, hide: false };
+export const DEFAULT_ORDER = { mode: "rotation", manual: [], pinned: [], displace: false, hide: true };
 
 const DAY_MS = 86_400_000;
 const ROTATION_MODES = ["rotation", "tasks", "projects"];

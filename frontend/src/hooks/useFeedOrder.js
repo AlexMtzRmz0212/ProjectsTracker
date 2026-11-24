@@ -13,7 +13,8 @@ function load(key) {
       manual: ids(saved?.manual),
       pinned: ids(saved?.pinned),
       displace: saved?.displace === true,
-      hide: saved?.hide === true,
+      // Nothing saved yet: the default. Someone who picked another rotation keeps it.
+      hide: typeof saved?.hide === "boolean" ? saved.hide : DEFAULT_ORDER.hide,
     };
   } catch {
     return DEFAULT_ORDER;

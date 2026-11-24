@@ -203,7 +203,7 @@ export default function PomodoroScreen({
               <Button
                 variant="outline"
                 onClick={onMiniPlayer}
-                className="w-9 px-0 max-sm:hidden"
+                className="w-9 px-0"
                 aria-label={__("Open the mini clock")}
                 title={__("Open the mini clock")}
               >
@@ -461,7 +461,8 @@ function phaseControls(p, startFocus, stopFocus, hasRunning) {
   }
 }
 
-export function ActionButton({ label, hint, icon: Icon, onClick, primary, tone = "focus", compact = false, outline = false }) {
+// `large` is the compact button made bigger for the mini clock, where it is small and aimed at with a mouse
+export function ActionButton({ label, hint, icon: Icon, onClick, primary, tone = "focus", compact = false, large = false, outline = false }) {
   const color = TONES[tone];
   return (
     <button
@@ -469,11 +470,11 @@ export function ActionButton({ label, hint, icon: Icon, onClick, primary, tone =
       title={hint ?? label}
       aria-label={compact ? label : undefined}
       className={`inline-flex items-center justify-center gap-2 border font-semibold transition-colors ${
-        compact ? "h-9 min-w-9 px-2.5 text-xs" : "h-12 min-w-32 px-6 text-[15px]"
+        large ? "h-11 min-w-11 px-3 text-xs" : compact ? "h-9 min-w-9 px-2.5 text-xs" : "h-12 min-w-32 px-6 text-[15px]"
       } ${primary ? "hover:opacity-90" : "border-line-strong hover:bg-surface-2"}`}
       style={primary ? { background: color, borderColor: color, color: "var(--bg)" } : undefined}
     >
-      <Icon size={compact ? 13 : 15} fill={Icon === Coffee || outline ? "none" : "currentColor"} aria-hidden="true" />
+      <Icon size={large ? 16 : compact ? 13 : 15} fill={Icon === Coffee || outline ? "none" : "currentColor"} aria-hidden="true" />
       {compact ? <span className="sr-only">{label}</span> : label}
     </button>
   );

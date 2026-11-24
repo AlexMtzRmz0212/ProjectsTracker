@@ -180,6 +180,8 @@ export const api = {
     return rows.map(parsePomodoro);
   },
   createPomodoro: async (data) => parsePomodoro(await fetchApi("/pomodoros", json("POST", serialize(data)))),
+  /** Merge tags: every pomodoro tagged with one of `labels` is tagged `into` (answers { updated }). */
+  mergePomodoroLabels: (labels, into) => fetchApi("/pomodoros/merge-labels", json("POST", { labels, into })),
 
   listOpenItems: async () => (await fetchApi("/open-items")).map(parseOpenItem),
   createOpenItem: async (data) => parseOpenItem(await fetchApi("/open-items", json("POST", serialize(data)))),

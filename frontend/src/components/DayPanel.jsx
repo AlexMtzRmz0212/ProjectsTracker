@@ -261,7 +261,7 @@ function TickedName({ todo, ops }) {
           e.currentTarget.blur();
         }
       }}
-      maxLength={200}
+      maxLength={250}
       aria-label={__("Name of the to-do")}
       title={__("Click to rename")}
       className="h-7 min-w-[8rem] flex-1 truncate bg-transparent text-[13px] outline-none focus:bg-surface-2"

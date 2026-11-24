@@ -1,31 +1,41 @@
-import { useState } from "react";
-import { Check, CircleDot, ClipboardPaste, GripVertical, ListChecks, ListMinus, ListPlus, ListTodo, Play, Search, Sparkles, Square, Target, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Check, ChevronDown, CircleDot, ClipboardPaste, GripVertical, ListChecks, ListMinus, ListPlus, ListTodo, Play, Search, Sparkles, Square, Target, X } from "lucide-react";
 import { useReorder } from "../hooks/useReorder";
 import PlanAiPanel from "./PlanAiPanel";
 import { usePlanContext } from "../lib/planContext";
 import { dayState, entriesByDay, dayKey, streakOf } from "../lib/habits";
+import { loadExpanded, saveExpanded } from "../lib/foldState";
 import { TASK_INK, iconFor, inkText } from "../lib/palette";
-import { __, useT } from "../i18n";
+import { __, _n, useT } from "../i18n";
 
 const LIMIT = 6; // rows a group shows before "Show all"
+const FOLD_SCOPE = "workspace"; // where which projects, tasks and to-dos are opened is remembered
+const NEXT_SCOPE = "workspace-next"; // the same for the ones in "Next up"
+
+const isOpenTodo = (x) => !x.done && !x.cancelled_at;
 
 /**
  * The Workspace tab: one place to choose what to work on, from everything that can be worked on. Each row has a
  * Start button that does what starting it does elsewhere:
  * - what is already being worked on (to-dos marked so) comes first;
- * - projects and tasks start their timer (a pomodoro goes with it if none is going);
+ * - projects and tasks start their timer (a pomodoro goes with it if none is going), and so does a to-do;
  * - habits have no timer: starting one starts a focus (a pomodoro) with its name as what it is for.
- * The box above searches all of it.
+ * Projects and Tasks sit side by side. A project holds its open to-dos, and a to-do its sub-to-dos; a task holds its
+ * sub-tasks. They start folded and open with the arrow (remembered). The box above searches all of it: Enter opens the
+ * first project or task it finds in the side peek (`onOpen(subjectId)`).
  *
- * "Next up" at the top is the plan: what to do next, in the order to do it, dragged into place. Anything below (and a to-do's
+ * "Next up" at the top is the plan: what to do next, in the order to do it, dragged into place. A project on it opens
+ * (the arrow) to its to-dos and their sub-to-dos, a task to its sub-tasks, and each to-do, sub-to-do, task and sub-task
+ * there can be ticked done. Anything below (and a to-do's
  * menu, a project's peek, a Feed card) can be added to it with the list button (`usePlanContext`). `plan` is its rows,
- * [{ planId, kind, name, context?, icon?, color?, running, onStart }], `onPlanReorder(ids)` and `onPlanRemove(planId)`.
+ * [{ planId, kind, name, context?, why?, icon?, color?, running, onStart }], `onPlanReorder(ids)` and `onPlanRemove(planId)`.
  * "Copy for AI" copies everything that could be worked on as a prompt for an AI to say what to do first (`onCopyForAi`,
  * which resolves to whether it worked); "Paste AI reply" takes its answer back: `resolvePlanId(id)` says what one of the
  * prompt's ids is and `onPlanArrange(picks)` puts what the AI chose at the front of the plan (see PlanAiPanel).
+ * `todos` is every to-do and `todoOps` what changes one.
  */
 export default function WorkspaceView({
-  working, projects, tasks, habits, runningId, timedTodoId = null, focusLabel, today, onStartSubject, onStartTodo, onStartChore, onStop,
+  working, projects, tasks, habits, todos = [], todoOps, runningId, timedTodoId = null, focusLabel, today, onStartSubject, onStartTodo, onStartChore, onStop, onOpen,
   plan = [], onPlanReorder, onPlanRemove, onCopyForAi, resolvePlanId, onPlanArrange,
 }) {
   useT();
@@ -42,15 +52,101 @@ export default function WorkspaceView({
   const q = query.trim().toLowerCase();
   const has = (text) => !q || text.toLowerCase().includes(q);
 
+  // Which parents are opened: everything starts folded
+  const [expanded, setExpanded] = useState(() => loadExpanded(FOLD_SCOPE));
+  const [expandedNext, setExpandedNext] = useState(() => loadExpanded(NEXT_SCOPE));
+  const foldIn = (setter, scope) => (id) =>
+    setter((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      saveExpanded(scope, next, [...todos.map((x) => x.id), ...projects.map((p) => p.id), ...tasks.map((p) => p.id), ...plan.map((r) => r.planId)]);
+      return next;
+    });
+  const toggle = foldIn(setExpanded, FOLD_SCOPE);
+  const toggleNext = foldIn(setExpandedNext, NEXT_SCOPE);
+  // Where a to-do's row gets its fold from, and whether it has a tick: only "Next up" ticks
+  const inTree = { open: expanded, toggle, ticks: false };
+  const inNext = { open: expandedNext, toggle: toggleNext, ticks: true };
+
+  // The open to-dos as parents with their sub-to-dos: { todo, subs }
+  const { byProject, byId, subsOf } = useMemo(() => {
+    const open = todos.filter(isOpenTodo);
+    const ids = new Set(open.map((x) => x.id));
+    const subsOf = new Map();
+    for (const x of open) if (x.parent_id && ids.has(x.parent_id)) subsOf.set(x.parent_id, [...(subsOf.get(x.parent_id) ?? []), x]);
+    const byProject = new Map();
+    for (const x of open) {
+      if (!x.project_id || (x.parent_id && ids.has(x.parent_id))) continue;
+      byProject.set(x.project_id, [...(byProject.get(x.project_id) ?? []), { todo: x, subs: subsOf.get(x.id) ?? [] }]);
+    }
+    return { byProject, byId: new Map(open.map((x) => [x.id, x])), subsOf };
+  }, [todos]);
+
+  /** What of a parent's to-dos the search keeps: all of them when the parent itself matches, else the ones that match
+   *  (a to-do that matches keeps its sub-to-dos, one only a sub-to-do matches keeps just that). */
+  const keep = (nodes, ownerMatches) => {
+    if (!q || ownerMatches) return nodes;
+    return nodes
+      .map((n) => (has(n.todo.text) ? n : { ...n, subs: n.subs.filter((s) => has(s.text)) }))
+      .filter((n) => has(n.todo.text) || n.subs.length > 0);
+  };
+
+  const projectRows = projects
+    .map((p) => {
+      const own = has(p.name);
+      return { subject: p, nodes: keep(byProject.get(p.id) ?? [], own), show: own };
+    })
+    .filter((r) => r.show || r.nodes.length > 0);
+  const taskRows = tasks
+    .map((p) => {
+      const own = has(p.name);
+      const subs = subsOf.get(p.todoId) ?? [];
+      return { subject: p, nodes: keep(subs.map((s) => ({ todo: s, subs: [] })), own), show: own };
+    })
+    .filter((r) => r.show || r.nodes.length > 0);
   const workingRows = working.filter((w) => has(w.todo.text) || has(w.context));
-  const projectRows = projects.filter((p) => has(p.name));
-  const taskRows = tasks.filter((p) => has(p.name));
   const habitRows = habits.filter((h) => has(h.name));
   const planRows = plan.filter((r) => has(r.name) || has(r.context ?? ""));
   const nothing = workingRows.length + projectRows.length + taskRows.length + habitRows.length === 0;
 
   const key = dayKey(today);
   const focusing = (label) => focusLabel === label;
+
+  // Enter on a search opens the first project or task it found (or what a found to-do is in) in the side peek
+  const openFirst = () => {
+    const first = projectRows[0]?.subject.id ?? taskRows[0]?.subject.id ?? workingRows[0]?.subjectId;
+    if (first) onOpen?.(first);
+  };
+
+  const done = (todo) => ({ label: __("Mark \"{text}\" done", { text: todo.text }), onTick: () => todoOps?.update(todo.id, { done: true }) });
+  const startTodoAction = (todo) =>
+    timedTodoId === todo.id
+      ? { label: __("Stop"), icon: Square, onClick: onStop }
+      : { label: __("Start"), icon: Play, onClick: () => onStartTodo(todo) };
+
+  /** A to-do row, with its sub-to-dos under it. */
+  const todoNode = ({ todo, subs }, depth, ctx = inTree) => {
+    const folded = subs.length > 0 && !ctx.open.has(todo.id) && !(q && ctx === inTree && subs.some((s) => has(s.text)));
+    return (
+      <Row
+        key={todo.id}
+        depth={depth}
+        tick={ctx.ticks && todoOps ? done(todo) : null}
+        icon={todo.working_since ? <CircleDot size={14} className="blink-dot text-accent" aria-hidden="true" /> : null}
+        name={todo.text}
+        meta={subs.length > 0 ? _n(subs.length, "{n} sub-to-do", "{n} sub-to-dos") : null}
+        running={timedTodoId === todo.id}
+        plan={ctx.ticks ? null : planFor("todo", todo.id)}
+        action={startTodoAction(todo)}
+        fold={subs.length > 0 ? { folded, onToggle: () => ctx.toggle(todo.id) } : null}
+      >
+        {subs.map((s) => todoNode({ todo: s, subs: [] }, depth + 1, ctx))}
+      </Row>
+    );
+  };
+
+  /** Whether a parent shows what is in it: it was opened, or the search is looking inside it. */
+  const isOpen = (id, nodes, ownMatch) => expanded.has(id) || Boolean(q && !ownMatch && nodes.length > 0);
 
   return (
     <section className="flex h-full flex-col">
@@ -91,6 +187,11 @@ export default function WorkspaceView({
           id="workspace-search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            openFirst();
+          }}
           placeholder={__("Search what to work on")}
           aria-label={__("Search what to work on")}
           maxLength={120}
@@ -98,9 +199,20 @@ export default function WorkspaceView({
         />
       </label>
 
-      <div data-scroll className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+      <div data-scroll className="@container min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         {planCtx && (plan.length > 0 || !q) && (
-          <NextUp rows={planRows} empty={plan.length === 0} onReorder={onPlanReorder} onRemove={onPlanRemove} onStop={onStop} />
+          <NextUp
+            rows={planRows}
+            empty={plan.length === 0}
+            onReorder={onPlanReorder}
+            onRemove={onPlanRemove}
+            onStop={onStop}
+            kidsOf={(r) => (r.kind === "project" ? byProject.get(r.ref) ?? [] : r.kind === "todo" ? (subsOf.get(r.ref) ?? []).map((x) => ({ todo: x, subs: [] })) : [])}
+            tickOf={(r) => (r.kind === "todo" && todoOps && byId.get(r.ref) ? done(byId.get(r.ref)) : null)}
+            open={expandedNext}
+            onFold={toggleNext}
+            renderKid={(node) => todoNode(node, 2, inNext)}
+          />
         )}
 
         <Group title={__("Being worked on")} icon={CircleDot} rows={workingRows}>
@@ -109,50 +221,63 @@ export default function WorkspaceView({
             return (
               <Row
                 key={w.todo.id}
+                tick={todoOps ? done(w.todo) : null}
                 icon={<CircleDot size={14} className="blink-dot text-accent" aria-hidden="true" />}
                 name={w.todo.text}
                 meta={w.context}
                 running={running}
                 plan={planFor("todo", w.todo.id)}
-                action={running ? { label: __("Stop"), icon: Square, onClick: onStop } : { label: __("Start"), icon: Play, onClick: () => onStartTodo(w.todo) }}
+                action={startTodoAction(w.todo)}
               />
             );
           }}
         </Group>
 
-        <Group title={__("Projects")} icon={ListChecks} rows={projectRows}>
-          {(p) => {
-            const Icon = iconFor(p.icon);
-            const running = runningId === p.id;
-            return (
-              <Row
-                key={p.id}
-                icon={<Icon size={14} style={{ color: inkText(p.color) }} aria-hidden="true" />}
-                name={p.name}
-                running={running}
-                plan={planFor("project", p.id)}
-                action={running ? { label: __("Stop"), icon: Square, onClick: onStop } : { label: __("Start"), icon: Play, onClick: () => onStartSubject(p.id) }}
-              />
-            );
-          }}
-        </Group>
+        {/* Projects and tasks, side by side where there is room */}
+        <div className="grid gap-x-8 @2xl:grid-cols-2">
+          <Group title={__("Projects")} icon={ListChecks} rows={projectRows}>
+            {({ subject: p, nodes }) => {
+              const Icon = iconFor(p.icon);
+              const running = runningId === p.id;
+              const count = nodes.reduce((n, x) => n + 1 + x.subs.length, 0);
+              return (
+                <Row
+                  key={p.id}
+                  icon={<Icon size={14} style={{ color: inkText(p.color) }} aria-hidden="true" />}
+                  name={p.name}
+                  meta={count > 0 ? _n(count, "{n} open", "{n} open") : null}
+                  running={running}
+                  plan={planFor("project", p.id)}
+                  action={running ? { label: __("Stop"), icon: Square, onClick: onStop } : { label: __("Start"), icon: Play, onClick: () => onStartSubject(p.id) }}
+                  fold={nodes.length > 0 ? { folded: !isOpen(p.id, nodes, has(p.name)), onToggle: () => toggle(p.id) } : null}
+                >
+                  {nodes.map((n) => todoNode(n, 1))}
+                </Row>
+              );
+            }}
+          </Group>
 
-        <Group title={__("Tasks")} icon={ListChecks} rows={taskRows}>
-          {(p) => {
-            const Icon = iconFor(p.icon);
-            const running = runningId === p.id;
-            return (
-              <Row
-                key={p.id}
-                icon={<Icon size={14} style={{ color: TASK_INK }} aria-hidden="true" />}
-                name={p.name}
-                running={running}
-                plan={planFor("todo", p.todoId)}
-                action={running ? { label: __("Stop"), icon: Square, onClick: onStop } : { label: __("Start"), icon: Play, onClick: () => onStartSubject(p.id) }}
-              />
-            );
-          }}
-        </Group>
+          <Group title={__("Tasks")} icon={ListChecks} rows={taskRows}>
+            {({ subject: p, nodes }) => {
+              const Icon = iconFor(p.icon);
+              const running = runningId === p.id;
+              return (
+                <Row
+                  key={p.id}
+                  icon={<Icon size={14} style={{ color: TASK_INK }} aria-hidden="true" />}
+                  name={p.name}
+                  meta={nodes.length > 0 ? _n(nodes.length, "{n} sub-task", "{n} sub-tasks") : null}
+                  running={running}
+                  plan={planFor("todo", p.todoId)}
+                  action={running ? { label: __("Stop"), icon: Square, onClick: onStop } : { label: __("Start"), icon: Play, onClick: () => onStartSubject(p.id) }}
+                  fold={nodes.length > 0 ? { folded: !isOpen(p.id, nodes, has(p.name)), onToggle: () => toggle(p.id) } : null}
+                >
+                  {nodes.map((n) => todoNode(n, 1))}
+                </Row>
+              );
+            }}
+          </Group>
+        </div>
 
         <Group title={__("Habits")} icon={Target} rows={habitRows} order={(h) => (entriesByDay(h).has(key) ? 1 : 0)}>
           {(h) => {
@@ -174,7 +299,7 @@ export default function WorkspaceView({
           }}
         </Group>
 
-        {nothing && !typedIsNew && <p className="py-4 font-serif text-sm italic text-muted">{__("Nothing matches “{query}”.", { query: query.trim() })}</p>}
+        {nothing && <p className="py-4 font-serif text-sm italic text-muted">{__("Nothing matches “{query}”.", { query: query.trim() })}</p>}
       </div>
     </section>
   );
@@ -188,7 +313,7 @@ function Group({ title, icon: Icon, rows, order, children }) {
   const sorted = order ? [...rows].sort((a, b) => order(a) - order(b)) : rows;
   const shown = all ? sorted : sorted.slice(0, LIMIT);
   return (
-    <section className="mb-4">
+    <section className="mb-4 min-w-0 self-start">
       <h3 className="flex items-center gap-1.5 border-b border-rule py-1 font-serif text-xs italic text-muted">
         <Icon size={12} aria-hidden="true" /> {title} <span className="figures not-italic">{rows.length}</span>
       </h3>
@@ -205,26 +330,60 @@ function Group({ title, icon: Icon, rows, order, children }) {
   );
 }
 
-function Row({ icon, name, meta, running = false, action, plan = null }) {
+/**
+ * One row: an arrow to open what is under it (`fold` is { folded, onToggle }; `children` are the rows under it, shown when
+ * it is open), a tick to finish it (`tick` is { label, onTick }), what it is, the plan button and its action. `depth`
+ * indents the rows under a parent.
+ */
+function Row({ icon, name, meta, running = false, action, plan = null, fold = null, tick = null, depth = 0, children = null }) {
   useT();
   const Action = action.icon;
   return (
-    <li className={`flex min-h-10 items-center gap-2.5 border-b border-rule ${running ? "bg-[color-mix(in_srgb,var(--accent)_7%,transparent)] shadow-[inset_3px_0_0_var(--accent)]" : ""}`}>
-      <span className="grid size-5 shrink-0 place-items-center pl-1">{icon}</span>
-      <span className="min-w-0 flex-1 py-1.5 text-[14px]">
-        <span className="break-words">{name}</span>
-        {meta && <span className="ml-2 font-serif text-xs italic text-muted">{meta}</span>}
-      </span>
-      {plan && <PlanButton plan={plan} name={name} />}
-      <button
-        onClick={action.onClick}
-        disabled={action.disabled}
-        className={`mr-1 inline-flex h-8 shrink-0 items-center gap-1.5 border px-2.5 text-xs font-semibold transition-colors disabled:pointer-events-none ${
-          running ? "border-accent text-accent" : "border-line-strong hover:border-text hover:bg-surface-2"
-        }`}
+    <li>
+      <div
+        className={`flex min-h-10 items-center gap-1.5 border-b border-rule ${running ? "bg-[color-mix(in_srgb,var(--accent)_7%,transparent)] shadow-[inset_3px_0_0_var(--accent)]" : ""}`}
+        style={depth > 0 ? { paddingLeft: depth * 22 } : undefined}
       >
-        <Action size={11} fill="currentColor" aria-hidden="true" /> {action.label}
-      </button>
+        {fold ? (
+          <button
+            onClick={fold.onToggle}
+            aria-expanded={!fold.folded}
+            aria-label={fold.folded ? __("Show what is in \"{name}\"", { name }) : __("Hide what is in \"{name}\"", { name })}
+            title={fold.folded ? __("Show what is in it") : __("Hide what is in it")}
+            className="grid size-6 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
+          >
+            <ChevronDown size={15} className={`transition-transform ${fold.folded ? "-rotate-90" : ""}`} aria-hidden="true" />
+          </button>
+        ) : (
+          <span className="size-6 shrink-0" aria-hidden="true" />
+        )}
+        {tick && (
+          <input
+            type="checkbox"
+            checked={false}
+            onChange={tick.onTick}
+            aria-label={tick.label}
+            title={__("Mark done")}
+            className="size-4 shrink-0 cursor-pointer accent-(--text)"
+          />
+        )}
+        {icon && <span className="grid size-5 shrink-0 place-items-center">{icon}</span>}
+        <span className="min-w-0 flex-1 py-1.5 text-[14px]">
+          <span className="break-words">{name}</span>
+          {meta && <span className="ml-2 font-serif text-xs italic text-muted">{meta}</span>}
+        </span>
+        {plan && <PlanButton plan={plan} name={name} />}
+        <button
+          onClick={action.onClick}
+          disabled={action.disabled}
+          className={`mr-1 inline-flex h-8 shrink-0 items-center gap-1.5 border px-2.5 text-xs font-semibold transition-colors disabled:pointer-events-none ${
+            running ? "border-accent text-accent" : "border-line-strong hover:border-text hover:bg-surface-2"
+          }`}
+        >
+          <Action size={11} fill="currentColor" aria-hidden="true" /> {action.label}
+        </button>
+      </div>
+      {fold && !fold.folded && children && <ul>{children}</ul>}
     </li>
   );
 }
@@ -247,7 +406,7 @@ function PlanButton({ plan, name }) {
 }
 
 /** The plan: what to do next, in the order to do it. Drag a row's handle (or use the arrow keys on it) to reorder. */
-function NextUp({ rows, empty, onReorder, onRemove, onStop }) {
+function NextUp({ rows, empty, onReorder, onRemove, onStop, kidsOf, tickOf, open, onFold, renderKid }) {
   useT();
   const order = useReorder(rows.map((r) => r.planId), (ids) => onReorder?.(ids));
   return (
@@ -264,14 +423,12 @@ function NextUp({ rows, empty, onReorder, onRemove, onStop }) {
           {rows.map((r, i) => {
             const row = order.rowProps(i);
             const Icon = r.kind === "project" ? iconFor(r.icon) : r.kind === "habit" ? Target : ListChecks;
+            const kids = kidsOf(r);
+            const opened = kids.length > 0 && open.has(r.planId);
+            const tick = tickOf(r);
             return (
-              <li
-                key={r.planId}
-                {...row}
-                className={`flex min-h-10 items-center gap-1.5 border-b border-rule ${row.className ?? "bg-surface"} ${
-                  r.running ? "shadow-[inset_3px_0_0_var(--accent)]" : ""
-                }`}
-              >
+              <li key={r.planId} {...row} className={`border-b border-rule ${row.className ?? "bg-surface"}`}>
+                <div className={`flex min-h-10 items-center gap-1.5 ${r.running ? "shadow-[inset_3px_0_0_var(--accent)]" : ""}`}>
                 <button
                   {...order.gripProps(r.planId, i)}
                   aria-label={__("Move \"{name}\": drag, or use the up and down arrow keys", { name: r.name })}
@@ -283,12 +440,29 @@ function NextUp({ rows, empty, onReorder, onRemove, onStop }) {
                   <GripVertical size={15} />
                 </button>
                 <span className="figures w-4 shrink-0 text-right text-xs text-faint" aria-hidden="true">{i + 1}</span>
+                {kids.length > 0 ? (
+                  <button
+                    onClick={() => onFold(r.planId)}
+                    aria-expanded={opened}
+                    aria-label={opened ? __("Hide what is in \"{name}\"", { name: r.name }) : __("Show what is in \"{name}\"", { name: r.name })}
+                    title={opened ? __("Hide what is in it") : __("Show what is in it")}
+                    className="grid size-6 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
+                  >
+                    <ChevronDown size={15} className={`transition-transform ${opened ? "" : "-rotate-90"}`} aria-hidden="true" />
+                  </button>
+                ) : (
+                  <span className="size-6 shrink-0" aria-hidden="true" />
+                )}
+                {tick && (
+                  <input type="checkbox" checked={false} onChange={tick.onTick} aria-label={tick.label} title={__("Mark done")} className="size-4 shrink-0 cursor-pointer accent-(--text)" />
+                )}
                 <span className="grid size-5 shrink-0 place-items-center">
                   <Icon size={14} style={r.color ? { color: inkText(r.color) } : undefined} className={r.color ? "" : "text-muted"} aria-hidden="true" />
                 </span>
                 <span className="min-w-0 flex-1 py-1.5 text-[14px]">
                   <span className="break-words">{r.name}</span>
                   {r.context && <span className="ml-2 font-serif text-xs italic text-muted">{r.context}</span>}
+                  {r.why && <span className="block break-words font-serif text-xs italic text-muted">{r.why}</span>}
                 </span>
                 <button
                   onClick={r.running ? onStop : r.onStart}
@@ -307,6 +481,8 @@ function NextUp({ rows, empty, onReorder, onRemove, onStop }) {
                 >
                   <X size={15} aria-hidden="true" />
                 </button>
+                </div>
+                {opened && <ul>{kids.map((node) => renderKid(node))}</ul>}
               </li>
             );
           })}

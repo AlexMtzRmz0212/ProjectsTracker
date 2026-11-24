@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { format } from "../lib/dates";
-import { Check, ChevronDown, CircleDot, X } from "lucide-react";
+import { Bookmark, Check, X } from "lucide-react";
 import { taskKey } from "../api";
 import { iconFor, inkText } from "../lib/palette";
 import { fmtOpen } from "./OpenItemsBar";
@@ -60,20 +60,23 @@ export default function WorkingMenu({ todos, projectsById, todoOps, now, onOpen 
     onOpen(subjectId);
   };
 
+  // The button is a bookmark: a ribbon with a V cut into its foot, tinted with the accent while something is being worked on
   return (
     <div ref={root} className="relative">
       <button
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-haspopup="true"
-        className={`inline-flex h-9 items-center gap-1.5 px-2.5 text-[13px] font-semibold transition-colors hover:bg-surface-2 hover:text-text ${
-          open ? "bg-surface-2 text-text" : "text-muted"
-        }`}
+        title={__("Working on")}
+        className={`flex h-12 w-9 flex-col items-center gap-0.5 pt-2 text-[13px] font-semibold transition-colors [clip-path:polygon(0_0,100%_0,100%_100%,50%_78%,0_100%)] ${
+          count > 0
+            ? "bg-[color-mix(in_srgb,var(--accent)_28%,var(--surface-2))] text-text hover:bg-[color-mix(in_srgb,var(--accent)_38%,var(--surface-2))]"
+            : "bg-[color-mix(in_srgb,var(--text)_12%,var(--surface))] text-muted hover:text-text"
+        } ${open ? "text-text" : ""}`}
       >
-        <CircleDot size={14} className={count > 0 ? "text-accent" : ""} aria-hidden="true" />
-        <span className="max-sm:sr-only">{__("Working on")}</span>
-        <span className="figures text-xs font-semibold">{count}</span>
-        <ChevronDown size={13} className={`transition-transform max-sm:hidden ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+        <Bookmark size={14} className={count > 0 ? "text-accent" : ""} fill={count > 0 ? "currentColor" : "none"} aria-hidden="true" />
+        <span className="sr-only">{__("Working on")}</span>
+        <span className="figures text-xs font-semibold leading-none">{count}</span>
       </button>
 
       {open && (

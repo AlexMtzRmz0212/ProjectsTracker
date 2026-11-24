@@ -163,7 +163,7 @@ class ProjectOut(BaseModel):
 
 # ── To-dos ──────────────────────────────────────────────────────────────────
 
-TodoText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+TodoText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=250)]
 
 
 class TodoCreate(BaseModel):
@@ -291,6 +291,17 @@ class PomodoroOut(BaseModel):
     label: str = ""
 
 
+class PomodoroLabelsMerge(BaseModel):
+    """Rename tags: every pomodoro tagged with one of `labels` (any capitals) becomes tagged `into`."""
+
+    labels: Annotated[list[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]], Field(min_length=1, max_length=100)]
+    into: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+
+
+class PomodoroLabelsMerged(BaseModel):
+    updated: int
+
+
 # ── Habits (from the My Habits backup on Drive) ─────────────────────────────
 
 class HabitEntryOut(BaseModel):
@@ -395,6 +406,8 @@ class PlanItemCreate(BaseModel):
     todo_id: Optional[str] = None
     habit_id: Optional[str] = None
     label: Annotated[str, StringConstraints(strip_whitespace=True, max_length=120)] = ""
+    # Why it is being added (an AI's reason), shown under it on the plan
+    why: Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)] = ""
 
 
 class PlanItemOut(BaseModel):
@@ -406,6 +419,7 @@ class PlanItemOut(BaseModel):
     todo_id: Optional[str] = None
     habit_id: Optional[str] = None
     label: str = ""
+    why: str = ""
     position: int
     added_at: UTCDateTime
 

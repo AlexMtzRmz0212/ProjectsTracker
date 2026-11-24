@@ -274,7 +274,7 @@ def test_todo_completed_at_follows_done(client):
 def test_todo_validation(client):
     p = make_project(client)
     assert client.post("/api/todos", json={"project_id": p["id"], "text": "   "}).status_code == 422
-    assert client.post("/api/todos", json={"project_id": p["id"], "text": "x" * 201}).status_code == 422
+    assert client.post("/api/todos", json={"project_id": p["id"], "text": "x" * 251}).status_code == 422
     assert client.post("/api/todos", json={"project_id": "nope", "text": "Hi"}).status_code == 404
     assert client.patch("/api/todos/missing", json={"done": True}).status_code == 404
 
@@ -626,6 +626,25 @@ def test_pomodoros_are_listed_by_overlap(client):
     assert [p["id"] for p in client.get("/api/pomodoros", params={"start": since}).json()] == [recent["id"]]
     until = iso(now() - timedelta(days=2))
     assert [p["id"] for p in client.get("/api/pomodoros", params={"end": until}).json()] == [old["id"]]
+
+
+def test_tags_can_be_merged_into_one(client, make_user):
+    for ago, label in enumerate(["Reading", "reading", "Email", " READING ", "Admin"], start=1):
+        make_pomodoro(client, ended_ago=timedelta(hours=ago), label=label)
+    project = client.post("/api/projects", json={"name": "Reading"}).json()
+    for_project = make_pomodoro(client, ended_ago=timedelta(hours=9), project_id=project["id"])  # labelled "Reading", but for a project
+    other = make_user("merger@example.com")
+    theirs = make_pomodoro(other, ended_ago=timedelta(hours=1), label="reading")
+
+    res = client.post("/api/pomodoros/merge-labels", json={"labels": ["reading", "Email"], "into": "Deep work"})
+    assert res.status_code == 200 and res.json() == {"updated": 4}
+    labels = {p["id"]: p["label"] for p in client.get("/api/pomodoros").json()}
+    assert sorted(labels.values()) == ["Admin", "Deep work", "Deep work", "Deep work", "Deep work", "Reading"]
+    assert labels[for_project["id"]] == "Reading"  # a pomodoro for a project keeps its name
+    assert other.get("/api/pomodoros").json()[0]["label"] == "reading" and theirs["label"] == "reading"  # someone else's are untouched
+
+    assert client.post("/api/pomodoros/merge-labels", json={"labels": [], "into": "x"}).status_code == 422
+    assert client.post("/api/pomodoros/merge-labels", json={"labels": ["a"], "into": "  "}).status_code == 422
 
 
 def test_pomodoro_validation(client):

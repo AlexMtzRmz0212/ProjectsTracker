@@ -770,6 +770,22 @@ def create_pomodoro(body: schemas.PomodoroCreate, user: User = Depends(auth.curr
     db.refresh(pomodoro)
     return pomodoro
 
+
+@api.post("/pomodoros/merge-labels", response_model=schemas.PomodoroLabelsMerged)
+def merge_pomodoro_labels(body: schemas.PomodoroLabelsMerge, user: User = Depends(auth.current_user), db: DbSession = Depends(get_db)):
+    """Merge tags: the user's pomodoros tagged with any of `labels` (capitals ignored) get the label `into`. Only the
+    tags that are just words are touched: a pomodoro for a project or a to-do keeps the name it was saved with."""
+    names = {label.strip().lower() for label in body.labels}
+    rows = db.scalars(
+        select(Pomodoro).where(Pomodoro.user_id == user.id, Pomodoro.project_id.is_(None), Pomodoro.todo_id.is_(None), Pomodoro.label != "")
+    ).all()
+    # Matched here, not in SQL: SQLite only lowercases plain letters, and the tags are counted the way JavaScript does
+    changed = [p for p in rows if p.label.strip().lower() in names and p.label != body.into]
+    for p in changed:
+        p.label = body.into
+    db.commit()
+    return {"updated": len(changed)}
+
 #endregion
 # ─────────────────────────────────────────────────────────────────────────────
 #region Habits
@@ -976,9 +992,14 @@ def add_to_plan(
     existing = db.scalar(select(PlanItem).where(PlanItem.user_id == user.id, PlanItem.kind == body.kind, column == ref))
     if existing is not None:
         response.status_code = status.HTTP_200_OK
+        # An AI's reason for something already on the plan is kept; nothing else changes
+        if body.why and existing.why != body.why:
+            existing.why = body.why
+            db.commit()
+            db.refresh(existing)
         return existing
     position = (db.scalar(select(func.max(PlanItem.position)).where(PlanItem.user_id == user.id)) or 0) + 1
-    item = PlanItem(user_id=user.id, kind=body.kind, position=position)
+    item = PlanItem(user_id=user.id, kind=body.kind, position=position, why=body.why)
     if body.kind == "chore":
         item.label = ref
     else:

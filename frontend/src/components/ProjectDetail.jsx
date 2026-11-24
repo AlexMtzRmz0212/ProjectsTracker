@@ -3,7 +3,7 @@ import { format } from "../lib/dates";
 import { ArchiveRestore, ArrowDownToLine, ArrowUpDown, Ban, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, CircleDot, Copy, GripVertical, ListChecks, ListMinus, ListPlus, History, Pencil, Play, Plus, Square, Tag, Trash2, Undo2 } from "lucide-react";
 import { copyText, todoAsText } from "../lib/clipboard";
 import { SORTS, loadSort, saveSort, sortTodos } from "../lib/todoSort";
-import { loadFolded, saveFolded } from "../lib/foldState";
+import { loadExpanded, loadFolded, saveExpanded, saveFolded } from "../lib/foldState";
 import { Button } from "./Modal";
 import ActionMenu from "./ActionMenu";
 import TabBar from "./TabBar";
@@ -181,13 +181,23 @@ export function TodoList({ todos, projectId, ops, rowExtra, rowMenu, hideDone = 
   const [draft, setDraft] = useState("");
   const [showDone, setShowDone] = useState(false);
   const foldKey = projectId ?? "tasks";
-  const [collapsed, setCollapsedState] = useState(() => loadFolded(foldKey)); // parents whose sub-to-dos are folded away; remembered
-  // Folding is remembered per list; the ids of to-dos that are gone are dropped as it saves
-  const setCollapsed = (update) =>
-    setCollapsedState((prev) => {
+  // A project's to-dos start folded (what is remembered is what was opened); the Tasks tab starts open (what is
+  // remembered is what was folded). Either way it is kept per list, and the ids of to-dos that are gone are dropped as it saves.
+  const startsFolded = Boolean(projectId);
+  const [marked, setMarked] = useState(() => (startsFolded ? loadExpanded(foldKey) : loadFolded(foldKey)));
+  const setMarkedSaved = (update) =>
+    setMarked((prev) => {
       const next = typeof update === "function" ? update(prev) : update;
-      if (next !== prev) saveFolded(foldKey, next, todosRef.current.map((t) => t.id));
+      if (next !== prev) (startsFolded ? saveExpanded : saveFolded)(foldKey, next, todosRef.current.map((t) => t.id));
       return next;
+    });
+  const isFolded = (id) => (startsFolded ? !marked.has(id) : marked.has(id));
+  /** Fold (`folded` true) or unfold the sub-to-dos of the to-dos in `ids`. */
+  const setFolded = (ids, folded) =>
+    setMarkedSaved((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) (folded === startsFolded ? next.delete(id) : next.add(id));
+      return next.size === prev.size && [...next].every((id) => prev.has(id)) ? prev : next;
     });
   const todosRef = useRef(todos);
   todosRef.current = todos;
@@ -205,7 +215,7 @@ export function TodoList({ todos, projectId, ops, rowExtra, rowMenu, hideDone = 
     if (t.parent_id && ids.has(t.parent_id)) subsOf.set(t.parent_id, [...(subsOf.get(t.parent_id) ?? []), t]);
   }
   for (const [id, list] of subsOf) subsOf.set(id, sortTodos(list, sortMode));
-  const allFolded = subsOf.size > 0 && [...subsOf.keys()].every((id) => collapsed.has(id));
+  const allFolded = subsOf.size > 0 && [...subsOf.keys()].every(isFolded);
   const top = sortTodos(todos.filter((t) => !t.parent_id || !ids.has(t.parent_id)), sortMode);
   const open = top.filter((t) => !t.done);
   const done = top.filter((t) => t.done);
@@ -224,29 +234,19 @@ export function TodoList({ todos, projectId, ops, rowExtra, rowMenu, hideDone = 
     canNest: (id) => !subsOf.has(id),
     onNest: (id, parentId) => {
       toManual();
-      setCollapsed((prev) => {
-        if (!prev.has(parentId)) return prev;
-        const next = new Set(prev);
-        next.delete(parentId);
-        return next;
-      });
+      setFolded([parentId], false);
       ops.nest(id, parentId);
     },
   });
   const doneOrder = useReorder(done.map((t) => t.id), reorder);
-  const toggle = (id) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
+  const toggle = (id) => setFolded([id], !isFolded(id));
   const rowProps = (t, i, order) => ({
     todo: t,
     sort: { row: order.rowProps(i), grip: order.gripProps(t.id, i), held: order.held === t.id, nestTarget: order.nestInto === t.id },
     ops,
     projectId,
     subs: subsOf.get(t.id) ?? [],
-    folded: collapsed.has(t.id),
+    folded: isFolded(t.id),
     onToggle: () => toggle(t.id),
     rowExtra,
     rowMenu,
@@ -278,7 +278,7 @@ const [copied, setCopied] = useState(false);
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          maxLength={200}
+          maxLength={250}
           placeholder={placeholder}
           aria-label={label}
           className="h-10 min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-faint"
@@ -286,7 +286,7 @@ const [copied, setCopied] = useState(false);
         {subsOf.size > 0 && (
           <button
             type="button"
-            onClick={() => setCollapsed(allFolded ? new Set() : new Set(subsOf.keys()))}
+            onClick={() => setFolded([...subsOf.keys()], !allFolded)}
             className="inline-flex h-7 shrink-0 items-center gap-1.5 px-2 text-xs font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-text"
             title={allFolded ? __("Show every sub-to-do") : __("Fold every sub-to-do away")}
             aria-label={allFolded ? __("Expand all") : __("Collapse all")}
@@ -494,7 +494,7 @@ function TodoRow({ todo, sort, ops, projectId, subs = [], folded = false, onTogg
           onChange={(e) => setDraft(e.target.value.replace(/\s*\n\s*/g, " "))}
           onBlur={commit}
           onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), e.currentTarget.blur())}
-          maxLength={200}
+          maxLength={250}
           aria-label={isSub ? __("Sub-to-do") : __("To-do")}
           className={`field-sizing-content min-h-9 min-w-0 flex-1 resize-none overflow-hidden bg-transparent py-2 text-[14px] leading-5 outline-none focus:bg-surface-2 ${
             todo.done ? "text-muted line-through" : ""
@@ -577,7 +577,7 @@ function TodoRow({ todo, sort, ops, projectId, subs = [], folded = false, onTogg
                   onChange={(e) => setSubDraft(e.target.value)}
                   onBlur={() => !subDraft.trim() && setAdding(false)}
                   onKeyDown={(e) => e.key === "Escape" && setAdding(false)}
-                  maxLength={200}
+                  maxLength={250}
                   placeholder={__("Add a sub-to-do and press Enter")}
                   aria-label={__("New sub-to-do under \"{text}\"", { text: todo.text })}
                   className="h-9 min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-faint"
