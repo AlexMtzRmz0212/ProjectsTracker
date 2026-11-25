@@ -577,3 +577,125 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 [data-dragging] .pg {
   transition: none;
 }
+
+/* ── The Tasks post-it (FeedView) ─────────────────────────────────────────────
+   A yellow note stuck above the Feed's list, one corner curled. The corner folds the note up into a
+   flag and unfolds it again, so that only the projects show. It is yellow paper in the light theme and
+   a dimmed, amber one at night in the dark theme; either way it brings its own ink: whatever is written on it
+   reads these variables, not the page's. Outside the layers so
+   the handwriting below wins over the form fields' own sizes. */
+/* The size of the curled corner; registered so that it can grow smoothly when the corner is pointed at */
+@property --curl {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 1.25rem;
+}
+.postit {
+  --paper: #fdea6f;
+  --paper-glow: rgb(255 255 255 / 0.42);
+  --fold: linear-gradient(135deg, #fff9cf, #ecd44f);
+  --shadow: drop-shadow(0 1px 1px rgb(0 0 0 / 0.18)) drop-shadow(0 7px 6px rgb(0 0 0 / 0.2));
+  --text: #2b2916;
+  --muted: #6a6238;
+  --faint: #7a7344;
+  --rule: rgb(120 98 20 / 0.3);
+  --line: rgb(120 98 20 / 0.22);
+  --line-strong: rgb(120 98 20 / 0.4);
+  --surface: #fff7bd;
+  --surface-2: #f6e682;
+  --surface-3: #eed96a;
+  --accent: #bf3a30;
+  --accent-2: #2f5d8a;
+  --tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2.5 8.8c1.6 1.4 2.6 2.8 3.5 4.4C7.6 8.6 10.6 4.8 14.4 2' fill='none' stroke='%231e2433' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --curl: 1.25rem;
+  position: relative;
+  width: min(100%, 24rem);
+  margin-inline: auto;
+  color: var(--text);
+  transform: rotate(-0.6deg);
+  transform-origin: 18% 0;
+  filter: var(--shadow);
+  transition: width 0.34s cubic-bezier(0.22, 1, 0.36, 1), --curl 0.18s ease-out;
+}
+/* At night the note is amber and a shade down, so it does not glare on the dark cover; its ink gets darker with it */
+:root[data-theme="dark"] .postit {
+  --paper: #d8b94a;
+  --paper-glow: rgb(255 244 190 / 0.3);
+  --fold: linear-gradient(135deg, #f1dc86, #b99a2e);
+  --shadow: drop-shadow(0 1px 1px rgb(0 0 0 / 0.4)) drop-shadow(0 7px 6px rgb(0 0 0 / 0.5));
+  --text: #231f0b;
+  --muted: #4f4719;
+  --faint: #5c531f;
+  --rule: rgb(70 54 8 / 0.38);
+  --line: rgb(70 54 8 / 0.3);
+  --line-strong: rgb(70 54 8 / 0.5);
+  --surface: #ecd47a;
+  --surface-2: #cdab3a;
+  --surface-3: #c19f30;
+}
+.postit[data-open="false"] {
+  width: min(100%, 14.5rem);
+}
+/* The paper, with its lower right corner turned up... */
+.postit-note {
+  background: linear-gradient(to bottom, var(--paper-glow), transparent 2.75rem), var(--paper);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--curl)), calc(100% - var(--curl)) 100%, 0 100%);
+}
+/* ...and that corner is the button: a square a little larger than the fold, with the fold drawn in it as a
+   triangle, lighter, laid back over the note. Pointing at it peels it back a little further. */
+.postit-curl {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+.postit-curl > span {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: var(--curl);
+  height: var(--curl);
+  background: var(--fold);
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+  pointer-events: none;
+}
+.postit:has(.postit-curl:hover),
+.postit:has(.postit-curl:focus-visible) {
+  --curl: 1.9rem;
+}
+.postit input:not([type="checkbox"]) {
+  font-family: var(--font-hand);
+  font-size: 21px;
+  line-height: 1.1;
+}
+
+/* The note's body opens and closes by the room it is given, and swings down into it like a leaf of paper unfolding */
+.pad-sheet {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.pad-sheet[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+.pad-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+.pad-paper {
+  transform: perspective(40rem) rotateX(-70deg);
+  transform-origin: 50% 0;
+  opacity: 0;
+  transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.22s ease-out;
+}
+.pad-sheet[data-open="true"] .pad-paper {
+  transform: none;
+  opacity: 1;
+}

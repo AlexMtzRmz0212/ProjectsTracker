@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatDistanceToNowStrict } from "../lib/dates";
-import { ArrowUpToLine, CircleDot, CornerDownRight, Layers, ListMinus, ListPlus, Pin, PinOff, Play, Plus, SkipForward, Square } from "lucide-react";
+import { ArrowUpToLine, CircleDot, CornerDownRight, Layers, ListMinus, ListPlus, Pin, PinOff, Play, Plus, SkipForward, Square, StickyNote } from "lucide-react";
 import { usePlanContext } from "../lib/planContext";
-import { ON_INK, iconFor, inkFor, inkText, tint } from "../lib/palette";
+import { ON_INK, TASK_INK, iconFor, inkFor, inkText, tint } from "../lib/palette";
+import { useTasksPad } from "../hooks/useTasksPad";
 import { fmtClock } from "../lib/time";
 import { Button } from "./Modal";
 import ParentTag from "./ParentTag";
@@ -23,7 +24,9 @@ const whenLabel = (days) => (days === 1 ? __("tomorrow") : __("in {n} days", { n
  * its open to-dos, which can be added, edited and ticked right here (ticking one
  * counts as working on the project, so it goes to the back too). Starting a timer (from the
  * project or from one of its to-dos) puts the project at the back once time is logged; Skip
- * puts it there straight away. `queue` is [{ project, lastWorked }] in order (see feedQueue),
+ * puts it there straight away. The Tasks are not one of the cards: they are a notepad above the list, pulled
+ * down to see them or tucked away to see only the projects (see TasksPad).
+ * `queue` is [{ project, lastWorked }] in order (see feedQueue),
  * `todosByProject` maps a project id to its open to-dos, `todosById` holds every to-do (to name
  * a sub-to-do's parent) and `todoOps` is the tracker's add / update. `queue` arrives already in the order to
  * show (see orderQueue); `feedOrder` is that order's settings (the mode, the pinned cards) and `onOrder(ids, released)`
@@ -35,10 +38,36 @@ export default function FeedView({
 }) {
   useT();
   const [sorting, setSorting] = useState(false);
-  if (queue.length === 0) {
+  const pad = useTasksPad();
+
+  // The list is the projects; the Tasks card the queue carries is the pad above it
+  const tasksEntry = queue.find(({ project }) => project.kind === "tasks");
+  const tasksCard = tasksEntry?.project;
+  const taskLines = tasksCard ? todosByProject.get(tasksCard.id) ?? [] : [];
+  const projectQueue = queue.filter(({ project }) => project.kind !== "tasks");
+  // Shown with no open tasks too, so one can be added from here
+  const tasksPad = (
+    <TasksPad
+      open={pad.open}
+      onOpenChange={pad.setOpen}
+      color={tasksCard?.color ?? TASK_INK}
+      todos={taskLines}
+      todosById={todosById}
+      todoOps={todoOps}
+      lastWorked={tasksEntry?.lastWorked ?? null}
+      isRunning={Boolean(tasksCard) && tasksCard.id === runningId}
+      elapsed={elapsed}
+      onOpen={() => tasksCard && onOpen(tasksCard.id)}
+      onStartTask={onStartTask}
+      onStop={onStop}
+    />
+  );
+
+  if (projectQueue.length === 0) {
     const allWaiting = waiting.length > 0;
     return (
       <div className="mx-auto max-w-3xl">
+        {tasksPad}
         <div className="grid min-h-[16rem] place-items-center border border-dashed border-line-strong p-6 text-center">
           <div>
             <p className="font-serif text-lg font-semibold">{allWaiting ? __("Nothing due right now") : __("Nothing to work on")}</p>
@@ -52,18 +81,15 @@ export default function FeedView({
     );
   }
 
-  const nextId = queue.find(({ project }) => project.id !== runningId)?.project.id;
+  const nextId = projectQueue.find(({ project }) => project.id !== runningId)?.project.id;
   const mode = FEED_MODES.find((m) => m.id === feedOrder.mode) ?? FEED_MODES[0];
   // Skip sends a card to the back of My order; the other two follow "Last worked", which a skip does not change
   const showSkip = feedOrder.mode === "manual";
   const rotation = feedOrder.mode === "rotation";
 
   // The cards of the Sort deck: the projects in the Feed's order, then the open tasks
-  const tasksCard = queue.find(({ project }) => project.kind === "tasks")?.project;
-  const taskLines = tasksCard ? todosByProject.get(tasksCard.id) ?? [] : [];
   const deck = [
-    ...queue
-      .filter(({ project }) => project.kind !== "tasks")
+    ...projectQueue
       .map(({ project, lastWorked }) => ({
         key: project.id, kind: "project", project, lastWorked, status: statusesById.get(project.status_id), todos: todosByProject.get(project.id) ?? [],
       })),
@@ -74,6 +100,7 @@ export default function FeedView({
 
   return (
     <div className="pb-4">
+      {tasksPad}
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
         <p className="min-w-0 flex-1 basis-56 font-serif text-[13px] italic text-muted">
           {__(mode.note)} {feedOrder.displace && rotation && `${__("A project waits its “done every N days” before it is back on top.")} `}
@@ -129,7 +156,7 @@ export default function FeedView({
         />
       )}
       <ol className="space-y-3">
-        {queue.map(({ project, lastWorked }, i) => (
+        {projectQueue.map(({ project, lastWorked }, i) => (
           <FeedCard
             key={project.id}
             position={i + 1}
@@ -143,11 +170,10 @@ export default function FeedView({
             isNext={project.id === nextId}
             pinned={feedOrder.pinned.includes(project.id)}
             onPin={() => feedOrder.togglePin(project.id)}
-            canSkip={showSkip && queue.length > 1 && project.id !== runningId}
+            canSkip={showSkip && projectQueue.length > 1 && project.id !== runningId}
             elapsed={elapsed}
             onOpen={() => onOpen(project.id)}
             onStart={() => onStart(project.id)}
-            onStartTask={onStartTask}
             // Marks the to-do as being worked on; with this project's timer running, its session moves onto that to-do
             onWorkTodo={(todo) => (project.id === runningId ? onStart(project.id, todo.id) : todoOps.update(todo.id, { working: true }))}
             onStop={() => onStop()}
@@ -195,15 +221,157 @@ function WaitingFooter({ waiting, today, onOpen }) {
   );
 }
 
+/**
+ * The Tasks, as a post-it stuck above the list instead of being one of its cards. Its curled corner folds the note up
+ * into a small flag (click it, or drag it up) so that only the projects show, and unfolds it again (click, or drag
+ * down). Each task is timed on its own, a new line adds one, and the flag keeps the count and a running timer in
+ * view. `todos` are the open tasks.
+ */
+function TasksPad({ open, onOpenChange, color, todos, todosById, todoOps, lastWorked, isRunning, elapsed, onOpen, onStartTask, onStop }) {
+  useT();
+  const [expanded, setExpanded] = useState(false);
+  // A sub-task sits right under its task; a task counts once, with its sub-tasks
+  const rows = nestTodos(todos);
+  const count = rows.filter((row) => !row.isSub).length;
+  const shown = expanded ? rows : rows.slice(0, SHOWN_TODOS);
+  const more = rows.length - shown.length;
+
+  // A drag of the corner down unfolds the note, one up folds it; a plain press toggles it
+  const press = useRef(null);
+  const dragged = useRef(false);
+  const onPointerDown = (e) => {
+    dragged.current = false;
+    press.current = e.clientY;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const onPointerUp = (e) => {
+    if (press.current === null) return;
+    const dy = e.clientY - press.current;
+    press.current = null;
+    if (Math.abs(dy) < 14) return; // not a drag: the click that follows toggles
+    dragged.current = true;
+    onOpenChange(dy > 0);
+  };
+  const onClick = () => {
+    if (dragged.current) {
+      dragged.current = false;
+      return;
+    }
+    onOpenChange(!open);
+  };
+
+  return (
+    <section aria-label={__("Tasks")} className="mb-4">
+      <div className="postit" data-open={open}>
+        <div className="postit-note">
+          <div className="postit-head flex h-11 items-center gap-2 px-3">
+            <StickyNote size={15} aria-hidden="true" className="shrink-0 text-muted" />
+            <span className="font-hand text-[26px] font-semibold leading-none">{__("Tasks")}</span>
+            <span className="figures text-xs text-muted">{count}</span>
+            {isRunning && (
+              <>
+                <span className="blink-dot size-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
+                <span className="figures text-xs">{fmtClock(elapsed)}</span>
+              </>
+            )}
+          </div>
+
+          <div id="feed-tasks-pad" className="pad-sheet" data-open={open} inert={!open}>
+            <div className="pad-clip">
+              <div className="pad-paper">
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3">
+                  <span className="font-serif text-xs italic text-muted">
+                    {isRunning
+                      ? __("Working on it now")
+                      : lastWorked
+                        ? __("Last worked {formatDistanceToNowStrict}", { formatDistanceToNowStrict: formatDistanceToNowStrict(lastWorked, { addSuffix: true }) })
+                        : __("Never worked")}
+                  </span>
+                  {count > 0 && (
+                    <button onClick={onOpen} className="ml-auto text-xs text-muted underline underline-offset-2 transition-colors hover:text-text">
+                      {__("Open the Tasks tab")}
+                    </button>
+                  )}
+                </div>
+
+                {rows.length > 0 ? (
+                  <ul className="mx-3 mt-1.5 border-t border-rule">
+                    {shown.map(({ todo, isSub }, i) => (
+                      <TodoLine
+                        key={todo.id}
+                        todo={todo}
+                        isSub={isSub}
+                        todosById={todosById}
+                        ops={todoOps}
+                        onTop={i > 0 && !isSub ? () => todoOps.moveToTop(todo.id) : undefined}
+                        canStart
+                        onStart={() => onStartTask(todo)}
+                      />
+                    ))}
+                    {(more > 0 || expanded) && rows.length > SHOWN_TODOS && (
+                      <li className="py-1.5 pl-1">
+                        <button
+                          onClick={() => setExpanded((e) => !e)}
+                          aria-expanded={expanded}
+                          className="text-[13px] text-muted underline underline-offset-2 transition-colors hover:text-text"
+                        >
+                          {expanded ? __("Show fewer") : _n(more, "+{n} more to-do", "+{n} more to-dos")}
+                        </button>
+                      </li>
+                    )}
+                  </ul>
+                ) : (
+                  <p className="px-3 py-2 font-hand text-xl text-faint">{__("No open tasks")}</p>
+                )}
+
+                <AddTodo projectId={null} name={__("Tasks")} noun="task" ops={todoOps} className="mx-3" />
+
+                {/* The right is left clear for the corner */}
+                <div className="flex min-h-5 items-center justify-end gap-2 pb-4 pl-3 pr-10 pt-2">
+                  {isRunning && (
+                    <button
+                      onClick={onStop}
+                      aria-label={__("Stop {name}", { name: __("Tasks") })}
+                      className="flex h-8 min-w-[6.5rem] items-center justify-center gap-1.5 border px-3 text-xs font-semibold"
+                      style={{ background: color, borderColor: color, color: ON_INK }}
+                    >
+                      <Square size={10} fill="currentColor" />
+                      <span className="figures text-[13px]">{fmtClock(elapsed)}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* The corner is what folds and unfolds the note: click it, or drag it up to fold and down to unfold */}
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls="feed-tasks-pad"
+          aria-label={open ? __("Fold the note up to hide the tasks") : __("Unfold the note to see your tasks")}
+          title={open ? __("Fold the note up to hide the tasks") : __("Unfold the note to see your tasks")}
+          onPointerDown={onPointerDown}
+          onPointerUp={onPointerUp}
+          onPointerCancel={() => (press.current = null)}
+          onClick={onClick}
+          className="postit-curl"
+        >
+          <span aria-hidden="true" />
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function FeedCard({
-  position, project, lastWorked, status, todos, todosById, todoOps, isRunning, isNext, pinned, onPin, canSkip, elapsed, onOpen, onStart, onStartTask, onWorkTodo, onStop, onSkip, onCadence,
+  position, project, lastWorked, status, todos, todosById, todoOps, isRunning, isNext, pinned, onPin, canSkip, elapsed, onOpen, onStart, onWorkTodo, onStop, onSkip, onCadence,
 }) {
   useT();
   const { color, name } = project;
   const planCtx = usePlanContext();
   const planned = planCtx?.has("project", project.id);
-  // The tasks, as one card: each is timed on its own (not the card), and a new line adds a task
-  const isTasks = project.kind === "tasks";
   const Icon = iconFor(project.icon);
   const [expanded, setExpanded] = useState(false);
   // A sub-to-do sits right under its to-do, as in the project's own list; one whose to-do is not open stands alone
@@ -235,7 +403,7 @@ function FeedCard({
             <button
               onClick={onOpen}
               title={name}
-              aria-label={isTasks ? __("Open the Tasks tab") : __("Open {name}: to-dos and sessions", { name })}
+              aria-label={__("Open {name}: to-dos and sessions", { name })}
               className="min-w-0 text-left font-serif text-[16px] font-medium leading-snug underline-offset-4 hover:underline focus-visible:underline"
             >
               <span className="line-clamp-2 break-words">{name}</span>
@@ -243,7 +411,7 @@ function FeedCard({
             {isNext && (
               <span className="mt-0.5 shrink-0 border border-line-strong px-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">{__("Up next")}</span>
             )}
-            {planCtx && project.kind !== "tasks" && (
+            {planCtx && (
               <button
                 onClick={() => planCtx.toggle("project", project.id)}
                 aria-pressed={planned}
@@ -261,7 +429,7 @@ function FeedCard({
               aria-pressed={pinned}
               aria-label={pinned ? __("Unpin {name}", { name }) : __("Pin {name} to the top of the Feed", { name })}
               title={pinned ? __("Pinned to the top. Click to unpin") : __("Pin to the top of the Feed")}
-              className={`${planCtx && project.kind !== "tasks" ? "" : "ml-auto "}grid size-6 shrink-0 place-items-center transition-colors hover:bg-surface-2 hover:text-text ${
+              className={`${planCtx ? "" : "ml-auto "}grid size-6 shrink-0 place-items-center transition-colors hover:bg-surface-2 hover:text-text ${
                 pinned ? "text-accent" : "text-faint"
               }`}
             >
@@ -283,33 +451,22 @@ function FeedCard({
                   : __("Never worked")}
             </span>
             {/* "Done every N days" is set from here, not only from the project's edit window */}
-            {!isTasks && onCadence && <CadenceChip days={project.cadence_days || 0} onChange={(days) => onCadence(project.id, days)} />}
+            {onCadence && <CadenceChip days={project.cadence_days || 0} onChange={(days) => onCadence(project.id, days)} />}
           </p>
         </div>
       </div>
 
       {todos.length > 0 ? (
         <ul className="mx-3 mt-2.5 border-t border-rule sm:ml-[2.125rem]">
-          {shown.map(({ todo, isSub }, i) => (
+          {shown.map(({ todo, isSub }) => (
             <TodoLine
               key={todo.id}
               todo={todo}
               isSub={isSub}
               todosById={todosById}
               ops={todoOps}
-              // In the Tasks card a line can be brought to the top; that puts the card on top of the Feed too
-              onTop={
-                isTasks && i > 0 && !isSub
-                  ? () => {
-                      todoOps.moveToTop(todo.id);
-                      if (!pinned) onPin();
-                    }
-                  : undefined
-              }
-              // ▶ times a task in the Tasks card; in a project it is only the card's own Start, and a to-do is marked
-              canStart={isTasks}
-              onStart={() => onStartTask(todo)}
-              onWork={isTasks ? undefined : () => onWorkTodo(todo)}
+              // In a project the timer is the card's own Start, and a to-do is only marked as being worked on
+              onWork={() => onWorkTodo(todo)}
             />
           ))}
           {(more > 0 || expanded) && rows.length > SHOWN_TODOS && (
@@ -328,7 +485,7 @@ function FeedCard({
         <p className="px-3 py-2 font-serif text-xs italic text-faint sm:pl-[2.125rem]">{__("No open to-dos")}</p>
       )}
 
-      <AddTodo projectId={isTasks ? null : project.id} name={name} noun={isTasks ? "task" : "to-do"} ops={todoOps} />
+      <AddTodo projectId={project.id} name={name} ops={todoOps} />
 
       <div className="flex items-center justify-end gap-2 px-3 pb-3 pt-2.5">
         {canSkip && (
@@ -341,7 +498,6 @@ function FeedCard({
           >
             <SkipForward size={13} />{" "}{__("Skip")}</Button>
         )}
-        {(!isTasks || isRunning) && (
         <button
           onClick={isRunning ? onStop : onStart}
           aria-label={isRunning ? __("Stop {name}", { name }) : __("Start {name}", { name })}
@@ -360,7 +516,6 @@ function FeedCard({
               <Play size={11} fill="currentColor" />{" "}{__("Start")}</>
           )}
         </button>
-        )}
       </div>
     </li>
   );
@@ -420,7 +575,7 @@ function TodoLine({ todo, isSub = false, todosById, ops, canStart, onTop, onStar
         <button
           onClick={onTop}
           aria-label={__("Put \"{text}\" first", { text: todo.text })}
-          title={__("Put first: top of the list, and the Tasks card on top of the Feed")}
+          title={__("Put first: top of the Tasks list")}
           className="grid size-8 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
         >
           <ArrowUpToLine size={13} />
@@ -452,7 +607,7 @@ function TodoLine({ todo, isSub = false, todosById, ops, canStart, onTop, onStar
 }
 
 /** The line under a card's to-dos for a new one. */
-function AddTodo({ projectId, name, noun = "to-do", ops }) {
+function AddTodo({ projectId, name, noun = "to-do", ops, className = "mx-3 sm:ml-[2.125rem]" }) {
   useT();
   const [draft, setDraft] = useState("");
 
@@ -467,7 +622,7 @@ function AddTodo({ projectId, name, noun = "to-do", ops }) {
   };
 
   return (
-    <form onSubmit={add} className="mx-3 flex items-center gap-2 border-b border-rule focus-within:border-text sm:ml-[2.125rem]">
+    <form onSubmit={add} className={`flex items-center gap-2 border-b border-rule focus-within:border-text ${className}`}>
       <Plus size={14} className="shrink-0 text-muted" aria-hidden="true" />
       <input
         value={draft}
