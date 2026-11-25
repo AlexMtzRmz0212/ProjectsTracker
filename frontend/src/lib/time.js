@@ -167,20 +167,17 @@ export function mostNeglected(projects, sessions, now, todos = []) {
   return found;
 }
 
-/** The Feed's queue: [{ project, lastWorked, rank }] with the project to work on next first, where
- *  `lastWorked` is a Date, or null if it never has been, and `rank` the millisecond stamp the order is made from
- *  (the later of its last work and its last skip; 0 if neither). Projects are ranked by the later of when
- *  they were last worked on and when they were last skipped (a missing moment counts as 0), so
- *  the least recently touched comes first, never-touched ones lead (oldest-created first), and a
- *  skip sends a project behind everything else until the others have had their turn. The running
+/** The Feed's queue: [{ project, lastWorked, rank }] with the project worked on longest ago first, where
+ *  `lastWorked` is a Date, or null if it never has been, and `rank` its millisecond stamp (0 if never). It is the
+ *  same moment the card says ("Last worked 2 months ago"), so the order always matches what the cards show:
+ *  never-worked ones lead (oldest-created first), then the oldest work. Skips do not count. The running
  *  project is pinned to the top. As in mostNeglected, a project with logged time but no session in
  *  the loaded window counts from when it was created. */
 export function feedQueue(projects, sessions, now, runningId, todos = []) {
   const last = lastWorkedByProject(sessions, now, todos);
   const items = projects.map((project) => {
     const worked = last.get(project.id) ?? (project.total_seconds > 0 ? new Date(project.created_at) : null);
-    const skipped = project.skipped_at ? new Date(project.skipped_at) : null;
-    return { project, lastWorked: worked, rank: Math.max(worked?.getTime() ?? 0, skipped?.getTime() ?? 0) };
+    return { project, lastWorked: worked, rank: worked?.getTime() ?? 0 };
   });
   items.sort(
     (a, b) =>

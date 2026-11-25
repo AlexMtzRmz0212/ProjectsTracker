@@ -8,7 +8,7 @@ import { Button } from "./Modal";
 import ParentTag from "./ParentTag";
 import CadenceChip from "./CadenceChip";
 import FeedSwipe from "./FeedSwipe";
-import { FEED_MODES, TASKS_PLACES } from "../lib/feedOrder";
+import { FEED_MODES } from "../lib/feedOrder";
 import { loadSort } from "../lib/todoSort";
 import { __, _n, useT } from "../i18n";
 
@@ -54,8 +54,8 @@ export default function FeedView({
 
   const nextId = queue.find(({ project }) => project.id !== runningId)?.project.id;
   const mode = FEED_MODES.find((m) => m.id === feedOrder.mode) ?? FEED_MODES[0];
-  // Skip sends a card to the back of the rotation (or of My order); the newest-first order has no back to send it to
-  const showSkip = feedOrder.mode !== "newest";
+  // Skip sends a card to the back of My order; the other two follow "Last worked", which a skip does not change
+  const showSkip = feedOrder.mode === "manual";
   const rotation = feedOrder.mode === "rotation";
 
   // The cards of the Sort deck: the projects in the Feed's order, then the open tasks
@@ -108,20 +108,6 @@ export default function FeedView({
             <option value="hide">{__("Hide until due")}</option>
             {rotation && <option value="days">{__("Plus days")}</option>}
             <option value="direct">{__("Direct")}</option>
-          </select>
-        </label>
-        <label className="flex items-center gap-1.5 text-xs text-muted">
-          {__("Tasks")}
-          <select
-            value={feedOrder.tasks}
-            onChange={(e) => feedOrder.setTasks(e.target.value)}
-            className="h-8 border border-line-strong bg-surface px-2 text-[13px] font-semibold text-text outline-none focus:border-text"
-          >
-            {TASKS_PLACES.map((p) => (
-              <option key={p.id} value={p.id}>
-                {__(p.label)}
-              </option>
-            ))}
           </select>
         </label>
         {deck.length > 1 && (

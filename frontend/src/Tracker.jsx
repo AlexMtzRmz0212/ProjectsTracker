@@ -339,8 +339,8 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
     [queue, feedOrder.hide, feedOrder.pinned, feedRunning, today]
   );
   const shownQueue = useMemo(
-    () => orderQueue(readyQueue, { mode: feedOrder.mode, manual: feedOrder.manual, pinned: feedOrder.pinned, displace: feedOrder.displace, tasks: feedOrder.tasks }, feedRunning),
-    [readyQueue, feedOrder.mode, feedOrder.manual, feedOrder.pinned, feedOrder.displace, feedOrder.tasks, feedRunning]
+    () => orderQueue(readyQueue, { mode: feedOrder.mode, manual: feedOrder.manual, pinned: feedOrder.pinned, displace: feedOrder.displace }, feedRunning),
+    [readyQueue, feedOrder.mode, feedOrder.manual, feedOrder.pinned, feedOrder.displace, feedRunning]
   );
   /** Skip a Feed card to the back: in the rotation by stamping it, in "My order" by moving it to the end of that
    *  order. Either way it loses its pin, or it would stay on top. */

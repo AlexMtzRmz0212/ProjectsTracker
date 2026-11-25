@@ -1,24 +1,17 @@
 import { N_ } from "../i18n";
 // How the Feed is ordered. There are three orders: newest worked first, oldest worked first (the rotation) and the
-// person's own. "Worked" is a timer session, or a to-do ticked off (see lastWorkedByProject). Three settings apply to
-// every order: where the Tasks card goes, whether projects wait out their "done every N days", and, in the rotation,
-// whether the cadence also pushes them back. Pinned cards go on top, and the project whose timer is running stays
-// first of all.
+// person's own. "Worked" is a timer session, or a to-do ticked off (see lastWorkedByProject), and it is the same moment
+// a card shows as "Last worked ...". The cadence setting applies too: projects can wait out their "done every N days"
+// (every order) and, in the rotation, the cadence can also push them back. Pinned cards go on top, and the project
+// whose timer is running stays first of all.
 
 export const FEED_MODES = [
   { id: "newest", label: N_("Newest worked first"), note: N_("The project you worked on most recently comes first.") },
-  { id: "rotation", label: N_("Oldest worked first"), note: N_("The project left longest without work comes first. Skip sends a card to the back.") },
+  { id: "rotation", label: N_("Oldest worked first"), note: N_("The project left longest without work comes first.") },
   { id: "manual", label: N_("My order"), note: N_("Your own order. Use Sort to swipe through it; Skip sends a card to the back.") },
 ];
 
-/** Where the Tasks card sits among the projects: wherever its own work puts it, or on top, or at the bottom. */
-export const TASKS_PLACES = [
-  { id: "mixed", label: N_("Mixed in") },
-  { id: "top", label: N_("On top") },
-  { id: "bottom", label: N_("At the bottom") },
-];
-
-export const DEFAULT_ORDER = { mode: "rotation", manual: [], pinned: [], displace: false, hide: true, tasks: "mixed" };
+export const DEFAULT_ORDER = { mode: "rotation", manual: [], pinned: [], displace: false, hide: true };
 
 const DAY_MS = 86_400_000;
 
@@ -57,16 +50,15 @@ export function splitWaiting(queue, { hide, pinned = [] }, runningId, today) {
 
 /**
  * `queue` is [{ project, lastWorked, rank }] in rotation order (oldest worked first, a skip counting as work);
- * `order` is { mode, manual: [ids], pinned: [ids], displace, tasks }; `runningId` is the card whose timer is running,
+ * `order` is { mode, manual: [ids], pinned: [ids], displace }; `runningId` is the card whose timer is running,
  * if any. Returns the queue in the order the Feed shows. Every sort is stable, so cards that tie keep their rotation order.
  *
- *  · newest: by last work, latest first; a skip does not move a card, and cards never worked on go last.
- *  · rotation: the queue as it is; with `displace` each project is ordered by when it is due again, its last work
- *    plus its cadence (`cadence_days`), so a project done "every 7 days" waits behind the others for a week.
+ *  · newest: by last work, latest first; cards never worked on go last.
+ *  · rotation: the queue as it is, the oldest work first; with `displace` each project is ordered by when it is due
+ *    again, its last work plus its cadence (`cadence_days`), so a project done "every 7 days" waits behind the others.
  *  · manual: the saved order; cards not in it yet (new projects) follow it, in rotation order.
- * `tasks` then puts the Tasks card on top or at the bottom ("mixed" leaves it where its own work put it).
  */
-export function orderQueue(queue, { mode, manual = [], pinned = [], displace = false, tasks = "mixed" }, runningId) {
+export function orderQueue(queue, { mode, manual = [], pinned = [], displace = false }, runningId) {
   let list = [...queue];
   if (mode === "manual") {
     const at = new Map(manual.map((id, i) => [id, i]));
@@ -76,9 +68,6 @@ export function orderQueue(queue, { mode, manual = [], pinned = [], displace = f
   } else if (displace) {
     list.sort((a, b) => dueAt(a) - dueAt(b));
   }
-  const isTasks = (entry) => entry.project.kind === "tasks";
-  if (tasks === "top") list.sort((a, b) => Number(isTasks(b)) - Number(isTasks(a)));
-  else if (tasks === "bottom") list.sort((a, b) => Number(isTasks(a)) - Number(isTasks(b)));
   const pin = new Map(pinned.map((id, i) => [id, i]));
   list.sort(
     (a, b) =>
