@@ -8,20 +8,19 @@ import { Button } from "./Modal";
 import ParentTag from "./ParentTag";
 import CadenceChip from "./CadenceChip";
 import FeedSwipe from "./FeedSwipe";
-import { FEED_MODES } from "../lib/feedOrder";
+import { FEED_MODES, TASKS_PLACES } from "../lib/feedOrder";
 import { loadSort } from "../lib/todoSort";
 import { __, _n, useT } from "../i18n";
 
 
 const SHOWN_TODOS = 5; // more than this and the rest are behind "+N more", which opens the project
 const DAY_MS = 86_400_000;
-const ROTATION_MODES = ["rotation", "tasks", "projects"];
 const daysUntil = (back, today) => Math.max(1, Math.round((back - today) / DAY_MS));
 const whenLabel = (days) => (days === 1 ? __("tomorrow") : __("in {n} days", { n: days }));
 
 /**
  * What to work on next: the open projects as a queue, the one idle longest first, each with
- * its open to-dos, which can be added, edited and ticked right here (adding or ticking one
+ * its open to-dos, which can be added, edited and ticked right here (ticking one
  * counts as working on the project, so it goes to the back too). Starting a timer (from the
  * project or from one of its to-dos) puts the project at the back once time is logged; Skip
  * puts it there straight away. `queue` is [{ project, lastWorked }] in order (see feedQueue),
@@ -55,8 +54,9 @@ export default function FeedView({
 
   const nextId = queue.find(({ project }) => project.id !== runningId)?.project.id;
   const mode = FEED_MODES.find((m) => m.id === feedOrder.mode) ?? FEED_MODES[0];
-  // Skip sends a card to the back of the rotation; the "recently edited" order has no back to send it to
-  const showSkip = feedOrder.mode !== "edited" && feedOrder.mode !== "recent";
+  // Skip sends a card to the back of the rotation (or of My order); the newest-first order has no back to send it to
+  const showSkip = feedOrder.mode !== "newest";
+  const rotation = feedOrder.mode === "rotation";
 
   // The cards of the Sort deck: the projects in the Feed's order, then the open tasks
   const tasksCard = queue.find(({ project }) => project.kind === "tasks")?.project;
@@ -76,8 +76,8 @@ export default function FeedView({
     <div className="pb-4">
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
         <p className="min-w-0 flex-1 basis-56 font-serif text-[13px] italic text-muted">
-          {__(mode.note)} {feedOrder.displace && ROTATION_MODES.includes(feedOrder.mode) && `${__("A project waits its “done every N days” before it is back on top.")} `}
-          {feedOrder.hide && ROTATION_MODES.includes(feedOrder.mode) && `${__("A project stays out of the Feed until its “done every N days” has passed.")} `}
+          {__(mode.note)} {feedOrder.displace && rotation && `${__("A project waits its “done every N days” before it is back on top.")} `}
+          {feedOrder.hide && `${__("A project stays out of the Feed until its “done every N days” has passed.")} `}
           {__("Pinned cards stay on top.")}
         </p>
         <label className="flex items-center gap-1.5 text-xs text-muted">
@@ -94,24 +94,36 @@ export default function FeedView({
             ))}
           </select>
         </label>
-        {/* The rotation can count each project's "done every N days": it then waits that long before it is due again, or stays out of the Feed until then */}
-        {ROTATION_MODES.includes(feedOrder.mode) && (
-          <label
-            className="flex items-center gap-1.5 text-xs text-muted"
-            title={__("Hide until due: a project stays out of the Feed until its “done every N days” has passed. Plus days: each project also waits its “done every N days”. Direct: by last work.")}
+        {/* Each project's "done every N days": it can stay out of the Feed until due (any order) or, in the rotation, wait that long before it is due again */}
+        <label
+          className="flex items-center gap-1.5 text-xs text-muted"
+          title={__("Hide until due: a project stays out of the Feed until its “done every N days” has passed. Plus days: each project also waits its “done every N days”. Direct: by last work.")}
+        >
+          {__("Cadence")}
+          <select
+            value={feedOrder.hide ? "hide" : feedOrder.displace && rotation ? "days" : "direct"}
+            onChange={(e) => feedOrder.setRotation(e.target.value)}
+            className="h-8 border border-line-strong bg-surface px-2 text-[13px] font-semibold text-text outline-none focus:border-text"
           >
-            {__("Rotation")}
-            <select
-              value={feedOrder.hide ? "hide" : feedOrder.displace ? "days" : "direct"}
-              onChange={(e) => feedOrder.setRotation(e.target.value)}
-              className="h-8 border border-line-strong bg-surface px-2 text-[13px] font-semibold text-text outline-none focus:border-text"
-            >
-              <option value="hide">{__("Hide until due")}</option>
-              <option value="days">{__("Plus days")}</option>
-              <option value="direct">{__("Direct")}</option>
-            </select>
-          </label>
-        )}
+            <option value="hide">{__("Hide until due")}</option>
+            {rotation && <option value="days">{__("Plus days")}</option>}
+            <option value="direct">{__("Direct")}</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-muted">
+          {__("Tasks")}
+          <select
+            value={feedOrder.tasks}
+            onChange={(e) => feedOrder.setTasks(e.target.value)}
+            className="h-8 border border-line-strong bg-surface px-2 text-[13px] font-semibold text-text outline-none focus:border-text"
+          >
+            {TASKS_PLACES.map((p) => (
+              <option key={p.id} value={p.id}>
+                {__(p.label)}
+              </option>
+            ))}
+          </select>
+        </label>
         {deck.length > 1 && (
           <button
             onClick={() => setSorting(true)}

@@ -1,20 +1,27 @@
 import { useCallback, useState } from "react";
-import { DEFAULT_ORDER, FEED_MODES } from "../lib/feedOrder";
+import { DEFAULT_ORDER, FEED_MODES, TASKS_PLACES } from "../lib/feedOrder";
 import { scopedKey } from "../lib/storage";
 
 const modes = new Set(FEED_MODES.map((m) => m.id));
+const places = new Set(TASKS_PLACES.map((p) => p.id));
 const ids = (value) => (Array.isArray(value) ? value.filter((x) => typeof x === "string") : []);
+// Orders that are gone: "recent" was renamed, "tasks first" and "projects first" are now the Tasks card setting
+const RETIRED = { recent: { mode: "newest" }, tasks: { mode: "rotation", tasks: "top" }, projects: { mode: "rotation", tasks: "bottom" }, edited: { mode: "rotation" } };
 
 function load(key) {
   try {
     const saved = JSON.parse(localStorage.getItem(key));
+    const kept = RETIRED[saved?.mode] ?? {};
+    const mode = kept.mode ?? saved?.mode;
+    const tasks = saved?.tasks ?? kept.tasks;
     return {
-      mode: modes.has(saved?.mode) ? saved.mode : DEFAULT_ORDER.mode,
+      mode: modes.has(mode) ? mode : DEFAULT_ORDER.mode,
       manual: ids(saved?.manual),
       pinned: ids(saved?.pinned),
       displace: saved?.displace === true,
       // Nothing saved yet: the default. Someone who picked another rotation keeps it.
       hide: typeof saved?.hide === "boolean" ? saved.hide : DEFAULT_ORDER.hide,
+      tasks: places.has(tasks) ? tasks : DEFAULT_ORDER.tasks,
     };
   } catch {
     return DEFAULT_ORDER;
@@ -59,5 +66,8 @@ export function useFeedOrder(scope) {
    *  each is due again) or "hide" (kept out of the Feed until it is due). */
   const setRotation = useCallback((value) => change((o) => ({ ...o, displace: value === "days", hide: value === "hide" })), [change]);
 
-  return { ...order, setMode, togglePin, unpin, setManual, setRotation };
+  /** Where the Tasks card goes: "mixed", "top" or "bottom". */
+  const setTasks = useCallback((tasks) => change((o) => ({ ...o, tasks })), [change]);
+
+  return { ...order, setMode, togglePin, unpin, setManual, setRotation, setTasks };
 }

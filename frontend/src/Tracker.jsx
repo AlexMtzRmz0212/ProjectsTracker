@@ -315,10 +315,7 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
     };
     // A running timer counts as the end of the day, like the other cards: `now` would re-rank every second
     for (const s of t.sessions) if (isTaskKey(s.project_id)) note(s.end ?? new Date(`${todayKey}T23:59:59`));
-    for (const x of tasks) {
-      if (x.created_at) note(new Date(x.created_at));
-      if (x.done && x.completed_at) note(new Date(x.completed_at));
-    }
+    for (const x of tasks) if (x.done && x.completed_at) note(new Date(x.completed_at));
     return last;
   }, [t.sessions, tasks, todayKey]);
   // The Feed's queue; like `neglected`, it only needs to be re-ranked when sessions or the day change
@@ -338,12 +335,12 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
   // With "Hide until due" the projects whose "done every N days" has not passed wait outside the Feed (`waiting`)
   const feedRunning = isTaskKey(runningId) ? FEED_TASKS : runningId;
   const { ready: readyQueue, waiting: waitingCards } = useMemo(
-    () => splitWaiting(queue, { mode: feedOrder.mode, hide: feedOrder.hide, pinned: feedOrder.pinned }, feedRunning, today),
-    [queue, feedOrder.mode, feedOrder.hide, feedOrder.pinned, feedRunning, today]
+    () => splitWaiting(queue, { hide: feedOrder.hide, pinned: feedOrder.pinned }, feedRunning, today),
+    [queue, feedOrder.hide, feedOrder.pinned, feedRunning, today]
   );
   const shownQueue = useMemo(
-    () => orderQueue(readyQueue, { mode: feedOrder.mode, manual: feedOrder.manual, pinned: feedOrder.pinned, displace: feedOrder.displace }, feedRunning),
-    [readyQueue, feedOrder.mode, feedOrder.manual, feedOrder.pinned, feedOrder.displace, feedRunning]
+    () => orderQueue(readyQueue, { mode: feedOrder.mode, manual: feedOrder.manual, pinned: feedOrder.pinned, displace: feedOrder.displace, tasks: feedOrder.tasks }, feedRunning),
+    [readyQueue, feedOrder.mode, feedOrder.manual, feedOrder.pinned, feedOrder.displace, feedOrder.tasks, feedRunning]
   );
   /** Skip a Feed card to the back: in the rotation by stamping it, in "My order" by moving it to the end of that
    *  order. Either way it loses its pin, or it would stay on top. */

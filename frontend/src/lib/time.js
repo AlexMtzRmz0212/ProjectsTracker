@@ -132,8 +132,8 @@ export function projectTagCounts(projectId, sessions, pomodoros, now) {
 }
 
 /** Map<projectId, Date>: when each project was last worked on, the latest of the end of its latest
- *  session (`now` for one whose timer is running), the moment one of its to-dos was added and the
- *  moment one was ticked off (attention paid without a timer). Projects with none of these in
+ *  session (`now` for one whose timer is running) and the moment one of its to-dos was ticked off
+ *  (attention paid without a timer). Projects with none of these in
  *  `sessions`/`todos` are absent. */
 function lastWorkedByProject(sessions, now, todos) {
   const last = new Map();
@@ -141,8 +141,8 @@ function lastWorkedByProject(sessions, now, todos) {
     if (!last.has(projectId) || at > last.get(projectId)) last.set(projectId, at);
   };
   for (const s of sessions) note(s.project_id, s.end ?? now);
+  // Adding a to-do is planning, not work: only ticking one off counts
   for (const todo of todos) {
-    if (todo.created_at) note(todo.project_id, new Date(todo.created_at));
     if (todo.done && todo.completed_at) note(todo.project_id, new Date(todo.completed_at));
   }
   return last;
