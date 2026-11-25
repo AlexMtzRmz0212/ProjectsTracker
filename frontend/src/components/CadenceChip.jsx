@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Repeat } from "lucide-react";
+import { Minus, Plus, Repeat } from "lucide-react";
 import { useClickOutside } from "../hooks/useClickOutside";
 import { N_, __, _n, useT } from "../i18n";
 
@@ -23,9 +23,25 @@ export default function CadenceChip({ days, onChange }) {
     if (value !== days) onChange(value);
   };
   const typed = Math.min(365, Math.max(0, Math.round(Number(draft) || 0)));
+  // One day more or less, saved right away
+  const step = (by) => {
+    setOpen(false);
+    onChange(Math.min(365, Math.max(0, days + by)));
+  };
+  const stepButton = "grid h-6 w-6 shrink-0 place-items-center border border-line-strong text-muted transition-colors hover:border-text hover:bg-surface-2 hover:text-text disabled:pointer-events-none disabled:opacity-40";
 
   return (
-    <span ref={root} className="relative inline-flex" onKeyDown={(e) => e.key === "Escape" && open && (e.stopPropagation(), setOpen(false))}>
+    <span ref={root} className="relative inline-flex items-center gap-1" onKeyDown={(e) => e.key === "Escape" && open && (e.stopPropagation(), setOpen(false))}>
+      <button
+        type="button"
+        onClick={() => step(-1)}
+        disabled={days <= 0}
+        aria-label={__("One day less between times it is done")}
+        title={__("One day less")}
+        className={stepButton}
+      >
+        <Minus size={12} aria-hidden="true" />
+      </button>
       <button
         type="button"
         onClick={() => {
@@ -41,6 +57,16 @@ export default function CadenceChip({ days, onChange }) {
       >
         <Repeat size={12} aria-hidden="true" />
         {days > 0 ? _n(days, "Every {n} day", "Every {n} days") : __("Set cadence")}
+      </button>
+      <button
+        type="button"
+        onClick={() => step(1)}
+        disabled={days >= 365}
+        aria-label={__("One day more between times it is done")}
+        title={__("One day more")}
+        className={stepButton}
+      >
+        <Plus size={12} aria-hidden="true" />
       </button>
       {open && (
         <div role="menu" className="absolute left-0 top-full z-30 mt-1 w-52 border border-line-strong bg-surface p-1.5 text-[13px] shadow-[0_6px_24px_rgb(0_0_0/0.25)]">

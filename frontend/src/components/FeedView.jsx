@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { formatDistanceToNowStrict } from "../lib/dates";
-import { ArrowDownToLine, ArrowUpToLine, Layers, ListMinus, ListPlus, Pin, PinOff, Play, Plus, SkipForward, Square } from "lucide-react";
+import { ArrowUpToLine, CircleDot, CornerDownRight, Layers, ListMinus, ListPlus, Pin, PinOff, Play, Plus, SkipForward, Square } from "lucide-react";
 import { usePlanContext } from "../lib/planContext";
 import { ON_INK, iconFor, inkFor, inkText, tint } from "../lib/palette";
 import { fmtClock } from "../lib/time";
@@ -56,7 +56,7 @@ export default function FeedView({
   const nextId = queue.find(({ project }) => project.id !== runningId)?.project.id;
   const mode = FEED_MODES.find((m) => m.id === feedOrder.mode) ?? FEED_MODES[0];
   // Skip sends a card to the back of the rotation; the "recently edited" order has no back to send it to
-  const showSkip = feedOrder.mode !== "edited";
+  const showSkip = feedOrder.mode !== "edited" && feedOrder.mode !== "recent";
 
   // The cards of the Sort deck: the projects in the Feed's order, then the open tasks
   const tasksCard = queue.find(({ project }) => project.kind === "tasks")?.project;
@@ -150,6 +150,8 @@ export default function FeedView({
             onOpen={() => onOpen(project.id)}
             onStart={() => onStart(project.id)}
             onStartTask={onStartTask}
+            // Marks the to-do as being worked on; with this project's timer running, its session moves onto that to-do
+            onWorkTodo={(todo) => (project.id === runningId ? onStart(project.id, todo.id) : todoOps.update(todo.id, { working: true }))}
             onStop={() => onStop()}
             onSkip={() => onSkip(project.id)}
             onCadence={onCadence}
@@ -196,7 +198,7 @@ function WaitingFooter({ waiting, today, onOpen }) {
 }
 
 function FeedCard({
-  position, project, lastWorked, status, todos, todosById, todoOps, isRunning, isNext, pinned, onPin, canSkip, elapsed, onOpen, onStart, onStartTask, onStop, onSkip, onCadence,
+  position, project, lastWorked, status, todos, todosById, todoOps, isRunning, isNext, pinned, onPin, canSkip, elapsed, onOpen, onStart, onStartTask, onWorkTodo, onStop, onSkip, onCadence,
 }) {
   useT();
   const { color, name } = project;
@@ -206,8 +208,10 @@ function FeedCard({
   const isTasks = project.kind === "tasks";
   const Icon = iconFor(project.icon);
   const [expanded, setExpanded] = useState(false);
-  const shown = expanded ? todos : todos.slice(0, SHOWN_TODOS);
-  const more = todos.length - shown.length;
+  // A sub-to-do sits right under its to-do, as in the project's own list; one whose to-do is not open stands alone
+  const rows = nestTodos(todos);
+  const shown = expanded ? rows : rows.slice(0, SHOWN_TODOS);
+  const more = rows.length - shown.length;
   const edge = isRunning ? tint(color, 55) : "var(--line)";
 
   return (
@@ -288,27 +292,29 @@ function FeedCard({
 
       {todos.length > 0 ? (
         <ul className="mx-3 mt-2.5 border-t border-rule sm:ml-[2.125rem]">
-          {shown.map((todo, i) => (
+          {shown.map(({ todo, isSub }, i) => (
             <TodoLine
               key={todo.id}
               todo={todo}
+              isSub={isSub}
               todosById={todosById}
               ops={todoOps}
-              canSkip={i === 0 && todos.length > 1}
               // In the Tasks card a line can be brought to the top; that puts the card on top of the Feed too
               onTop={
-                isTasks && i > 0
+                isTasks && i > 0 && !isSub
                   ? () => {
                       todoOps.moveToTop(todo.id);
                       if (!pinned) onPin();
                     }
                   : undefined
               }
-              canStart={isTasks || !isRunning}
-              onStart={isTasks ? () => onStartTask(todo) : onStart}
+              // ▶ times a task in the Tasks card; in a project it is only the card's own Start, and a to-do is marked
+              canStart={isTasks}
+              onStart={() => onStartTask(todo)}
+              onWork={isTasks ? undefined : () => onWorkTodo(todo)}
             />
           ))}
-          {(more > 0 || expanded) && todos.length > SHOWN_TODOS && (
+          {(more > 0 || expanded) && rows.length > SHOWN_TODOS && (
             <li className="py-1.5 pl-1">
               <button
                 onClick={() => setExpanded((e) => !e)}
@@ -364,7 +370,18 @@ function FeedCard({
 
 /** One open to-do: tick it, rename it (saved on blur or Enter; an emptied line goes back to what it was)
  *  or start the project's timer from it. */
-function TodoLine({ todo, todosById, ops, canStart, canSkip, onTop, onStart }) {
+function nestTodos(todos) {
+  const open = new Set(todos.map((t) => t.id));
+  const subsOf = new Map();
+  const tops = [];
+  for (const todo of todos) {
+    if (todo.parent_id && open.has(todo.parent_id)) subsOf.set(todo.parent_id, [...(subsOf.get(todo.parent_id) ?? []), todo]);
+    else tops.push(todo);
+  }
+  return tops.flatMap((todo) => [{ todo, isSub: false }, ...(subsOf.get(todo.id) ?? []).map((sub) => ({ todo: sub, isSub: true }))]);
+}
+
+function TodoLine({ todo, isSub = false, todosById, ops, canStart, onTop, onStart, onWork }) {
   useT();
   const [draft, setDraft] = useState(todo.text);
   useEffect(() => setDraft(todo.text), [todo.text]);
@@ -376,7 +393,8 @@ function TodoLine({ todo, todosById, ops, canStart, canSkip, onTop, onStart }) {
   };
 
   return (
-    <li className="flex items-center gap-2.5 border-b border-rule pl-1">
+    <li className={`flex items-center gap-2.5 border-b border-rule ${isSub ? "pl-7" : "pl-1"}`}>
+      {isSub && <CornerDownRight size={12} className="-ml-4 shrink-0 text-faint" aria-hidden="true" />}
       <input
         type="checkbox"
         checked={false}
@@ -384,7 +402,7 @@ function TodoLine({ todo, todosById, ops, canStart, canSkip, onTop, onStart }) {
         aria-label={__("Mark \"{text}\" done", { text: todo.text })}
         className="size-4 shrink-0 cursor-pointer accent-(--text)"
       />
-      <ParentTag todo={todo} todosById={todosById} className="max-sm:max-w-[6rem]" />
+      {!isSub && <ParentTag todo={todo} todosById={todosById} className="max-sm:max-w-[6rem]" />}
       <input
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -410,14 +428,15 @@ function TodoLine({ todo, todosById, ops, canStart, canSkip, onTop, onStart }) {
           <ArrowUpToLine size={13} />
         </button>
       )}
-      {canSkip && (
+      {onWork && (
         <button
-          onClick={() => ops.moveToBottom(todo.id)}
-          aria-label={__("Skip \"{text}\" to the bottom of the list", { text: todo.text })}
-          title={__("Skip to the bottom of the list")}
-          className="grid size-8 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
+          onClick={todo.working_since ? () => ops.update(todo.id, { working: false }) : onWork}
+          aria-pressed={Boolean(todo.working_since)}
+          aria-label={todo.working_since ? __("Stop marking \"{text}\" as being worked on", { text: todo.text }) : __("Work on \"{text}\"", { text: todo.text })}
+          title={todo.working_since ? __("Working on this. Click to unmark") : __("Mark as working on")}
+          className={`grid size-8 shrink-0 place-items-center transition-colors hover:bg-surface-2 ${todo.working_since ? "text-accent" : "text-muted hover:text-text"}`}
         >
-          <ArrowDownToLine size={13} />
+          <CircleDot size={13} className={todo.working_since ? "blink-dot" : undefined} aria-hidden="true" />
         </button>
       )}
       {canStart && (

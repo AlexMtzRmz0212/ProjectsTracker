@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { format } from "../lib/dates";
-import { ArchiveRestore, ArrowDownToLine, ArrowUpDown, Ban, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, CircleDot, Copy, GripVertical, ListChecks, ListMinus, ListPlus, History, Pencil, Play, Plus, Square, Tag, Trash2, Undo2 } from "lucide-react";
+import { ArchiveRestore, ArrowUpDown, Ban, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, CircleDot, Copy, GripVertical, ListChecks, ListMinus, ListPlus, History, Pencil, Play, Plus, Square, Tag, Trash2, Undo2 } from "lucide-react";
 import { copyText, todoAsText } from "../lib/clipboard";
 import { SORTS, loadSort, saveSort, sortTodos } from "../lib/todoSort";
 import { loadExpanded, loadFolded, saveExpanded, saveFolded } from "../lib/foldState";
@@ -21,7 +21,7 @@ const RECENT = 8;
  *  An archived project has no timer, and offers Restore in its place. */
 export default function ProjectDetail({
   project, status, todos, sessions, pomodoroCount = 0, pomodoroTags = [], isRunning, elapsed, totalSeconds, now, archived,
-  onEdit, onToggleTimer, onRestore, onCancel, onSaveSessionNote, todoOps, timedTodoId = null, onTimeTodo,
+  onEdit, onToggleTimer, onRestore, onCancel, todoOps, onWorkTodo,
 }) {
   useT();
   const planCtx = usePlanContext();
@@ -30,10 +30,10 @@ export default function ProjectDetail({
   const finished = status.is_done;
   const [tab, setTab] = useState("todos");
   const openTodos = todos.filter((t) => !t.done).length;
-  // A ▶ on each open to-do times it: the project's timer, on that to-do
-  const todoTimer = (todo) =>
-    todo.done || finished || archived || !onTimeTodo ? null : (
-      <TodoTimer todo={todo} timed={todo.id === timedTodoId} elapsed={elapsed} color={project.color} onClick={() => onTimeTodo(todo)} />
+  // A "working on" mark on each open to-do. ▶ is only the project's own Start button.
+  const todoWork = (todo) =>
+    todo.done || todo.working_since || finished || archived || !onWorkTodo ? null : (
+      <WorkingOnButton todo={todo} onClick={() => onWorkTodo(todo)} />
     );
 
   return (
@@ -129,10 +129,10 @@ export default function ProjectDetail({
           Everything above stays put; only the open panel's own list scrolls. */}
       <div className="flex min-h-[19rem] flex-1 flex-col">
         <div className={tab === "todos" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
-          <TodoList todos={todos} projectId={project.id} ops={todoOps} rowExtra={todoTimer} copyable />
+          <TodoList todos={todos} projectId={project.id} ops={todoOps} rowExtra={todoWork} copyable />
         </div>
         <div className={tab === "sessions" ? "min-h-0 flex-1 overflow-y-auto" : "hidden"}>
-          <RecentSessions sessions={sessions} todos={todos} now={now} onSaveNote={onSaveSessionNote} />
+          <RecentSessions sessions={sessions} todos={todos} now={now} />
         </div>
       </div>
     </div>
@@ -141,30 +141,18 @@ export default function ProjectDetail({
 
 // ── To-dos ───────────────────────────────────────────────────────────────────
 
-/** The ▶ on a to-do: times it, or, while it is being timed, shows the clock and stops it. Out of the way
- *  (until the row is hovered) when it isn't running. */
-function TodoTimer({ todo, timed, elapsed, color, onClick }) {
+/** The "working on" button of a to-do that isn't marked yet. Out of the way (until the row is hovered). Marking a
+ *  to-do being worked on is all it does; while the project's timer runs, the session carries on under that to-do. */
+function WorkingOnButton({ todo, onClick }) {
   useT();
   return (
     <button
       onClick={onClick}
-      aria-label={timed ? __("Stop timing \"{text}\"", { text: todo.text }) : __("Time \"{text}\"", { text: todo.text })}
-      title={timed ? __("Stop the timer") : __("Time this to-do (the project's timer, on this to-do)")}
-      className={`inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-1.5 border px-1.5 text-xs font-semibold transition-colors ${
-        timed
-          ? ""
-          : "border-line-strong text-muted hover:border-text hover:text-text sm:opacity-0 sm:focus:opacity-100 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
-      }`}
-      style={timed ? { background: color, borderColor: color, color: ON_INK } : undefined}
+      aria-label={__("Work on \"{text}\"", { text: todo.text })}
+      title={__("Mark as working on")}
+      className="grid size-7 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text sm:opacity-0 sm:focus:opacity-100 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
     >
-      {timed ? (
-        <>
-          <Square size={9} fill="currentColor" aria-hidden="true" />
-          <span className="figures">{fmtClock(elapsed)}</span>
-        </>
-      ) : (
-        <Play size={11} fill="currentColor" aria-hidden="true" />
-      )}
+      <CircleDot size={13} aria-hidden="true" />
     </button>
   );
 }
@@ -251,7 +239,6 @@ export function TodoList({ todos, projectId, ops, rowExtra, rowMenu, hideDone = 
     rowExtra,
     rowMenu,
     onManual: toManual,
-    canSkip: manual && order === openOrder && i === 0 && open.length > 1,
   });
 
   const add = async (e) => {
@@ -362,7 +349,7 @@ const [copied, setCopied] = useState(false);
 // Browsers without `field-sizing: content` get a textarea sized by hand to fit its text
 const AUTO_SIZES = typeof CSS !== "undefined" && CSS.supports?.("field-sizing", "content");
 
-function TodoRow({ todo, sort, ops, projectId, subs = [], folded = false, onToggle, isSub = false, rowExtra, rowMenu, onManual, canSkip = false }) {
+function TodoRow({ todo, sort, ops, projectId, subs = [], folded = false, onToggle, isSub = false, rowExtra, rowMenu, onManual }) {
   useT();
   const extra = rowExtra?.(todo);
   const [draft, setDraft] = useState(todo.text);
@@ -424,7 +411,7 @@ function TodoRow({ todo, sort, ops, projectId, subs = [], folded = false, onTogg
       icon: planned ? ListMinus : ListPlus,
       onClick: () => planCtx.toggle("todo", todo.id),
     },
-    !todo.done && !working && { label: __("Mark as working on"), icon: CircleDot, onClick: () => ops.update(todo.id, { working: true }) },
+    !todo.done && !working && !extra && { label: __("Mark as working on"), icon: CircleDot, onClick: () => ops.update(todo.id, { working: true }) },
     (!todo.done || cancelled) && {
       label: cancelled ? __("Take back the cancelling") : __("Cancel (call it off)"),
       icon: cancelled ? Undo2 : Ban,
@@ -487,41 +474,38 @@ function TodoRow({ todo, sort, ops, projectId, subs = [], folded = false, onTogg
           className="mt-[10px] size-4 shrink-0 cursor-pointer accent-(--text)"
         />
         {/* The text wraps, so all of it can be read; nothing is laid over it */}
-        <textarea
-          ref={field}
-          rows={1}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value.replace(/\s*\n\s*/g, " "))}
-          onBlur={commit}
-          onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), e.currentTarget.blur())}
-          maxLength={250}
-          aria-label={isSub ? __("Sub-to-do") : __("To-do")}
-          className={`field-sizing-content min-h-9 min-w-0 flex-1 resize-none overflow-hidden bg-transparent py-2 text-[14px] leading-5 outline-none focus:bg-surface-2 ${
-            todo.done ? "text-muted line-through" : ""
-          }`}
-        />
+        <div className="min-w-0 flex-1">
+          <textarea
+            ref={field}
+            rows={1}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value.replace(/\s*\n\s*/g, " "))}
+            onBlur={commit}
+            onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), e.currentTarget.blur())}
+            maxLength={250}
+            aria-label={isSub ? __("Sub-to-do") : __("To-do")}
+            className={`field-sizing-content block min-h-9 w-full resize-none overflow-hidden bg-transparent py-2 text-[14px] leading-5 outline-none focus:bg-surface-2 ${
+              todo.done ? "text-muted line-through" : ""
+            }`}
+          />
+          {/* How many sub-to-dos are done, as a thin bar of one segment each under the text: no room taken from the row */}
+          {subs.length > 0 && (
+            <div
+              role="img"
+              title={__("{subsDone} of {length} sub-to-dos done", { subsDone, length: subs.length })}
+              aria-label={__("{subsDone} of {length} sub-to-dos done", { subsDone, length: subs.length })}
+              className="-mt-1 mb-1.5 flex h-[3px] max-w-24 gap-px"
+            >
+              {subs.map((s) => (
+                <span key={s.id} className={`min-w-0 flex-1 ${s.done && !s.cancelled_at ? "bg-accent" : "bg-line-strong"}`} />
+              ))}
+            </div>
+          )}
+        </div>
         {/* What is always wanted sits at the end of the row; the rest is under the "more" menu */}
         <div className="flex h-9 shrink-0 items-center gap-0.5">
           {cancelled && <span className="mr-1 shrink-0 font-serif text-xs italic text-muted">{__("Cancelled")}</span>}
           {extra}
-          {subs.length > 0 && (
-            <span
-              title={__("{subsDone} of {length} sub-to-dos done", { subsDone, length: subs.length })}
-              className="figures mx-1 shrink-0 font-serif text-xs italic text-muted"
-            >
-              {subsDone}/{subs.length}
-            </span>
-          )}
-          {canSkip && !todo.done && (
-            <button
-              onClick={() => ops.moveToBottom(todo.id)}
-              aria-label={__("Skip \"{text}\" to the bottom of the list", { text: todo.text })}
-              title={__("Skip to the bottom of the list")}
-              className="grid size-7 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text"
-            >
-              <ArrowDownToLine size={14} />
-            </button>
-          )}
           {/* Just the blinking dot, by the menu: the tinted row already says it's being worked on, and a label
               would squeeze the text in a narrow panel */}
           {working && (
@@ -593,34 +577,6 @@ function TodoRow({ todo, sort, ops, projectId, subs = [], folded = false, onTogg
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
 
-/** What was done in one session. Saves on blur or Enter; the same note the timer's note button writes. */
-function SessionNote({ session, onSave }) {
-  useT();
-  const [draft, setDraft] = useState(session.note);
-  useEffect(() => setDraft(session.note), [session.note]);
-  const ready = !String(session.id).startsWith("temp-"); // the server hasn't answered yet
-
-  const commit = () => {
-    const note = draft.trim();
-    setDraft(note);
-    if (note !== session.note) onSave(session.id, note);
-  };
-
-  return (
-    <input
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-      disabled={!ready}
-      maxLength={280}
-      placeholder={__("What did you do?")}
-      aria-label={__("Note for the session on {format} at {fmtTime}", { format: format(session.start, "d MMM"), fmtTime: fmtTime(session.start) })}
-      className="mt-1 h-8 w-full bg-transparent px-2 font-serif text-[13px] italic outline-none transition-colors placeholder:text-faint hover:bg-surface-2/60 focus:bg-surface-2 disabled:opacity-50"
-    />
-  );
-}
-
 /** The to-dos ticked off while `session` was open (a running one counts up to now). */
 function doneDuring(todos, session, now) {
   const end = session.end ?? now;
@@ -631,7 +587,7 @@ function doneDuring(todos, session, now) {
   });
 }
 
-function RecentSessions({ sessions, todos, now, onSaveNote }) {
+function RecentSessions({ sessions, todos, now }) {
   useT();
   const [all, setAll] = useState(false);
   if (sessions.length === 0) {
@@ -639,10 +595,28 @@ function RecentSessions({ sessions, todos, now, onSaveNote }) {
   }
   const shown = all ? sessions : sessions.slice(0, RECENT);
   const todosById = new Map(todos.map((t) => [t.id, t]));
+  // The time of every session, by the to-do it was on: biggest first, the time on none of them last
+  const byTodo = new Map();
+  for (const s of sessions) {
+    const key = s.todo_id && todosById.has(s.todo_id) ? s.todo_id : null;
+    byTodo.set(key, (byTodo.get(key) ?? 0) + sessionSeconds(s, now));
+  }
+  const perTodo = [...byTodo].sort((a, b) => (a[0] === null) - (b[0] === null) || b[1] - a[1]);
 
   return (
     <section>
-      <p className="mb-2 font-serif text-xs italic text-muted">{__("Write what you did on any session. Saves when you click away.")}</p>
+      {perTodo.some(([id]) => id !== null) && (
+        <ul className="mb-3 border-t border-rule" aria-label={__("Time per to-do")}>
+          {perTodo.map(([id, seconds]) => (
+            <li key={id ?? "none"} className="flex items-baseline gap-3 border-b border-rule py-1.5 text-[13px]">
+              <span className={`min-w-0 flex-1 truncate ${id === null ? "font-serif italic text-muted" : ""}`}>
+                {id === null ? __("On no to-do") : todosById.get(id).text}
+              </span>
+              <span className="figures shrink-0 text-right font-semibold">{fmtHM(seconds)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       <ul className="border-t border-rule">
         {shown.map((s) => (
           <li key={s.id} className="border-b border-rule py-2">
@@ -657,11 +631,11 @@ function RecentSessions({ sessions, todos, now, onSaveNote }) {
             </div>
             {s.todo_id && todosById.has(s.todo_id) && (
               <p className="mt-0.5 flex items-center gap-1.5 px-2 text-[13px]">
-                <Play size={10} fill="currentColor" className="shrink-0 text-muted" aria-label={__("On the to-do")} />
-                <span className="min-w-0 truncate">{todosById.get(s.todo_id).text}</span>
+                <CircleDot size={11} className="shrink-0 text-muted" aria-label={__("On the to-do")} />
+                <span className="min-w-0 flex-1 truncate">{todosById.get(s.todo_id).text}</span>
+                <span className="figures shrink-0 text-muted">{fmtHM(sessionSeconds(s, now))}</span>
               </p>
             )}
-            <SessionNote session={s} onSave={onSaveNote} />
             {doneDuring(todos, s, now).map((t) => (
               <p key={t.id} className="mt-0.5 flex items-start gap-1.5 px-2 text-[13px] text-muted">
                 <Check size={13} className="mt-[3px] shrink-0" aria-hidden="true" />

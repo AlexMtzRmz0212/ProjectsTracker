@@ -127,8 +127,6 @@ const text = {
   "To-do": "Pendiente",
   "Put \"{text}\" first": "Poner «{text}» primero",
   "Put first: top of the list, and the Tasks card on top of the Feed": "Poner primero: arriba de la lista, y la tarjeta de Tareas arriba del Feed",
-  "Skip \"{text}\" to the bottom of the list": "Mandar «{text}» al final de la lista",
-  "Skip to the bottom of the list": "Mandar al final de la lista",
   "Work on \"{text}\"": "Trabajar en «{text}»",
   "Work on this": "Trabajar en esto",
   "New task": "Nueva tarea",

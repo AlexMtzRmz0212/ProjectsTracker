@@ -6,6 +6,7 @@ export const FEED_MODES = [
   { id: "rotation", label: N_("Rotation"), note: N_("Least recently worked first. Skip sends a card to the back.") },
   { id: "manual", label: N_("My order"), note: N_("Your own order. Use Sort to swipe through it; Skip sends a card to the back.") },
   { id: "edited", label: N_("Recently edited"), note: N_("Whatever was touched last comes first.") },
+  { id: "recent", label: N_("Last worked"), note: N_("The project you worked on most recently comes first. Edits and skips do not count.") },
   { id: "tasks", label: N_("Tasks first"), note: N_("The Tasks card on top, then the projects by rotation.") },
   { id: "projects", label: N_("Projects first"), note: N_("The projects by rotation, then the Tasks card.") },
 ];
@@ -71,6 +72,9 @@ export function orderQueue(queue, { mode, manual, pinned, displace = false }, ru
     list.sort((a, b) => (at.get(a.project.id) ?? Infinity) - (at.get(b.project.id) ?? Infinity));
   } else if (mode === "edited") {
     list.sort((a, b) => touched(b) - touched(a));
+  } else if (mode === "recent") {
+    // Most recently worked first; never-worked cards go last, in rotation order
+    list.sort((a, b) => (b.lastWorked?.getTime() ?? 0) - (a.lastWorked?.getTime() ?? 0));
   } else if (mode === "tasks") {
     list.sort((a, b) => Number(isTasks(b)) - Number(isTasks(a)));
   } else if (mode === "projects") {

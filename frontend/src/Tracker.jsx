@@ -466,6 +466,27 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
     return () => document.removeEventListener("keydown", onKey);
   }, [demo, searchOpen, tab]);
 
+  // Ctrl+Tab and Ctrl+Shift+Tab go to the next and previous tab, in the order they are arranged, and wrap around.
+  // Browsers keep Ctrl+Tab for their own tabs, so it only reaches the page in an installed app window; Alt+←/→
+  // does the same anywhere. Left alone while a dialog is open or while typing (Alt+arrows move the caret there).
+  useEffect(() => {
+    if (demo) return;
+    const onKey = (e) => {
+      const tabKey = e.key === "Tab" && e.ctrlKey && !e.altKey && !e.metaKey;
+      const arrow = (e.key === "ArrowLeft" || e.key === "ArrowRight") && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey;
+      if (!tabKey && !arrow) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      if (arrow && e.target instanceof Element && e.target.closest("input, textarea, select, [contenteditable]")) return;
+      const ids = orderTabs(TAB_IDS.map((id) => ({ id })), tabOrder).map((x) => x.id);
+      const at = ids.indexOf(tab);
+      const back = tabKey ? e.shiftKey : e.key === "ArrowLeft";
+      e.preventDefault();
+      setTab(ids[(Math.max(at, 0) + (back ? -1 : 1) + ids.length) % ids.length]);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [demo, tab, tabOrder]);
+
   // The owner's phone layout has a tab bar along the bottom: let fixed layers (peek, toast) know to clear it
   useEffect(() => {
     if (demo) return;
@@ -638,10 +659,9 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
         onCancel={() => t.cancelProject(project.id)}
         onEdit={() => setProjectModal({ project })}
         onToggleTimer={() => (isRunning ? t.stopTimer() : startProject(project.id))}
-        onSaveSessionNote={(id, note) => t.updateSession(id, { note })}
         todoOps={t.todoOps}
-        timedTodoId={isRunning ? t.running.todo_id ?? null : null}
-        onTimeTodo={(todo) => (isRunning && t.running.todo_id === todo.id ? t.stopTimer() : startTodo(todo))}
+        // Marks the to-do as being worked on; with the project's timer running, its session moves onto that to-do
+        onWorkTodo={(todo) => (isRunning ? startTodo(todo) : t.todoOps.update(todo.id, { working: true }))}
       />
     );
   };
