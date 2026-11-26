@@ -1,17 +1,27 @@
 import { useEffect, useRef, useState } from "react";
 import { formatDistanceToNowStrict } from "../lib/dates";
-import { ArrowUpToLine, CircleDot, CornerDownRight, Layers, ListMinus, ListPlus, Pin, PinOff, Play, Plus, SkipForward, Square, StickyNote } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, ArrowUpToLine, CalendarPlus, CircleDot, Clock, EyeOff, Hand, Info, Pencil, CornerDownRight, Layers, ListMinus, ListPlus, Pin, PinOff, Play, Plus, SkipForward, Square, StickyNote } from "lucide-react";
 import { usePlanContext } from "../lib/planContext";
 import { ON_INK, TASK_INK, iconFor, inkFor, inkText, tint } from "../lib/palette";
 import { useTasksPad } from "../hooks/useTasksPad";
+import { useFeedHelp } from "../hooks/useFeedHelp";
 import { fmtClock } from "../lib/time";
 import { Button } from "./Modal";
 import ParentTag from "./ParentTag";
 import CadenceChip from "./CadenceChip";
 import FeedSwipe from "./FeedSwipe";
-import { FEED_MODES } from "../lib/feedOrder";
+import FeedPlayoff from "./FeedPlayoff";
+import SortChooser from "./SortChooser";
+import { FEED_MODES, joinMode, splitMode, supportsDays, touchedAt } from "../lib/feedOrder";
 import { loadSort } from "../lib/todoSort";
-import { __, _n, useT } from "../i18n";
+import { __, _n, N_ } from "../i18n";
+
+// What each cadence choice does; shown under the control when the descriptions are asked for, and as its hover text
+const CADENCE_NOTES = {
+  hide: N_("A project stays out of the Feed until its “done every N days” has passed."),
+  days: N_("A project waits its “done every N days” before it is back on top."),
+  direct: N_("“Done every N days” is ignored: projects follow the order alone."),
+};
 
 
 const SHOWN_TODOS = 5; // more than this and the rest are behind "+N more", which opens the project
@@ -36,8 +46,9 @@ const whenLabel = (days) => (days === 1 ? __("tomorrow") : __("in {n} days", { n
 export default function FeedView({
   queue, waiting = [], today, todosByProject, todosById, todoOps, statusesById, runningId, elapsed, feedOrder, onOrder, onOpen, onStart, onStartTask, onStop, onSkip, onCadence,
 }) {
-  useT();
   const [sorting, setSorting] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [choosing, setChoosing] = useState(false); // the Sort button's first step: swipe or playoff
   const pad = useTasksPad();
 
   // The list is the projects; the Tasks card the queue carries is the pad above it
@@ -81,17 +92,24 @@ export default function FeedView({
     );
   }
 
+  const help = useFeedHelp();
   const nextId = projectQueue.find(({ project }) => project.id !== runningId)?.project.id;
   const mode = FEED_MODES.find((m) => m.id === feedOrder.mode) ?? FEED_MODES[0];
-  // Skip sends a card to the back of My order; the other two follow "Last worked", which a skip does not change
+  // Skip sends a card to the back of My order; the others follow "Last worked" or "Last edited", which a skip does not change
   const showSkip = feedOrder.mode === "manual";
-  const rotation = feedOrder.mode === "rotation";
+  const rotation = supportsDays(feedOrder.mode); // every order but "My order" can count the days
+  // When the order follows edits, a card says when it was last edited (or last active, with work too), not last worked
+  const follow = splitMode(feedOrder.mode);
+  const seenOf = (entry) => {
+    const at = follow.edited ? touchedAt(entry, follow) : null;
+    return at ? { kind: follow.worked ? "active" : "edited", at } : undefined;
+  };
 
   // The cards of the Sort deck: the projects in the Feed's order, then the open tasks
   const deck = [
     ...projectQueue
-      .map(({ project, lastWorked }) => ({
-        key: project.id, kind: "project", project, lastWorked, status: statusesById.get(project.status_id), todos: todosByProject.get(project.id) ?? [],
+      .map((entry) => ({
+        key: entry.project.id, kind: "project", project: entry.project, lastWorked: entry.lastWorked, seen: seenOf(entry), status: statusesById.get(entry.project.status_id), todos: todosByProject.get(entry.project.id) ?? [],
       })),
     ...taskLines
       .filter((todo) => !todo.parent_id)
@@ -101,50 +119,37 @@ export default function FeedView({
   return (
     <div className="pb-4">
       {tasksPad}
-      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-        <p className="min-w-0 flex-1 basis-56 font-serif text-[13px] italic text-muted">
-          {__(mode.note)} {feedOrder.displace && rotation && `${__("A project waits its “done every N days” before it is back on top.")} `}
-          {feedOrder.hide && `${__("A project stays out of the Feed until its “done every N days” has passed.")} `}
-          {__("Pinned cards stay on top.")}
-        </p>
-        <label className="flex items-center gap-1.5 text-xs text-muted">
-          {__("Order")}
-          <select
-            value={feedOrder.mode}
-            onChange={(e) => feedOrder.setMode(e.target.value)}
-            className="h-8 border border-line-strong bg-surface px-2 text-[13px] font-semibold text-text outline-none focus:border-text"
-          >
-            {FEED_MODES.map((m) => (
-              <option key={m.id} value={m.id}>
-                {__(m.label)}
-              </option>
-            ))}
-          </select>
-        </label>
-        {/* Each project's "done every N days": it can stay out of the Feed until due (any order) or, in the rotation, wait that long before it is due again */}
-        <label
-          className="flex items-center gap-1.5 text-xs text-muted"
-          title={__("Hide until due: a project stays out of the Feed until its “done every N days” has passed. Plus days: each project also waits its “done every N days”. Direct: by last work.")}
+      {/* The description of each control is there when asked for (the (i) button), and under its control so it never moves them */}
+      <div className="mb-4 grid items-start gap-x-6 gap-y-3 sm:grid-cols-[1fr_1fr_auto]">
+        <div className="min-w-0">
+          <OrderPicker mode={feedOrder.mode} onChange={feedOrder.setMode} onSort={deck.length > 1 ? () => setChoosing(true) : null} />
+          {help.open && (
+            <p id="feed-help-order" className="mt-1.5 font-serif text-xs italic text-muted">
+              {__(mode.note)} {__("Pinned cards stay on top.")}
+            </p>
+          )}
+        </div>
+        {/* Each project's "done every N days": it can stay out of the Feed until due (any order) or, in any order but My order, be moved back by that long */}
+        <div className="min-w-0">
+          <CadencePicker hide={feedOrder.hide} days={feedOrder.displace && rotation} rotation={rotation} onChange={feedOrder.setRotation} />
+          {help.open && (
+            <p id="feed-help-cadence" className="mt-1.5 font-serif text-xs italic text-muted">
+              {__(feedOrder.hide ? CADENCE_NOTES.hide : feedOrder.displace && rotation ? CADENCE_NOTES.days : CADENCE_NOTES.direct)}
+            </p>
+          )}
+        </div>
+        <button
+          onClick={help.toggle}
+          aria-pressed={help.open}
+          aria-controls="feed-help-order feed-help-cadence"
+          aria-label={__("What do these do?")}
+          title={help.open ? __("Hide the descriptions") : __("What do these do?")}
+          className={`grid size-8 place-items-center border border-line-strong transition-colors ${
+            help.open ? "bg-text text-bg" : "text-muted hover:bg-surface-2 hover:text-text"
+          }`}
         >
-          {__("Cadence")}
-          <select
-            value={feedOrder.hide ? "hide" : feedOrder.displace && rotation ? "days" : "direct"}
-            onChange={(e) => feedOrder.setRotation(e.target.value)}
-            className="h-8 border border-line-strong bg-surface px-2 text-[13px] font-semibold text-text outline-none focus:border-text"
-          >
-            <option value="hide">{__("Hide until due")}</option>
-            {rotation && <option value="days">{__("Plus days")}</option>}
-            <option value="direct">{__("Direct")}</option>
-          </select>
-        </label>
-        {deck.length > 1 && (
-          <button
-            onClick={() => setSorting(true)}
-            className="inline-flex h-8 items-center gap-1.5 border border-line-strong px-2.5 text-xs font-semibold transition-colors hover:border-text hover:bg-surface-2"
-            title={__("Swipe through your projects and tasks to put them in order")}
-          >
-            <Layers size={13} aria-hidden="true" />{" "}{__("Sort")}</button>
-        )}
+          <Info size={14} aria-hidden="true" />
+        </button>
       </div>
       {sorting && (
         <FeedSwipe
@@ -155,13 +160,28 @@ export default function FeedView({
           onClose={() => setSorting(false)}
         />
       )}
+      {choosing && (
+        <SortChooser
+          onPick={(way) => {
+            setChoosing(false);
+            // The playoff orders projects only, so it needs two of them
+            if (way === "playoff" && projectQueue.length > 1) setPlaying(true);
+            else setSorting(true);
+          }}
+          onClose={() => setChoosing(false)}
+        />
+      )}
+      {playing && <FeedPlayoff cards={deck.filter((c) => c.kind === "project")} onOrder={onOrder} onClose={() => setPlaying(false)} />}
       <ol className="space-y-3">
-        {projectQueue.map(({ project, lastWorked }, i) => (
+        {projectQueue.map((entry, i) => {
+          const { project, lastWorked } = entry;
+          return (
           <FeedCard
             key={project.id}
             position={i + 1}
             project={project}
             lastWorked={lastWorked}
+            seen={seenOf(entry)}
             status={statusesById.get(project.status_id)}
             todos={todosByProject.get(project.id) ?? []}
             todosById={todosById}
@@ -180,7 +200,8 @@ export default function FeedView({
             onSkip={() => onSkip(project.id)}
             onCadence={onCadence}
           />
-        ))}
+          );
+        })}
       </ol>
       <WaitingFooter waiting={waiting} today={today} onOpen={onOpen} />
     </div>
@@ -190,7 +211,6 @@ export default function FeedView({
 /** The line under the Feed for the projects kept out of it until their "done every N days" has passed: how many, when
  *  the first is back, and (opened) which ones. */
 function WaitingFooter({ waiting, today, onOpen }) {
-  useT();
   const [open, setOpen] = useState(false);
   if (waiting.length === 0) return null;
   const when = whenLabel(daysUntil(waiting[0].backOn, today));
@@ -228,7 +248,6 @@ function WaitingFooter({ waiting, today, onOpen }) {
  * view. `todos` are the open tasks.
  */
 function TasksPad({ open, onOpenChange, color, todos, todosById, todoOps, lastWorked, isRunning, elapsed, onOpen, onStartTask, onStop }) {
-  useT();
   const [expanded, setExpanded] = useState(false);
   // A sub-task sits right under its task; a task counts once, with its sub-tasks
   const rows = nestTodos(todos);
@@ -365,10 +384,107 @@ function TasksPad({ open, onOpenChange, color, todos, todosById, todoOps, lastWo
   );
 }
 
+/** A row of exclusive choices drawn as joined buttons: `options` is [{ id, label, icon }]. */
+function Segmented({ label, value, options, onChange }) {
+  return (
+    <div role="radiogroup" aria-label={label} className="inline-flex border border-line-strong">
+      {options.map(({ id, label: text, icon: Icon, title }) => (
+        <button
+          key={id}
+          role="radio"
+          aria-checked={id === value}
+          title={title}
+          onClick={() => onChange(id)}
+          className={`${SEGMENT} ${segmentTone(id === value)}`}
+        >
+          <Icon size={13} aria-hidden="true" />
+          {text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const SEGMENT = "inline-flex h-8 items-center gap-1.5 border-l border-line-strong px-2.5 text-[13px] font-semibold transition-colors first:border-l-0";
+const segmentTone = (on) => (on ? "bg-text text-bg" : "text-muted hover:bg-surface-2 hover:text-text");
+
+/**
+ * The Feed's order. "Worked" and "Edited" select what to follow: either one, or both at once (a project counts from
+ * whichever of the two is later), with the way (newest or oldest first) beside them. "My order" is the other choice, and
+ * it carries Sort, since Sort is how that order is made; it has no direction.
+ */
+function OrderPicker({ mode, onChange, onSort }) {
+  const { worked, edited, dir, manual } = splitMode(mode);
+  // "My order" has no direction: when it is left, the way last chosen is the way back
+  const lastDir = useRef(dir ?? "oldest");
+  if (dir) lastDir.current = dir;
+  // Each button cycles three states. Pressing it while it is the only one on hands over to the other one; pressing it
+  // while only the other is on adds it (both); pressing it with both on keeps only the one pressed. So Edited goes
+  // edited only → worked only → both → edited only, and Worked goes worked only → edited only → both → worked only
+  const toggle = (key) => {
+    const other = key === "worked" ? "edited" : "worked";
+    const on = key === "worked" ? worked : edited;
+    const otherOn = key === "worked" ? edited : worked;
+    let next;
+    if (manual || (on && otherOn)) next = { worked: false, edited: false, [key]: true };
+    else if (on) next = { worked: false, edited: false, [other]: true };
+    else next = { worked: true, edited: true };
+    onChange(joinMode(next, lastDir.current));
+  };
+  const switches = [
+    { key: "worked", label: __("Worked"), icon: Clock, on: worked, title: __("Count the last time you worked on a project: a timer or a to-do ticked off") },
+    { key: "edited", label: __("Edited"), icon: Pencil, on: edited, title: __("Count the last time a project was changed: its details, status, notes or to-dos") },
+  ];
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+      <div role="group" aria-label={__("Follow")} className="inline-flex border border-line-strong">
+        {switches.map(({ key, label, icon: Icon, on, title }) => (
+          <button key={key} aria-pressed={on} title={title} onClick={() => toggle(key)} className={`${SEGMENT} ${segmentTone(on)}`}>
+            <Icon size={13} aria-hidden="true" />
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="inline-flex border border-line-strong">
+        <button role="radio" aria-checked={manual} onClick={() => onChange("manual")} className={`${SEGMENT} ${segmentTone(manual)}`}>
+          <Hand size={13} aria-hidden="true" />
+          {__("My order")}
+        </button>
+        {manual && onSort && (
+          <button onClick={onSort} title={__("Put your projects in order: swipe through them, or play them off two at a time")} className={`${SEGMENT} text-text hover:bg-surface-2`}>
+            <Layers size={13} aria-hidden="true" />
+            {__("Sort")}
+          </button>
+        )}
+      </div>
+      {dir && (
+        <Segmented
+          label={__("Direction")}
+          value={dir}
+          options={[
+            { id: "newest", label: __("Newest first"), icon: ArrowDown },
+            { id: "oldest", label: __("Oldest first"), icon: ArrowUp },
+          ]}
+          onChange={(id) => onChange(joinMode({ worked, edited }, id))}
+        />
+      )}
+    </div>
+  );
+}
+
+/** How each project's "done every N days" counts: kept out of the Feed until due, plus its days (rotation only), or not at all. */
+function CadencePicker({ hide, days, rotation, onChange }) {
+  const options = [
+    { id: "hide", label: __("Hide until due"), icon: EyeOff, title: __(CADENCE_NOTES.hide) },
+    ...(rotation ? [{ id: "days", label: __("Plus days"), icon: CalendarPlus, title: __(CADENCE_NOTES.days) }] : []),
+    { id: "direct", label: __("Direct"), icon: ArrowRight, title: __(CADENCE_NOTES.direct) },
+  ];
+  return <Segmented label={__("Cadence")} value={hide ? "hide" : days ? "days" : "direct"} options={options} onChange={onChange} />;
+}
+
 function FeedCard({
-  position, project, lastWorked, status, todos, todosById, todoOps, isRunning, isNext, pinned, onPin, canSkip, elapsed, onOpen, onStart, onWorkTodo, onStop, onSkip, onCadence,
+  position, project, lastWorked, seen, status, todos, todosById, todoOps, isRunning, isNext, pinned, onPin, canSkip, elapsed, onOpen, onStart, onWorkTodo, onStop, onSkip, onCadence,
 }) {
-  useT();
   const { color, name } = project;
   const planCtx = usePlanContext();
   const planned = planCtx?.has("project", project.id);
@@ -446,9 +562,13 @@ function FeedCard({
             <span className="font-serif italic">
               {isRunning
                 ? __("Working on it now")
-                : lastWorked
-                  ? __("Last worked {formatDistanceToNowStrict}", { formatDistanceToNowStrict: formatDistanceToNowStrict(lastWorked, { addSuffix: true }) })
-                  : __("Never worked")}
+                : seen
+                  ? seen.kind === "active"
+                    ? __("Last active {formatDistanceToNowStrict}", { formatDistanceToNowStrict: formatDistanceToNowStrict(seen.at, { addSuffix: true }) })
+                    : __("Last edited {formatDistanceToNowStrict}", { formatDistanceToNowStrict: formatDistanceToNowStrict(seen.at, { addSuffix: true }) })
+                  : lastWorked
+                    ? __("Last worked {formatDistanceToNowStrict}", { formatDistanceToNowStrict: formatDistanceToNowStrict(lastWorked, { addSuffix: true }) })
+                    : __("Never worked")}
             </span>
             {/* "Done every N days" is set from here, not only from the project's edit window */}
             {onCadence && <CadenceChip days={project.cadence_days || 0} onChange={(days) => onCadence(project.id, days)} />}
@@ -535,7 +655,6 @@ function nestTodos(todos) {
 }
 
 function TodoLine({ todo, isSub = false, todosById, ops, canStart, onTop, onStart, onWork }) {
-  useT();
   const [draft, setDraft] = useState(todo.text);
   useEffect(() => setDraft(todo.text), [todo.text]);
 
@@ -608,7 +727,6 @@ function TodoLine({ todo, isSub = false, todosById, ops, canStart, onTop, onStar
 
 /** The line under a card's to-dos for a new one. */
 function AddTodo({ projectId, name, noun = "to-do", ops, className = "mx-3 sm:ml-[2.125rem]" }) {
-  useT();
   const [draft, setDraft] = useState("");
 
   const add = async (e) => {

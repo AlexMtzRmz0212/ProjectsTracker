@@ -6,7 +6,7 @@ import { usePlanContext } from "../lib/planContext";
 import { dayState, entriesByDay, dayKey, streakOf } from "../lib/habits";
 import { loadExpanded, saveExpanded } from "../lib/foldState";
 import { TASK_INK, iconFor, inkText } from "../lib/palette";
-import { __, _n, useT } from "../i18n";
+import { __, _n } from "../i18n";
 
 const LIMIT = 6; // rows a group shows before "Show all"
 const FOLD_SCOPE = "workspace"; // where which projects, tasks and to-dos are opened is remembered
@@ -38,7 +38,6 @@ export default function WorkspaceView({
   working, projects, tasks, habits, todos = [], todoOps, runningId, timedTodoId = null, focusLabel, today, onStartSubject, onStartTodo, onStartChore, onStop, onOpen,
   plan = [], onPlanReorder, onPlanRemove, onCopyForAi, resolvePlanId, onPlanArrange,
 }) {
-  useT();
   const planCtx = usePlanContext();
   const planFor = (kind, ref) => (planCtx ? { on: planCtx.has(kind, ref), onToggle: () => planCtx.toggle(kind, ref) } : null);
   const [copied, setCopied] = useState(false);
@@ -307,7 +306,6 @@ export default function WorkspaceView({
 
 /** A titled group of rows; shows the first few, with the rest a click away. `order(row)` ranks rows (lower first). */
 function Group({ title, icon: Icon, rows, order, children }) {
-  useT();
   const [all, setAll] = useState(false);
   if (rows.length === 0) return null;
   const sorted = order ? [...rows].sort((a, b) => order(a) - order(b)) : rows;
@@ -336,7 +334,6 @@ function Group({ title, icon: Icon, rows, order, children }) {
  * indents the rows under a parent.
  */
 function Row({ icon, name, meta, running = false, action, plan = null, fold = null, tick = null, depth = 0, children = null }) {
-  useT();
   const Action = action.icon;
   return (
     <li>
@@ -407,7 +404,6 @@ function PlanButton({ plan, name }) {
 
 /** The plan: what to do next, in the order to do it. Drag a row's handle (or use the arrow keys on it) to reorder. */
 function NextUp({ rows, empty, onReorder, onRemove, onStop, kidsOf, tickOf, open, onFold, renderKid }) {
-  useT();
   const order = useReorder(rows.map((r) => r.planId), (ids) => onReorder?.(ids));
   return (
     <section className="mb-4">

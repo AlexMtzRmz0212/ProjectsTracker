@@ -3,12 +3,11 @@ import { Check, Flag, GripVertical, Pin, Plus, Trash2 } from "lucide-react";
 import Modal, { Button } from "./Modal";
 import { ON_INK, PROJECT_COLORS, inkFor } from "../lib/palette";
 import { useReorder } from "../hooks/useReorder";
-import { __, _n, useT } from "../i18n";
+import { __, _n } from "../i18n";
 
 /** Edit the list of statuses projects can have. Changes save as you make them;
  *  there is no Save button. */
 export default function StatusModal({ projects, statuses, ops, onClose }) {
-  useT();
   const [pickingFor, setPickingFor] = useState(null);
   const [draft, setDraft] = useState("");
   const [adding, setAdding] = useState(false);
@@ -171,7 +170,6 @@ export default function StatusModal({ projects, statuses, ops, onClose }) {
 /** Edits in place and saves when you leave the field or press Enter. A name the server
  *  refuses (an empty one, or a duplicate) goes back to what it was. */
 function NameInput({ value, onCommit }) {
-  useT();
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
 

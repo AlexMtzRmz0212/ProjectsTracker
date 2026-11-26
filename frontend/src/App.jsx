@@ -5,7 +5,7 @@ import { setStorageScope } from "./lib/storage";
 import Tracker from "./Tracker";
 import Landing from "./landing/Landing";
 import AccountDialog from "./landing/AccountDialog";
-import { __, useT, setLanguage } from "./i18n";
+import { __ } from "./i18n";
 
 // Everyone sees the landing page and its demo. A real tracker is behind a sign-in; this flag only says
 // "this browser has signed in before", so public visitors never ask the server about a session they can't have.
@@ -32,7 +32,6 @@ function setHint(on) {
 const inviteInUrl = () => new URLSearchParams(window.location.search).get("invite") || "";
 
 export default function App() {
-  useT();
   const [phase, setPhase] = useState(() => (hasHint() ? "checking" : "public")); // checking | public | app
   const [user, setUser] = useState(null);
   // null, or { mode: "signin" | "register", message?, code? } while the dialog is open
@@ -50,7 +49,6 @@ export default function App() {
 
   const enter = useCallback((signedIn) => {
     setStorageScope(signedIn.id); // before the tracker mounts: what this browser remembers is per person
-    if (signedIn.language) setLanguage(signedIn.language); // the account's language wins over this device's
     setHint(true);
     setUser(signedIn);
     setDialog(null);

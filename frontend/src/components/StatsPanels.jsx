@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Check, Merge } from "lucide-react";
 import { todoSubject } from "../api";
 import { countTags, dayKey, fmtHM, fmtShort } from "../lib/time";
-import { N_, __, _n, useT } from "../i18n";
+import { N_, __, _n } from "../i18n";
 
 
 const DAYS = 30; // the window of "where the time went"
@@ -14,7 +14,6 @@ const daysBack = (today, n) => new Date(today.getFullYear(), today.getMonth(), t
 
 /** Where the last 30 days went: the projects worked on, longest first, as bars in their own ink. */
 export function ProjectTime({ byDay, projectsById, today, onOpenProject }) {
-  useT();
   const rows = useMemo(() => {
     const totals = new Map();
     for (let i = 0; i < DAYS; i++) {
@@ -80,7 +79,6 @@ const TOP_TODOS = 3;
  * a to-do belongs to its project, or to its task (a task and its sub-tasks count for that task).
  */
 export function TopTodos({ todos, projectsById, today, onOpenProject }) {
-  useT();
   const { pending, finished } = useMemo(() => {
     const from = daysBack(today, DAYS - 1);
     const pending = new Map();
@@ -144,7 +142,6 @@ export function TopTodos({ todos, projectsById, today, onOpenProject }) {
 
 /** Which weekdays carry the work: the average time logged on each, over the last twelve weeks. */
 export function WeekdayRhythm({ byDay, today }) {
-  useT();
   const averages = useMemo(() => {
     const totals = Array(7).fill(0);
     for (let i = 0; i < RHYTHM_WEEKS * 7; i++) {
@@ -193,7 +190,6 @@ const SHOWN_TAGS = 40; // chips drawn in the tag cloud
  * pomodoro, not only the last 30 days, and can't be undone.
  */
 export function PomodoroTags({ pomodoros, today, onMerge }) {
-  useT();
   const rows = useMemo(() => {
     const from = daysBack(today, DAYS - 1);
     return countTags(pomodoros.filter((p) => p.start >= from));

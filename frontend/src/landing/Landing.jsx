@@ -8,8 +8,7 @@ import TabBar from "../components/TabBar";
 import { useTheme } from "../hooks/useTheme";
 import { createDemoApi } from "../demo/demoApi";
 import InterestWidget from "./InterestWidget";
-import LanguageToggle from "../components/LanguageToggle";
-import { N_, __, useT } from "../i18n";
+import { N_, __ } from "../i18n";
 
 
 const FEATURES = [
@@ -49,7 +48,6 @@ const TABS = [
  *  that asks for access in a dialog.
  *  Nothing here is taller than the window unless the window is very small. */
 export default function Landing({ interest, onOwner }) {
-  useT();
   const [theme, toggleTheme] = useTheme();
   const [tab, setTab] = useState("demo");
   const [askOpen, setAskOpen] = useState(false);
@@ -72,7 +70,6 @@ export default function Landing({ interest, onOwner }) {
               <span className="sm:hidden">{__("Ask")}</span>
               <span className="max-sm:hidden">{__("Ask for your own")}</span>
             </Button>
-            <LanguageToggle />
             <Button onClick={toggleTheme} className="w-9 px-0" aria-label={theme === "dark" ? __("Switch to light theme") : __("Switch to dark theme")}>
               {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
             </Button>

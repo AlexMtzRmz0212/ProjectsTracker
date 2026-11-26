@@ -4,7 +4,7 @@ import { formatDistanceToNowStrict } from "../lib/dates";
 import { ArrowLeft, ArrowRight, Check, ListChecks, Undo2, X } from "lucide-react";
 import { iconFor, inkFor, inkText } from "../lib/palette";
 import { fmtHM } from "../lib/time";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 const FLING_PX = 110; // dragged this far sideways, a card is decided
 const FLING_SPEED = 0.55; // px per ms: a quick flick decides it sooner
@@ -16,11 +16,10 @@ const EXIT_MS = 230;
  *  · a project swiped right goes to the front of the Feed, in the order they were swiped, and left sends it to the
  *    back (also in the order swiped); the ones not swiped stay between. That order is saved as "My order".
  *  · a task swiped right goes to the top of the Tasks list, left to the bottom.
- * `cards` is [{ key, kind: "project", project, lastWorked } | { key, kind: "task", todo }], `order` the Feed's
+ * `cards` is [{ key, kind: "project", project, lastWorked, seen } | { key, kind: "task", todo }], `order` the Feed's
  * current card ids, `onOrder(ids, released)` saves an order, and `todoOps` moves the tasks. Undo takes the last swipe back.
  */
 export default function FeedSwipe({ cards, order, onOrder, todoOps, onClose }) {
-  useT();
   const [index, setIndex] = useState(0);
   const [drag, setDrag] = useState(null); // { x, y, active }
   const [leaving, setLeaving] = useState(null); // "left" | "right"
@@ -222,7 +221,6 @@ export default function FeedSwipe({ cards, order, onOrder, todoOps, onClose }) {
 }
 
 function Card({ card }) {
-  useT();
   if (card.kind === "task") {
     const { todo } = card;
     return (
@@ -238,7 +236,7 @@ function Card({ card }) {
       </div>
     );
   }
-  const { project, lastWorked, status, todos } = card;
+  const { project, lastWorked, seen, status, todos } = card;
   const Icon = iconFor(project.icon);
   return (
     <div className="flex h-full flex-col p-5">
@@ -261,7 +259,13 @@ function Card({ card }) {
         </ul>
       )}
       <p className="mt-auto font-serif text-xs italic text-muted">
-        {lastWorked ? __("Last worked {formatDistanceToNowStrict}", { formatDistanceToNowStrict: formatDistanceToNowStrict(lastWorked, { addSuffix: true }) }) : __("Never worked")}
+        {seen
+          ? seen.kind === "active"
+            ? __("Last active {formatDistanceToNowStrict}", { formatDistanceToNowStrict: formatDistanceToNowStrict(seen.at, { addSuffix: true }) })
+            : __("Last edited {formatDistanceToNowStrict}", { formatDistanceToNowStrict: formatDistanceToNowStrict(seen.at, { addSuffix: true }) })
+          : lastWorked
+            ? __("Last worked {formatDistanceToNowStrict}", { formatDistanceToNowStrict: formatDistanceToNowStrict(lastWorked, { addSuffix: true }) })
+            : __("Never worked")}
       </p>
     </div>
   );

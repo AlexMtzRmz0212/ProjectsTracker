@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Check, Hand, Send } from "lucide-react";
 import { Button } from "../components/Modal";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 // Same loose shape the server accepts: the point is a reply address, nothing stricter.
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -10,7 +10,6 @@ const fieldClass =
   "h-10 w-full min-w-0 border-0 border-b border-line-strong bg-transparent px-0 outline-none transition-colors focus:border-b-2 focus:border-accent-2 focus-visible:outline-none";
 
 function Tally({ count, counted }) {
-  useT();
   if (count == null) {
     return counted ? <span className="text-[13px] text-muted">{__("You're in the count.")}</span> : null;
   }
@@ -24,7 +23,6 @@ function Tally({ count, counted }) {
 
 /** Optional follow-up: an email to reply to, a note, or both. Either one is enough. */
 function NoteForm({ interest }) {
-  useT();
   const { noteSending, noteError, sendNote } = interest;
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
@@ -99,7 +97,6 @@ function NoteForm({ interest }) {
  * people who come back.
  */
 export default function InterestWidget({ interest, compact = false }) {
-  useT();
   const { count, counted, justCounted, sending, error, add, noteSent } = interest;
   const [noteOpen, setNoteOpen] = useState(false);
   const showForm = counted && !noteSent && (justCounted || noteOpen);

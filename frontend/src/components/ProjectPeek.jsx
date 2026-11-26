@@ -4,7 +4,7 @@ import { ChevronLeft, PanelRight, X } from "lucide-react";
 import { iconFor, inkText } from "../lib/palette";
 import { useHeaderBottom } from "../hooks/useHeaderBottom";
 import { useClickOutside } from "../hooks/useClickOutside";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 
 const MIN_WIDTH = 352;
@@ -29,7 +29,6 @@ const KEEP_WIDE = '[role="dialog"], [role="menu"]';
  * on top, while `escPaused`, and inside a text box (a sub-to-do uses it to cancel).
  */
 export default function ProjectPeek({ open, onOpenChange, onWidth, widthResetKey = 0, project, escPaused = false, children }) {
-  useT();
   const panel = useRef(null);
   const top = useHeaderBottom();
   const id = useId();

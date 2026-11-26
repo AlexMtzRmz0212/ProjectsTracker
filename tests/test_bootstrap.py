@@ -393,22 +393,6 @@ def test_a_habit_uuid_that_was_unique_on_its_own_becomes_unique_per_account(tmp_
                               "VALUES (:h, :u, 'same', 'Run', 'boolean', 0, 0)"), {"h": habit_id, "u": user_id})
 
 
-def test_accounts_made_before_languages_existed_speak_english(tmp_path, monkeypatch):
-    monkeypatch.setenv("ADMIN_EMAIL", "owner@example.com")
-    monkeypatch.setenv("OWNER_PASSWORD", "the old password")
-    engine = create_engine(f"sqlite:///{tmp_path / 'old-users.db'}")
-    init_db(engine)
-    with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE users DROP COLUMN language"))  # as if the table came from before the column
-    assert "language" not in {c["name"] for c in inspect(engine).get_columns("users")}
-
-    init_db(engine)
-    init_db(engine)  # repeatable
-
-    with engine.connect() as conn:
-        assert conn.execute(text("SELECT language FROM users")).scalar() == "en"
-
-
 def test_habits_made_before_source_came_from_drive_and_new_ones_need_no_drive_key(tmp_path):
     """An old habits table has loop_uuid NOT NULL and no `source`: it gets the column (old rows are Drive habits) and the
     key may now be empty, for habits made in the app (several can have none)."""

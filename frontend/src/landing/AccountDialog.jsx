@@ -3,7 +3,7 @@ import { LockKeyhole, UserPlus } from "lucide-react";
 import Modal, { Button } from "../components/Modal";
 import InterestWidget from "./InterestWidget";
 import { auth } from "../api";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 const FIELD =
   "h-10 w-full min-w-0 border-0 border-b border-line-strong bg-transparent px-0 outline-none transition-colors focus:border-b-2 focus:border-accent-2 focus-visible:outline-none";
@@ -20,7 +20,6 @@ export function Field({ label, error, ...props }) {
 /** The way into the private tracker: sign in, or, with an invite code, make an account. Anyone who lands here
  *  without either is invited to say they'd use the app, which is the point of the counter. */
 export default function AccountDialog({ mode: startMode = "signin", message, code: startCode = "", interest, onClose, onSuccess }) {
-  useT();
   const [mode, setMode] = useState(startMode); // signin | register
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Check, Target, ListChecks, X } from "lucide-react";
 import { planFromReply } from "../lib/aiTasks";
 import { iconFor, inkText } from "../lib/palette";
-import { __, __r, _n, useT } from "../i18n";
+import { __, __r, _n } from "../i18n";
 
 /**
  * Where an AI's reply to the Workspace's "Copy for AI" is pasted. It is read and shown as the plan it suggests (each
@@ -12,7 +12,6 @@ import { __, __r, _n, useT } from "../i18n";
  * resolving to whether it worked.
  */
 export default function PlanAiPanel({ resolve, onApply, onClose }) {
-  useT();
   const [raw, setRaw] = useState("");
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");

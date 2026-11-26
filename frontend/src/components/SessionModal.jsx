@@ -7,7 +7,7 @@ import { CHORE_ICON, CHORE_INK, iconFor, inkText, tint } from "../lib/palette";
 import {
   dayKey, fmtDurationInput, fmtHM, parseClock, parseDuration, toDateInput, toTimeInput,
 } from "../lib/time";
-import { __, __r, useT } from "../i18n";
+import { __, __r } from "../i18n";
 
 const QUICK_MINUTES = [15, 30, 45, 60, 90, 120, 180, 240];
 const MINUTE = 60_000;
@@ -55,7 +55,6 @@ function initialSpan(session, openItem, date, span) {
 export default function SessionModal({
   session, openItem, projectId, date, span, startOpen = false, projects, todos = [], chores = [], suggested = [], onClose, onSave, onDelete, onSaveOpen, onCloseOpen,
 }) {
-  useT();
   const first = initialSpan(session, openItem, date, span);
   const [pid, setPid] = useState(
     session?.project_id ?? openItem?.project_id ?? projectId ?? suggested.find((id) => projects.some((p) => p.id === id)) ?? projects[0]?.id

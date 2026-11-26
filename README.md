@@ -162,14 +162,9 @@ holding the user id; changing a password signs that account out everywhere else.
 - What the browser remembers (Feed order, filters, pomodoro countdown, ...) is kept under keys that
   carry the user id (`frontend/src/lib/storage.js`), so accounts sharing a browser don't share them.
 
-**Languages.** The app speaks English and Spanish. The EN | ES switch is on the landing page and in the
-menu (`...`); signed in, the choice is saved on the account (`users.language`) so it follows the person to
-other devices, and a new account is seeded with its starting statuses in the language it signed up in.
-There is no i18n library: text is written in English where it is used and wrapped, `__("Save")`, or
-`_n(n, "{n} habit", "{n} habits")` for counts, and `frontend/src/i18n/es.js` maps that same English text to
-Spanish (untranslated text just shows in English). Text outside a component (a table of labels) is marked
-with `N_("...")` and passed through `__` where it is shown. Dates go through `src/lib/dates.js`, which picks
-the language's date-fns locale. Server error messages are translated by matching them in `es.js`.
+**Text.** The app is English only. Text is written in English where it is used and wrapped, `__("Save")`, or
+`_n(n, "{n} habit", "{n} habits")` for counts (`frontend/src/i18n/index.js`). Text outside a component (a table of
+labels) is marked with `N_("...")` and passed through `__` where it is shown.
 
 **Locally.** `http://localhost:5174` opens the landing page like it does for visitors. Put
 `ADMIN_EMAIL=...` and `OWNER_PASSWORD=...` in `.env` (see `.env.example`), restart the API, and sign in
@@ -221,7 +216,6 @@ it with a `Z`, and the browser groups by local day.
 | POST | `/auth/login` | `{email, password}`: sets the session cookie, returns the user |
 | POST | `/auth/register` | `{code, email, password}`: make an account with an invite code (signs in) |
 | POST | `/auth/logout` | Clears the session cookie (204) |
-| POST | `/auth/language` | `{language}` (`en` or `es`): the account's language |
 | POST | `/auth/password` | `{current_password, new_password}`: signs the account out everywhere else (204) |
 | GET / POST | `/admin/invites` | Admin only: list invites / make one (`{days}`; the code is returned once) |
 | DELETE | `/admin/invites/{id}` | Admin only: revoke an invite |

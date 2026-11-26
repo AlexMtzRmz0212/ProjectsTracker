@@ -3,7 +3,7 @@ import { formatDistanceToNow } from "../lib/dates";
 import { Archive, ArchiveRestore, Check, ChevronDown, CloudDownload, Flame, Pencil, Plus, RefreshCw, Target, Trash2 } from "lucide-react";
 import Modal, { Button } from "./Modal";
 import { dayKey, fmtEntry, fmtTarget, isActive, lastDays, streakOf } from "../lib/habits";
-import { __, __r, _n, useT } from "../i18n";
+import { __, __r, _n } from "../i18n";
 
 const STRIP = 28; // days shown in a habit's strip
 const GREEN = "#3a744b";
@@ -20,7 +20,6 @@ const labelClass = "mb-1 block text-xs font-semibold text-muted";
  * `actions` is { listDrive, importFromDrive, create, update, remove, setDay } (see useHabits); `onSync` syncs.
  */
 export default function HabitsView({ habits, status, configured, canSetUp = true, syncedAt, sourceFile, syncing, error, onSync, actions, today }) {
-  useT();
   const [result, setResult] = useState(null); // what the last sync or import said: { ok, message }
   const [showOld, setShowOld] = useState(false);
   const [form, setForm] = useState(null); // the new-habit window: {} to make one, { habit } to edit one
@@ -171,7 +170,6 @@ export default function HabitsView({ habits, status, configured, canSetUp = true
 const NEXT_STATE = { none: "yes", done: "no", missed: "skip", skip: "unknown" };
 
 function HabitRow({ habit, today, muted = false, onDay, onEdit, onArchive, onRemove }) {
-  useT();
   const [editing, setEditing] = useState(null); // the day (key) of a counted habit whose number is being typed
   const [sure, setSure] = useState(false); // asked "remove it?"
   const mine = habit.source === "app";
@@ -299,7 +297,6 @@ function RowButton({ icon: Icon, label, title, danger = false, onClick }) {
 
 /** Type the number for one day of a counted habit. */
 function DayValue({ habit, day, entry, onSave, onClose }) {
-  useT();
   const [text, setText] = useState(entry?.status === "value" ? String(entry.value) : "");
   const number = Number(text);
   const valid = text.trim() !== "" && Number.isFinite(number) && number >= 0;
@@ -335,7 +332,6 @@ function DayValue({ habit, day, entry, onSave, onClose }) {
 
 /** Make a habit here, or edit one made here. What kind it is (yes/no or a number) is chosen when it is made. */
 function HabitForm({ habit, onSave, onClose }) {
-  useT();
   const editing = Boolean(habit);
   const [name, setName] = useState(habit?.name ?? "");
   const [question, setQuestion] = useState(habit?.question ?? "");
@@ -447,7 +443,6 @@ function HabitForm({ habit, onSave, onClose }) {
 
 /** Choose which habits of the newest My Habits backup on Drive to keep here. Habits already added are shown ticked. */
 function DriveHabits({ load, onImport, onClose }) {
-  useT();
   const [list, setList] = useState(null); // { file_name, habits } once loaded
   const [error, setError] = useState("");
   const [picked, setPicked] = useState(() => new Set());

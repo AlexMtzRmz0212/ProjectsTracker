@@ -1,7 +1,7 @@
 import { format } from "../lib/dates";
 import { Check, Hourglass } from "lucide-react";
 import { iconFor, inkText, tint } from "../lib/palette";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 /** "2d 3h", "3h 20m", "12m": how long something has been open, in its two biggest units. */
 export function fmtOpen(seconds) {
@@ -19,7 +19,6 @@ export function fmtOpen(seconds) {
  * change it or close it at another time. Nothing shows while nothing is open.
  */
 export default function OpenItemsBar({ items, subjectsById, now, onOpen, onClose, className = "" }) {
-  useT();
   const shown = items.filter((x) => subjectsById.has(x.project_id));
   if (shown.length === 0) return null;
   return (

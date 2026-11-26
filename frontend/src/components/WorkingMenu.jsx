@@ -4,7 +4,7 @@ import { Bookmark, Check, X } from "lucide-react";
 import { taskKey } from "../api";
 import { iconFor, inkText } from "../lib/palette";
 import { fmtOpen } from "./OpenItemsBar";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 /**
  * Every to-do marked as being worked on, in one menu to look back over: grouped by the project it belongs to,
@@ -12,7 +12,6 @@ import { __, useT } from "../i18n";
  * the task) in the side peek. Each can be ticked off or let go of from here. Newest first.
  */
 export default function WorkingMenu({ todos, projectsById, todoOps, now, onOpen }) {
-  useT();
   const [open, setOpen] = useState(false);
   const root = useRef(null);
 
@@ -115,7 +114,6 @@ export default function WorkingMenu({ todos, projectsById, todoOps, now, onOpen 
 }
 
 function Section({ subject, onOpen, children }) {
-  useT();
   const Icon = iconFor(subject.icon);
   return (
     <section className="border-b border-rule last:border-b-0">
@@ -131,7 +129,6 @@ function Section({ subject, onOpen, children }) {
 }
 
 function Row({ todo, parent = null, now, todoOps, onOpen }) {
-  useT();
   const since = new Date(todo.working_since);
   const act = "grid size-7 shrink-0 place-items-center text-muted transition-colors hover:bg-surface-2 hover:text-text";
   return (

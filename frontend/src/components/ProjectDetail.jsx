@@ -12,7 +12,7 @@ import { ON_INK, inkFor, iconFor } from "../lib/palette";
 import { fmtClock, fmtHM, fmtTime, sessionSeconds } from "../lib/time";
 import { useReorder } from "../hooks/useReorder";
 import { usePlanContext } from "../lib/planContext";
-import { __, __r, useT } from "../i18n";
+import { __, __r } from "../i18n";
 
 const RECENT = 8;
 
@@ -23,7 +23,6 @@ export default function ProjectDetail({
   project, status, todos, sessions, pomodoroCount = 0, pomodoroTags = [], isRunning, elapsed, totalSeconds, now, archived,
   onEdit, onToggleTimer, onRestore, onCancel, todoOps, onWorkTodo,
 }) {
-  useT();
   const planCtx = usePlanContext();
   const planned = planCtx?.has("project", project.id);
   const Icon = iconFor(project.icon);
@@ -144,7 +143,6 @@ export default function ProjectDetail({
 /** The "working on" button of a to-do that isn't marked yet. Out of the way (until the row is hovered). Marking a
  *  to-do being worked on is all it does; while the project's timer runs, the session carries on under that to-do. */
 function WorkingOnButton({ todo, onClick }) {
-  useT();
   return (
     <button
       onClick={onClick}
@@ -165,7 +163,6 @@ function WorkingOnButton({ todo, onClick }) {
  *  The sort button orders the list by when to-dos were added, or by name; Manual is the order you dragged them
  *  into. Dragging while sorted another way makes the order on screen the Manual one. */
 export function TodoList({ todos, projectId, ops, rowExtra, rowMenu, hideDone = false, copyable = false, placeholder = __("Add a to-do and press Enter"), label = __("New to-do") }) {
-  useT();
   const [draft, setDraft] = useState("");
   const [showDone, setShowDone] = useState(false);
   const foldKey = projectId ?? "tasks";
@@ -350,7 +347,6 @@ const [copied, setCopied] = useState(false);
 const AUTO_SIZES = typeof CSS !== "undefined" && CSS.supports?.("field-sizing", "content");
 
 function TodoRow({ todo, sort, ops, projectId, subs = [], folded = false, onToggle, isSub = false, rowExtra, rowMenu, onManual }) {
-  useT();
   const extra = rowExtra?.(todo);
   const [draft, setDraft] = useState(todo.text);
   useEffect(() => setDraft(todo.text), [todo.text]);
@@ -588,7 +584,6 @@ function doneDuring(todos, session, now) {
 }
 
 function RecentSessions({ sessions, todos, now }) {
-  useT();
   const [all, setAll] = useState(false);
   if (sessions.length === 0) {
     return <p className="py-6 text-center font-serif text-sm italic text-muted">{__("No time logged on this project yet.")}</p>;

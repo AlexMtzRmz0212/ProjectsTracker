@@ -3,7 +3,7 @@ import { format } from "../lib/dates";
 import ProjectMultiSelect from "./ProjectMultiSelect";
 import { inkText } from "../lib/palette";
 import { HEATMAP_WEEKS, dayKey, daySecondsOf, fmtHM, heatmapStart, weekMonday } from "../lib/time";
-import { N_, __, _n, useT } from "../i18n";
+import { N_, __, _n } from "../i18n";
 
 
 // Intensity buckets (seconds). Level 0 = nothing logged.
@@ -29,7 +29,6 @@ const LABEL_COLUMN = 26;
 
 /** `since` is the first day anything was logged (null if nothing yet): the heatmap starts at its week, not a year back. */
 export default function Heatmap({ byDay, projects, projectsById, today, selected, since, onSelect }) {
-  useT();
   const [filter, setFilter] = useState(() => new Set()); // the projects picked; none picked is all of them
   const [tip, setTip] = useState(null);
   const scroller = useRef(null);

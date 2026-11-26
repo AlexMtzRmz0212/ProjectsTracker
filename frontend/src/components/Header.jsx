@@ -1,18 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import FocusTag from "./FocusTag";
-import { BookOpen, Coffee, Ellipsis, Inbox, Languages, ListOrdered, Tag, LogOut, Maximize2, Moon, NotebookPen, Pause, PictureInPicture2, Play, Plus, Search, SkipForward, SlidersHorizontal, Square, Sun, Timer, UserRound } from "lucide-react";
+import { BookOpen, Coffee, Ellipsis, Inbox, ListOrdered, Tag, LogOut, Maximize2, Moon, NotebookPen, Pause, PictureInPicture2, Play, Plus, Search, SkipForward, SlidersHorizontal, Square, Sun, Timer, UserRound } from "lucide-react";
 import { Button } from "./Modal";
 import { tint } from "../lib/palette";
 import { fmtClock, fmtCountdown, fmtHM } from "../lib/time";
-import LanguageToggle from "./LanguageToggle";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 
 export default function Header({
   runningProject, elapsed, heldProject, heldSeconds, pomodoro, pomodorosToday = 0, onStop, onStopFocus, onExpand, onMini, miniOpen, onNewProject,
   focusChoices, theme, onToggleTheme, onSignOut, signOutLabel = __("Sign out"), onAccount, onInbox, inboxUnread = 0, onSearch, searchHint, onStatuses, onGuide, onTabs, workingMenu,
 }) {
-  useT();
   return (
     <header data-app-header className="relative z-40 shrink-0 border-b-[3px] border-double border-line-strong bg-bg">
       <div className="mx-auto flex h-14 max-w-7xl items-center gap-2 px-3 sm:h-16 sm:gap-3 sm:px-6">
@@ -82,7 +80,6 @@ export default function Header({
 /** Everything the header row has no room for, in one menu: on a wide screen the inbox, the theme and sign
  *  out; below that, finding and adding projects too. Closes on a pick, an outside press or Esc. */
 function MoreMenu({ theme, onToggleTheme, onSearch, onNewProject, onInbox, inboxUnread, onStatuses, onGuide, onTabs, onAccount, onSignOut, signOutLabel }) {
-  useT();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -144,11 +141,6 @@ function MoreMenu({ theme, onToggleTheme, onSearch, onNewProject, onInbox, inbox
           {onInbox && item(__("Interest"), Inbox, onInbox, inboxUnread)}
           {onTabs && item(__("Tab order"), ListOrdered, onTabs)}
           {onGuide && item(__("Guide"), BookOpen, onGuide)}
-          <div className="flex h-11 items-center gap-3 px-3 text-[14px]">
-            <Languages size={17} className="shrink-0 text-muted" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate">{__("Language")}</span>
-            <LanguageToggle persist={Boolean(onAccount)} />
-          </div>
           {item(theme === "dark" ? __("Light theme") : __("Dark theme"), theme === "dark" ? Sun : Moon, onToggleTheme)}
           {onAccount && item(__("Account"), UserRound, onAccount)}
           {onSignOut && item(signOutLabel, LogOut, onSignOut)}
@@ -195,7 +187,6 @@ function NowTracking({
 
 /** A project timer paused for the break. It starts again with the next focus. */
 function HeldChip({ project, seconds }) {
-  useT();
   return (
     <div
       className="relative flex h-[34px] min-w-0 items-center gap-2 border border-dashed pl-3 pr-2.5 text-muted"
@@ -214,7 +205,6 @@ function HeldChip({ project, seconds }) {
 
 /** The project timer: it counts up while you work on the project, and that time is what gets logged. */
 function ProjectChip({ project, elapsed, onStop }) {
-  useT();
   const edge = tint(project.color, 55);
   return (
     <div className="relative flex h-[34px] min-w-0 items-stretch border" style={{ borderColor: edge, background: tint(project.color, 10) }}>
@@ -237,7 +227,6 @@ function ProjectChip({ project, elapsed, onStop }) {
 
 /** The pomodoro's own countdown: idle and ready to start, focusing (or paused), or on a break. */
 function PomodoroChip({ pomodoro, doneToday, focusChoices, onStopFocus, projectRunning, onExpand, onMini, miniOpen }) {
-  useT();
   const { phase } = pomodoro;
   if (phase === "breakWait" || phase === "break" || phase === "breakPaused" || phase === "ready") {
     return <BreakChip pomodoro={pomodoro} onExpand={onExpand} onMini={onMini} miniOpen={miniOpen} />;
@@ -334,7 +323,6 @@ function PomodoroChip({ pomodoro, doneToday, focusChoices, onStopFocus, projectR
 
 /** The rest between focus periods: waiting to be started, counting down (or paused), then waiting to be asked back. */
 function BreakChip({ pomodoro, onExpand, onMini, miniOpen }) {
-  useT();
   const { phase } = pomodoro;
   const waiting = phase === "breakWait";
   const paused = phase === "breakPaused";
@@ -399,7 +387,6 @@ function BreakChip({ pomodoro, onExpand, onMini, miniOpen }) {
 
 /** Opens the mini clock (a small floating window), or puts it away again while it is out. At every width. */
 function MiniButton({ edge, onMini, open }) {
-  useT();
   if (!onMini) return null;
   return (
     <ChipButton edge={edge} onClick={onMini} label={open ? __("Close the mini clock") : __("Mini clock")}>
@@ -410,7 +397,6 @@ function MiniButton({ edge, onMini, open }) {
 
 /** The chip's last button: the pomodoro's full screen. */
 function ExpandButton({ edge, onExpand }) {
-  useT();
   if (!onExpand) return null;
   return (
     <ChipButton edge={edge} onClick={onExpand} label={__("Full screen")} className="max-sm:px-2">
@@ -434,7 +420,6 @@ function Progress({ value, color }) {
  *  It lands on the same session record that Add time's note does. `up` opens it above the button
  *  instead of below, for a button near the foot of the screen. */
 export function TimerNote({ session, project, edge, onSave, up = false }) {
-  useT();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(session.note);
   const saved = useRef(session.note);

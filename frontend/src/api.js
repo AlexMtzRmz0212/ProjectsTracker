@@ -1,7 +1,7 @@
 // Thin client for the FastAPI backend. Every route is under /api; in dev Vite
 // proxies that to the Python server (see vite.config.js).
 
-import { __, translateError, getLanguage } from "./i18n";
+import { __ } from "./i18n";
 
 const BASE = "/api";
 export const UNAUTHORIZED_EVENT = "pt-unauthorized";
@@ -60,7 +60,7 @@ export async function fetchApi(path, options = {}) {
     } catch {
       // not JSON; keep the raw text
     }
-    const error = new Error(translateError(message) || __("Request failed ({status})", { status: response.status }));
+    const error = new Error(message || __("Request failed ({status})", { status: response.status }));
     error.status = response.status;
     throw error;
   }
@@ -237,10 +237,8 @@ export const auth = {
   me: () => fetchApi("/auth/me"),
   login: (email, password) => fetchApi("/auth/login", json("POST", { email, password })),
   /** Make an account with an invite code; signs in too. */
-  register: ({ code, email, password }) => fetchApi("/auth/register", json("POST", { code, email, password, language: getLanguage() })),
+  register: ({ code, email, password }) => fetchApi("/auth/register", json("POST", { code, email, password })),
   logout: () => fetchApi("/auth/logout", { method: "POST" }),
-  /** The language this account reads the app in (it follows the person to any device). */
-  saveLanguage: (language) => fetchApi("/auth/language", json("POST", { language })),
   /** This account's password. Every other session of it is signed out; this one stays in. */
   changePassword: (currentPassword, newPassword) =>
     fetchApi("/auth/password", json("POST", { current_password: currentPassword, new_password: newPassword })),

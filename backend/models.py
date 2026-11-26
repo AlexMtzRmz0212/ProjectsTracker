@@ -34,7 +34,6 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    language: Mapped[str] = mapped_column(String(5), default="en", server_default="en")  # the app's language: en | es
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 

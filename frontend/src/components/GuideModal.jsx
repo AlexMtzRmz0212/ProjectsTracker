@@ -1,5 +1,5 @@
 import Modal from "./Modal";
-import { N_, __, useT } from "../i18n";
+import { N_, __ } from "../i18n";
 
 /** What each kind of thing in the tracker is, grouped by where it lives. Opened from the header's More menu. */
 const GROUPS = [
@@ -35,7 +35,6 @@ const GROUPS = [
 ];
 
 export default function GuideModal({ onClose }) {
-  useT();
   return (
     <Modal title={__("Guide")} onClose={onClose}>
       <div className="space-y-6">

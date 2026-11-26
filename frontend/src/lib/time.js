@@ -177,7 +177,9 @@ export function feedQueue(projects, sessions, now, runningId, todos = []) {
   const last = lastWorkedByProject(sessions, now, todos);
   const items = projects.map((project) => {
     const worked = last.get(project.id) ?? (project.total_seconds > 0 ? new Date(project.created_at) : null);
-    return { project, lastWorked: worked, rank: worked?.getTime() ?? 0 };
+    // Last edited: the project's own change stamp (details, status, notes, to-dos); the Tasks card has none
+    const stamp = project.updated_at ? new Date(project.updated_at) : null;
+    return { project, lastWorked: worked, rank: worked?.getTime() ?? 0, edited: stamp && !Number.isNaN(+stamp) ? stamp : null };
   });
   items.sort(
     (a, b) =>
@@ -185,7 +187,7 @@ export function feedQueue(projects, sessions, now, runningId, todos = []) {
       a.rank - b.rank ||
       new Date(a.project.created_at) - new Date(b.project.created_at)
   );
-  return items.map(({ project, lastWorked, rank }) => ({ project, lastWorked, rank }));
+  return items.map(({ project, lastWorked, rank, edited }) => ({ project, lastWorked, rank, edited }));
 }
 
 /** Consecutive days with at least a minute logged, ending today (or yesterday

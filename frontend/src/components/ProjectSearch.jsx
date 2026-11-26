@@ -3,7 +3,7 @@ import { Search, Tag } from "lucide-react";
 import Modal from "./Modal";
 import { taskKey } from "../api";
 import { ON_INK, TASK_ICON, TASK_INK, inkFor, inkText, iconFor, tint } from "../lib/palette";
-import { __, __r, useT } from "../i18n";
+import { __, __r } from "../i18n";
 
 
 /** Not a project: the Tasks tab, offered at the top of every search (here, in the pomodoro's full screen and
@@ -77,7 +77,6 @@ export function ChoreName({ name }) {
  *  `onTasks`, the Tasks tab is one of the results, and picking it calls that instead. With `onChore`, words that
  *  name nothing can be used as a chore: it is called with them. */
 export default function ProjectSearch({ projects, todos = [], statusesById, onPick, onTasks, onChore, onClose, title = __("Find a project or task") }) {
-  useT();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const listRef = useRef(null);
@@ -198,7 +197,6 @@ export default function ProjectSearch({ projects, todos = [], statusesById, onPi
 
 /** What a to-do found by name belongs to, and whether it is being worked on. */
 export function TodoNote({ entry, className = "text-xs" }) {
-  useT();
   return (
     <span className={`flex min-w-0 max-w-[45%] shrink-0 items-center gap-1.5 font-serif italic text-muted ${className}`}>
       {entry.working && <span className="blink-dot size-1.5 shrink-0 rounded-full bg-accent" title={__("Working on this")} aria-label={__("Working on")} />}

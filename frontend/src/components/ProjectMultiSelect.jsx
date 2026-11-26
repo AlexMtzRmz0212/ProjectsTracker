@@ -3,14 +3,13 @@ import { Check, ChevronDown, Search } from "lucide-react";
 import { useClickOutside } from "../hooks/useClickOutside";
 import { iconFor, inkText } from "../lib/palette";
 import { matchProjects } from "./ProjectSearch";
-import { __, _n, useT } from "../i18n";
+import { __, _n } from "../i18n";
 
 /**
  * Pick any number of projects from one button: it says what is picked ("All projects", a project's name, or "3 projects"),
  * and opens a searchable checklist. `selected` is a Set of project ids (empty means all) and `onChange(set)` takes the new one.
  */
 export default function ProjectMultiSelect({ projects, selected, onChange }) {
-  useT();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const root = useRef(null);

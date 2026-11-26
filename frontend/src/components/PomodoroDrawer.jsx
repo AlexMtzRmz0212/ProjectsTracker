@@ -3,7 +3,7 @@ import { ChevronDown, Minus, Plus, RotateCcw, SlidersHorizontal, X } from "lucid
 import { DEFAULTS, LIMITS } from "../hooks/usePomodoro";
 import { useEdgeDrag } from "../hooks/useEdgeDrag";
 import { useClickOutside } from "../hooks/useClickOutside";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 
 const WIDTH = 640; // px, at most
@@ -18,7 +18,6 @@ const MARGIN = 12; // px kept clear of the window's sides
  * (or the title) back up, or press ✕ or Esc to put it away.
  */
 export default function PomodoroDrawer({ open, onOpenChange, anchor = "header", settings, onChange, onReset }) {
-  useT();
   const panel = useRef(null);
   const slide = useEdgeDrag(panel, open, onOpenChange, "top");
   const place = useAnchor(anchor);
@@ -149,7 +148,6 @@ function useAnchor(anchor) {
 }
 
 function Stepper({ label, unit, value, limits: [min, max], disabled = false, onChange }) {
-  useT();
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
 

@@ -1,9 +1,9 @@
 import { useRef, useState } from "react";
 import { Minus, Plus, Repeat } from "lucide-react";
 import { useClickOutside } from "../hooks/useClickOutside";
-import { N_, __, _n, useT } from "../i18n";
+import { N_, __, _n } from "../i18n";
 
-// Marked for translation here, looked up where they are drawn so a change of language is picked up
+// Written here, passed through __ where they are drawn
 const PRESETS = [[0, N_("No cadence")], [1, N_("Daily")], [7, N_("Weekly")], [30, N_("Monthly")]];
 
 /**
@@ -12,7 +12,6 @@ const PRESETS = [[0, N_("No cadence")], [1, N_("Daily")], [7, N_("Weekly")], [30
  * days. `onChange(days)` saves it (0 for none). The same setting is in the project's edit window.
  */
 export default function CadenceChip({ days, onChange }) {
-  useT();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const root = useRef(null);

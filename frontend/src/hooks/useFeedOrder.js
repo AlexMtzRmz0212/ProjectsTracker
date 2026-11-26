@@ -5,7 +5,7 @@ import { scopedKey } from "../lib/storage";
 const modes = new Set(FEED_MODES.map((m) => m.id));
 const ids = (value) => (Array.isArray(value) ? value.filter((x) => typeof x === "string") : []);
 // Orders that are gone: "recent" was renamed, the others fall back to the rotation
-const RETIRED = { recent: "newest", tasks: "rotation", projects: "rotation", edited: "rotation" };
+const RETIRED = { recent: "newest", tasks: "rotation", projects: "rotation" };
 
 function load(key) {
   try {

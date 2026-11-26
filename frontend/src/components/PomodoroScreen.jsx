@@ -8,7 +8,7 @@ import ProjectSearch from "./ProjectSearch";
 import { iconFor, inkText, tint } from "../lib/palette";
 import { fmtClock, fmtCountdown } from "../lib/time";
 import { scopedKey } from "../lib/storage";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 
 export const TONES = { focus: "var(--accent)", rest: "var(--accent-2)", idle: "var(--muted)" };
@@ -79,7 +79,6 @@ export default function PomodoroScreen({
   pomodoro, pomodorosToday = 0, projects, todos = [], runningProject, runningSession, clock, heldProject, heldSeconds,
   onStartTimer, onStopTimer, onStopFocus, onSaveNote, settingsOpen, onClose, renderDetail, onMiniPlayer, statusesById, searchHint, onTasks,
 }) {
-  useT();
   const { phase, settings } = pomodoro;
   const focusing = phase === "focus" || phase === "focusPaused";
   const inBreak = phase === "breakWait" || phase === "break" || phase === "breakPaused";
@@ -393,7 +392,6 @@ export default function PomodoroScreen({
 /** The side panel of the full screen: beside the timer on a wide screen, over it on a narrow one. It isn't
  *  drawn at all while it is put away, so what it holds (a half-typed note) is saved as it goes. */
 function SidePanel({ title, onClose, padded = false, children }) {
-  useT();
   return (
     <aside
       aria-label={title}
@@ -483,7 +481,6 @@ export function ActionButton({ label, hint, icon: Icon, onClick, primary, tone =
 /** The project being worked on, if any. Every state of the card is the same height, so picking a
  *  project moves nothing on the screen. */
 function ProjectCard({ runningProject, runningSession, clock, heldProject, heldSeconds, chosen, chosenTodo, noProjects, onClear, onStop, onSaveNote }) {
-  useT();
   return (
     <section className="w-full max-w-2xl shrink-0" aria-label={__("Project")}>
       <h2 className="mb-1.5 text-xs font-semibold text-muted">
@@ -507,7 +504,6 @@ function ProjectCard({ runningProject, runningSession, clock, heldProject, heldS
 }
 
 function RunningCard({ project, session, clock, onStop, onSaveNote }) {
-  useT();
   const edge = tint(project.color, 55);
   return (
     <div className="relative flex h-12 items-stretch border" style={{ borderColor: edge, background: tint(project.color, 10) }}>
@@ -534,7 +530,6 @@ function RunningCard({ project, session, clock, onStop, onSaveNote }) {
 }
 
 function ChosenCard({ project, todo, onClear }) {
-  useT();
   const Icon = iconFor(project.icon);
   const edge = tint(project.color, 55);
   return (
@@ -562,7 +557,6 @@ function ChosenCard({ project, todo, onClear }) {
 }
 
 function HeldCard({ project, seconds }) {
-  useT();
   return (
     <div className="flex h-12 items-center gap-3 border border-dashed px-4 text-muted" style={{ borderColor: tint(project.color, 55) }}>
       <Pause size={12} fill="currentColor" className="shrink-0" aria-hidden="true" />

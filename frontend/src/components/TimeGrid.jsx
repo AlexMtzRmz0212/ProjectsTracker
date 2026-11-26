@@ -5,7 +5,7 @@ import { iconFor, inkText, tint } from "../lib/palette";
 import { dayKey, fmtHM, fmtTime, sessionSeconds } from "../lib/time";
 import { todoSubject } from "../api";
 import { scopedKey } from "../lib/storage";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 
 const DEFAULT_HOUR = 48; // px per hour, before any zooming
@@ -110,7 +110,6 @@ const LONG_PRESS = 380; // ms a finger rests on a block (or an empty spot) befor
 export default function TimeGrid({
   mode, date, today, now, sessions, pomodoros, todos, projectsById, onNavigate, onOpenDay, onEditSession, onAddSpan, onMoveSession, viewSwitch,
 }) {
-  useT();
   const days = useMemo(() => {
     if (mode === "day") return [new Date(date.getFullYear(), date.getMonth(), date.getDate())];
     const monday = new Date(date.getFullYear(), date.getMonth(), date.getDate() - ((date.getDay() + 6) % 7));
@@ -560,7 +559,6 @@ export default function TimeGrid({
 }
 
 function DayColumn({ index, column, mode, chip, hour, now, isToday, projectsById, todoText, dragId, suppressClick, onGrab, onEditSession, onAddSpan }) {
-  useT();
   const { dayStart, blocks, ticked, pomos, draft } = column;
   const wide = mode === "day";
   // A single day gives the to-dos ticked off a lane of their own down the right; in a week the columns are

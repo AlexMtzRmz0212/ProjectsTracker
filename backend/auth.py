@@ -161,7 +161,7 @@ def register(body: schemas.RegisterBody, response: Response, db: DbSession = Dep
     if invite is None:
         time.sleep(FAILED_LOGIN_DELAY)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "That invite is invalid or has expired")
-    user = User(email=body.email, password_hash=hash_password(body.password), language=body.language)
+    user = User(email=body.email, password_hash=hash_password(body.password))
     db.add(user)
     try:
         db.flush()
@@ -174,7 +174,7 @@ def register(body: schemas.RegisterBody, response: Response, db: DbSession = Dep
     if claimed.rowcount != 1:  # someone else used it a moment ago
         db.rollback()
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "That invite is invalid or has expired")
-    seed_user_statuses(db, user.id, user.language)
+    seed_user_statuses(db, user.id)
     db.commit()
     db.refresh(user)
     _set_cookie(response, user)
@@ -186,14 +186,6 @@ def logout():
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     response.delete_cookie(COOKIE, path="/")
     return response
-
-
-@router.post("/language", response_model=schemas.UserOut)
-def set_language(body: schemas.LanguageBody, user: User = Depends(current_user), db: DbSession = Depends(get_db)):
-    """The language this account reads the app in; it follows the person to any device."""
-    user.language = body.language
-    db.commit()
-    return user
 
 
 @router.post("/password", status_code=status.HTTP_204_NO_CONTENT)

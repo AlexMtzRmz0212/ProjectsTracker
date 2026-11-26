@@ -4,11 +4,10 @@ import { Check, Copy, Plus, Trash2 } from "lucide-react";
 import Modal, { Button } from "./Modal";
 import { Field } from "../landing/AccountDialog";
 import { admin, auth } from "../api";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 /** The signed-in person's account: who they are, a new password, and, for the admin, the invites. */
 export default function AccountPanel({ user, onClose }) {
-  useT();
   return (
     <Modal title={__("Account")} onClose={onClose}>
       <p className="text-[13px] text-muted">{__("Signed in as")}</p>
@@ -21,7 +20,6 @@ export default function AccountPanel({ user, onClose }) {
 }
 
 function PasswordForm() {
-  useT();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [state, setState] = useState({ busy: false, error: null, done: false });
@@ -69,7 +67,6 @@ const inviteState = (invite, now) => {
 
 /** Admin only. A code is shown once, right after it is made, as a link that opens the sign-up form. */
 function Invites() {
-  useT();
   const [invites, setInvites] = useState(null);
   const [fresh, setFresh] = useState(null); // { id, link }
   const [copied, setCopied] = useState(false);

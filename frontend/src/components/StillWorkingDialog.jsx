@@ -2,7 +2,7 @@ import { Check, Square } from "lucide-react";
 import Modal, { Button } from "./Modal";
 import { useNow } from "../hooks/useNow";
 import { fmtCountdown, fmtTime } from "../lib/time";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 // Esc and a press on the backdrop don't answer the question, so they do nothing: the buttons are the answers
 const stay = () => {};
@@ -13,7 +13,6 @@ const stay = () => {};
  * `onYes` says someone is here; `onStop` stops it now.
  */
 export default function StillWorkingDialog({ name, askedAt, answerBy, onYes, onStop }) {
-  useT();
   const now = useNow(true);
   const left = Math.max(0, Math.ceil((answerBy - now.getTime()) / 1000));
   return (

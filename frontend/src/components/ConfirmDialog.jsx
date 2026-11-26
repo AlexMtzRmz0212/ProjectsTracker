@@ -1,11 +1,10 @@
 import { Trash2 } from "lucide-react";
 import Modal, { Button } from "./Modal";
 import { iconFor, inkText } from "../lib/palette";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 /** "Are you sure?" for destructive actions, with the ledger entry that goes away. */
 export default function ConfirmDialog({ title, project, primary, secondary, note, onCancel, onConfirm }) {
-  useT();
   const Icon = iconFor(project.icon);
   return (
     <Modal

@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { Tag, X } from "lucide-react";
 import { useClickOutside } from "../hooks/useClickOutside";
 import { iconFor, inkText } from "../lib/palette";
-import { __, __r, useT } from "../i18n";
+import { __, __r } from "../i18n";
 
 
 const WIDTH = 288; // px
@@ -18,7 +18,6 @@ const EDGE = 8;
  * header chip or on the full screen. Esc, a press outside, or a pick closes it.
  */
 export default function FocusTag({ value, onChange, choices, up = false, children }) {
-  useT();
   const [open, setOpen] = useState(false);
   const [place, setPlace] = useState(null);
   const root = useRef(null);
@@ -66,7 +65,6 @@ export default function FocusTag({ value, onChange, choices, up = false, childre
  * `onDone` is called after a pick.
  */
 export function FocusPicker({ value, onChange, choices, onDone }) {
-  useT();
   const [text, setText] = useState("");
 
   const q = text.trim().toLowerCase();

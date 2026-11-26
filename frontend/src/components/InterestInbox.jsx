@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { format } from "../lib/dates";
 import { Trash2 } from "lucide-react";
 import Modal, { Button } from "./Modal";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 /** mailto with the address percent-encoded, so nothing a visitor typed can add
  *  headers (?cc=, &body=) to the draft. The @ stays literal for older mail clients. */
@@ -10,7 +10,6 @@ const mailto = (email) => `mailto:${encodeURIComponent(email).replace("%40", "@"
 
 /** What visitors said after pressing "I'd use this". Owner only. */
 export default function InterestInbox({ inbox, onClose }) {
-  useT();
   const { count, messages, status, reload, markSeen, remove } = inbox;
   const [confirmId, setConfirmId] = useState(null);
   const [failed, setFailed] = useState(false);

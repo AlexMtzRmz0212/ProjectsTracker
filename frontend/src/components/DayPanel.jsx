@@ -7,13 +7,12 @@ import { SplitBar } from "./StatsStrip";
 import ParentTag from "./ParentTag";
 import DoneChart from "./DoneChart";
 import { todoSubject } from "../api";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 
 /** The selected day as a time card: In, Out, Project, Hours, then the pomodoros finished and the to-dos ticked off that day.
  *  An open item (`openItem` on a session still going) is listed with the rest, to edit or close (`onStop(session)`). */
 export default function DayPanel({ date, sessions, pomodoros, todos, todoOps, byDay, projectsById, now, onAdd, onEdit, onDelete, onStop }) {
-  useT();
   const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
   const entry = byDay.get(dayKey(date));
@@ -241,7 +240,6 @@ export default function DayPanel({ date, sessions, pomodoros, todos, todoOps, by
 /** The name of a to-do ticked off that day, which can be corrected in place (saved on blur or Enter; an emptied
  *  line goes back to what it was, Esc too). */
 function TickedName({ todo, ops }) {
-  useT();
   const [draft, setDraft] = useState(todo.text);
   useEffect(() => setDraft(todo.text), [todo.text]);
   const commit = () => {

@@ -1,12 +1,11 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 
 /** Bottom sheet on phones, centered paper slip on larger screens. Esc / backdrop close it. */
 export default function Modal({ title, onClose, children, footer }) {
-  useT();
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && onClose();
     document.addEventListener("keydown", onKey);

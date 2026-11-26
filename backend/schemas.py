@@ -38,23 +38,15 @@ Email = Annotated[
 NewPassword = Annotated[str, Field(min_length=8, max_length=200)]
 
 
-Language = Literal["en", "es"]
-
-
 class LoginBody(BaseModel):
     email: Email
     password: Annotated[str, Field(max_length=200)]
-
-
-class LanguageBody(BaseModel):
-    language: Language
 
 
 class RegisterBody(BaseModel):
     code: Annotated[str, Field(min_length=1, max_length=100)]
     email: Email
     password: NewPassword
-    language: Language = "en"  # what the person was reading when they signed up: names their starting statuses
 
 
 class PasswordBody(BaseModel):
@@ -68,7 +60,6 @@ class UserOut(BaseModel):
     id: str
     email: str
     is_admin: bool = False
-    language: str = "en"
 
 
 class SessionInfo(BaseModel):

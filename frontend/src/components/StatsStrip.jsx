@@ -1,4 +1,4 @@
-import { __, _n, useT } from "../i18n";
+import { __, _n } from "../i18n";
 import { format } from "../lib/dates";
 import { completedPomodoros, daySeconds, dayKey, fmtHM, pomodorosOnDay } from "../lib/time";
 
@@ -43,7 +43,6 @@ export function SplitBar({ byProject, projectsById, className = "h-1.5" }) {
 }
 
 export default function StatsStrip({ byDay, pomodoros, today, weekStart, streakDays, projectsById }) {
-  useT();
   const todayEntry = byDay.get(dayKey(today));
   const week = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + i);

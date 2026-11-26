@@ -28,9 +28,6 @@ DEFAULT_STATUSES = [
     ("Done", "#56606b", True),
 ]
 
-# The names above in the languages the app speaks. They are only the starting point: the person renames them freely.
-STATUS_NAMES = {"es": {"Active": "Activo", "Done": "Hecho"}}
-
 # The tables whose rows belong to one account. Rows made before accounts existed have no user_id until the
 # admin adopts them (_adopt_orphans).
 OWNED_MODELS = [
@@ -47,7 +44,6 @@ def init_db(engine: Engine) -> None:
     _add_pomodoro_columns(engine)
     _add_session_columns(engine)
     _add_user_columns(engine)
-    _add_language_column(engine)
     _add_plan_columns(engine)
     # Tasks of their own are to-dos with no project, and their time is sessions with no project
     _make_nullable(engine, models.Todo.__table__, "project_id")
@@ -70,13 +66,12 @@ def normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
-def seed_user_statuses(db: DbSession, user_id: str, language: str = "en") -> None:
-    """Give a new account the default statuses, named in its language (nothing if it already has some)."""
+def seed_user_statuses(db: DbSession, user_id: str) -> None:
+    """Give a new account the default statuses (nothing if it already has some)."""
     if db.scalar(select(Status.id).where(Status.user_id == user_id).limit(1)) is not None:
         return
-    names = STATUS_NAMES.get(language, {})
     for order, (name, color, is_done) in enumerate(DEFAULT_STATUSES, start=1):
-        db.add(Status(user_id=user_id, name=names.get(name, name), color=color, is_done=is_done, sort_order=order))
+        db.add(Status(user_id=user_id, name=name, color=color, is_done=is_done, sort_order=order))
     db.flush()
 
 
@@ -132,13 +127,6 @@ def _add_habit_columns(engine: Engine) -> None:
     if "source" not in {c["name"] for c in inspect(engine).get_columns("habits")}:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE habits ADD COLUMN source VARCHAR(8) NOT NULL DEFAULT 'drive'"))
-
-
-def _add_language_column(engine: Engine) -> None:
-    """Accounts made before the app had a second language speak English."""
-    if "language" not in {c["name"] for c in inspect(engine).get_columns("users")}:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE users ADD COLUMN language VARCHAR(5) NOT NULL DEFAULT 'en'"))
 
 
 def _add_plan_columns(engine: Engine) -> None:

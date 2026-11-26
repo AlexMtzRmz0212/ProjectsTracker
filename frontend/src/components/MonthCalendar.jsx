@@ -3,14 +3,13 @@ import { addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMont
 import { ChevronLeft, ChevronRight, Tag } from "lucide-react";
 import { tint } from "../lib/palette";
 import { dayKey, fmtHM, fmtShort } from "../lib/time";
-import { __, _n, useT } from "../i18n";
+import { __, _n } from "../i18n";
 
 
 const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
 const MIN_SCALE = 2 * 3600; // a day "fills" at the month's busiest day, but never below 2h
 
 export default function MonthCalendar({ cursor, onCursor, selected, onSelect, byDay, tagsByDay, projectsById, today }) {
-  useT();
   const days = useMemo(
     () =>
       eachDayOfInterval({

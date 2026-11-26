@@ -1,11 +1,10 @@
 import { iconFor, inkText, tint } from "../lib/palette";
 import { todoSubject } from "../api";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 /** The to-dos ticked off in a day as bars, one per project or task, longest first. `ticked` is the day's
  *  to-dos that DayPanel already lists; nothing is drawn for a day with none. */
 export default function DoneChart({ ticked, projectsById }) {
-  useT();
   const counts = new Map();
   for (const x of ticked) {
     const id = todoSubject(x);

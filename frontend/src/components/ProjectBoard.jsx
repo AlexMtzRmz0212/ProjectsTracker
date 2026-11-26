@@ -6,7 +6,7 @@ import { fmtClock, fmtHM } from "../lib/time";
 import { scopedKey } from "../lib/storage";
 import { Button } from "./Modal";
 import ArchiveDrawer from "./ArchiveDrawer";
-import { N_, __, _n, useT } from "../i18n";
+import { N_, __, _n } from "../i18n";
 
 
 /**
@@ -22,7 +22,6 @@ import { N_, __, _n, useT } from "../i18n";
 export default function ProjectBoard({
   projects, archived, statuses, cardProps, onMove, onCreate, onDelete, onArchive, onRestore, onOpenArchived, revealId = null,
 }) {
-  useT();
   const [phoneStatus, setPhoneStatus] = useState(null);
   const shownOnPhone = statuses.some((s) => s.id === phoneStatus) ? phoneStatus : statuses[0]?.id;
   const [savedHidden, , setAllSaved, saveHidden] = useHiddenStatuses(statuses);
@@ -551,7 +550,6 @@ function BoardCard({
   totalSeconds, todaySeconds, lastSeven, openTodos, isRunning, elapsed,
   onOpen, onToggleTimer, onAddTime, onEdit,
 }) {
-  useT();
   const { color, name } = project;
   const Icon = iconFor(project.icon);
   const finished = status.is_done;
@@ -657,7 +655,6 @@ function Sparkline({ days, color, className = "" }) {
 /** The ⋯ menu. It's drawn on top of the page, not inside the card, because the column
  *  scrolls and would otherwise clip it. */
 function CardMenu({ name, onAddTime, onEdit }) {
-  useT();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
   const button = useRef(null);
@@ -741,7 +738,6 @@ function CardMenu({ name, onAddTime, onEdit }) {
  *  asks "Are you sure?" on a slip that unrolls out of the can. It stays mounted and
  *  `phase` (hidden | ready | hot | confirm) drives the motion, in index.css, both ways. */
 function TrashCan({ phase, project, drop, totalSeconds, onCancel, onConfirm }) {
-  useT();
   const root = useRef(null);
   const id = useId();
   const confirming = phase === "confirm";

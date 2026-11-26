@@ -1,13 +1,12 @@
 import { ArrowDown, ArrowUp, Check, GripVertical, RotateCcw } from "lucide-react";
 import Modal, { Button } from "./Modal";
 import { useReorder } from "../hooks/useReorder";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 /** Arrange the main tabs: drag a handle, or use the arrows (which are also there for a touch screen). The order saves
  *  as you change it, and is kept in this browser. `tabs` are the tabs in their current order; `onChange` gets every id in
  *  the new order; `onReset` goes back to the usual one. */
 export default function TabOrderModal({ tabs, onChange, onReset, onClose }) {
-  useT();
   const reorder = useReorder(tabs.map((t) => t.id), onChange);
 
   const move = (i, by) => {

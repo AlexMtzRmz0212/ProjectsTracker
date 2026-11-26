@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Check } from "lucide-react";
 import Modal, { Button } from "./Modal";
 import { ON_INK, PROJECT_COLORS, PROJECT_ICONS, iconFor, inkFor, inkText, tint } from "../lib/palette";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 
 /** A random item from `preferred`, or from `fallback` when `preferred` is empty. */
@@ -14,7 +14,6 @@ function pickRandom(preferred, fallback = preferred) {
 /** Create or edit a project: name, ink, icon and status, with a live preview of its ledger line.
  *  `defaultStatusId` pre-selects a status for a new project (the one the page is filtered to). */
 export default function ProjectModal({ project, statuses, defaultStatusId = null, usedColors, onClose, onSave }) {
-  useT();
   const editing = Boolean(project);
   const [name, setName] = useState(project?.name ?? "");
   const [color, setColor] = useState(

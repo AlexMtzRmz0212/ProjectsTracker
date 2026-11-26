@@ -202,36 +202,3 @@ def test_registration_checks_the_email_and_password(client):
 def test_invite_length_is_bounded(client):
     assert client.post("/api/admin/invites", json={"days": 0}).status_code == 422
     assert client.post("/api/admin/invites", json={"days": 31}).status_code == 422
-
-
-# ── Language ─────────────────────────────────────────────────────────────────
-
-def test_an_account_starts_in_english_and_can_switch_language(client):
-    assert client.get("/api/auth/me").json()["user"]["language"] == "en"
-
-    assert client.post("/api/auth/language", json={"language": "es"}).json()["language"] == "es"
-    assert client.get("/api/auth/me").json()["user"]["language"] == "es"  # kept on the account, not the browser
-
-    assert client.post("/api/auth/language", json={"language": "fr"}).status_code == 422  # only the languages the app speaks
-
-
-def test_changing_language_needs_a_session(anonymous):
-    assert anonymous.post("/api/auth/language", json={"language": "es"}).status_code == 401
-
-
-def test_a_spanish_signup_gets_spanish_starting_statuses(client):
-    invite = make_invite(client)
-    newcomer = TestClient(app)
-
-    res = newcomer.post(
-        "/api/auth/register",
-        json={"code": invite["code"], "email": "hola@example.com", "password": "una contraseña larga", "language": "es"},
-    )
-    assert res.status_code == 201 and res.json()["language"] == "es"
-    assert [s["name"] for s in newcomer.get("/api/statuses").json()] == ["Activo", "Hecho"]
-    newcomer.close()
-
-    # Left out, it is English (the earlier clients don't send one)
-    english = TestClient(app)
-    assert register(english, make_invite(client)["code"], email="hello@example.com").json()["language"] == "en"
-    english.close()

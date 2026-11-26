@@ -9,7 +9,7 @@ import { EMPTY_FILTER, FILTER_CHIPS, isFiltering, loadFilter, saveFilter, taskMa
 import { ON_INK, TASK_INK, iconFor, TASK_ICON } from "../lib/palette";
 import { fmtClock, fmtHM, fmtTime, sessionSeconds } from "../lib/time";
 import { taskKey } from "../api";
-import { __, __r, useT } from "../i18n";
+import { __, __r } from "../i18n";
 
 
 /**
@@ -23,7 +23,6 @@ import { __, __r, useT } from "../i18n";
 export default function TasksView({
   tasks, todoOps, runningId, clock, openItems, now, secondsFor, onStart, onStop, onLeaveOpen, onLogTime, onOpenItem, onOpenTask,
 }) {
-  useT();
   const openFor = new Map(openItems.map((x) => [x.project_id, x]));
 
   const rowExtra = (task) => {
@@ -231,7 +230,6 @@ function HeaderButton({ onClick, icon: Icon, done = false, pressed, title, child
 /** A task opened up (in the side peek, or the pomodoro's full screen): its timer, whether it is being worked
  *  on, ticking it off, and the time logged on it. */
 export function TaskDetail({ task, sessions, totalSeconds, isRunning, elapsed, now, todoOps, onToggleTimer, onLeaveOpen }) {
-  useT();
   const Icon = iconFor(TASK_ICON);
   const working = Boolean(task.working_since) && !task.done;
   return (

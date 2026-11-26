@@ -8,7 +8,7 @@ import { ChoreName, TASKS_TAB, TodoNote, searchResultsWithChore, withTasksTab } 
 import { iconFor, inkText, tint } from "../lib/palette";
 import { fmtClock, fmtCountdown } from "../lib/time";
 import { scopedKey } from "../lib/storage";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 
 const POS_KEY = "pt-mini-pos";
@@ -165,7 +165,6 @@ function MiniClock(props) {
  *   the to-dos fill the rest.
  */
 function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSeconds, todos = [], todoOps, timedTodoId = null, onStopFocus, onStopTimer, onSearch, onTag }) {
-  useT();
   const view = phaseView(pomodoro);
   const idle = view.tone === "idle";
   const flowing = pomodoro.phase === "focus" || pomodoro.phase === "break";
@@ -361,7 +360,6 @@ function ClockFace({ w, h, pomodoro, runningProject, clock, heldProject, heldSec
 
 /** The phase and the set position ruled off along the countdown's line: ── Focus ── 2/4 */
 function PhaseRule({ label, tag, pomodoro, color }) {
-  useT();
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2" aria-label={pomodoro.continuous ? label : __("{label}, focus {position} of {longEvery}", { label, position: pomodoro.position, longEvery: pomodoro.settings.longEvery })}>
       <span className="h-px min-w-3 flex-1 bg-line-strong" aria-hidden="true" />
@@ -380,7 +378,6 @@ function PhaseRule({ label, tag, pomodoro, color }) {
 }
 
 function PhaseLabel({ label, tag, pomodoro, color }) {
-  useT();
   return (
     <div className="flex h-[18px] shrink-0 items-baseline justify-between gap-2">
       <span className="min-w-0 truncate font-serif text-sm font-semibold italic" style={{ color }}>
@@ -425,7 +422,6 @@ function ProgressBar({ progress, color, className = "" }) {
 }
 
 function Controls({ controls, onSearch, onTag, tagged = false }) {
-  useT();
   return (
     <div className="flex shrink-0 items-center gap-1">
       {controls.map((c) => (
@@ -470,7 +466,6 @@ function HoverLayer({ shown, className, children }) {
 }
 
 function TodoList({ project, open, todoOps, timedTodoId, onStopTimer }) {
-  useT();
   return (
     <section className="flex min-h-0 flex-1 flex-col border-t border-line pt-2" aria-label={__("To-dos")}>
       <h2 className="flex shrink-0 items-baseline gap-1.5 font-serif text-xs italic text-muted">
@@ -517,7 +512,6 @@ function TodoList({ project, open, todoOps, timedTodoId, onStopTimer }) {
 /** Marks a to-do as being worked on, or lets go of it, as the dot beside a to-do in the project does. It is
  *  always shown, not only on hover: the floating window doesn't always apply :hover (see ClockFace). */
 function WorkingToggle({ todo, todoOps }) {
-  useT();
   const working = Boolean(todo.working_since);
   return (
     <button
@@ -538,7 +532,6 @@ function WorkingToggle({ todo, todoOps }) {
 /** What the pomodoro is for, said inside the mini clock: the same picker as the header's, laid over the clock
  *  (a popover would sit on the page, not in the floating window). Esc, or a pick, goes back. */
 function MiniTag({ value, choices, onChange, onClose }) {
-  useT();
   return (
     <div
       className="fade-in absolute inset-0 z-20 flex flex-col bg-bg"
@@ -573,7 +566,6 @@ function MiniTag({ value, choices, onChange, onClose }) {
  *  typed: type, arrows, Enter starts it (`onPick` gets the result); Esc goes back. With `onTasks`, the Tasks
  *  tab is one of the results. */
 function MiniSearch({ projects, todos = [], runningId, chores = false, onTasks, onPick, onClose }) {
-  useT();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const listRef = useRef(null);
@@ -716,7 +708,6 @@ export function Hourglass({ height, progress, color, flowing }) {
 /** The in-page widget: fixed to the window, pinned by its right and bottom edges so it stays put when
  *  the window is resized, dragged by the bar along its top and resized from the grip at its top-left. */
 function Floating({ onClose, children }) {
-  useT();
   const [pos, setPos] = useState(() => readSaved(POS_KEY, { right: 16, bottom: 16 }, ["right", "bottom"]));
   const [size, setSize] = useState(() => readSaved(SIZE_KEY, SIZE, ["w", "h"]));
   const drag = useRef(null);

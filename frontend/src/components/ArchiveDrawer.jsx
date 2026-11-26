@@ -5,7 +5,7 @@ import { Archive, ArchiveRestore, ChevronUp, X } from "lucide-react";
 import { iconFor, inkFor, inkText } from "../lib/palette";
 import { fmtHM } from "../lib/time";
 import { Button } from "./Modal";
-import { __, _n, useT } from "../i18n";
+import { __, _n } from "../i18n";
 
 
 /**
@@ -17,7 +17,6 @@ import { __, _n, useT } from "../i18n";
  * and shut it.
  */
 export default function ArchiveDrawer({ projects, statusesById, dragging, over, onOpen, onRestore }) {
-  useT();
   const [open, setOpen] = useState(false);
   const id = useId();
 

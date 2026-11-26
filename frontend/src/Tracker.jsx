@@ -57,7 +57,7 @@ import { Button } from "./components/Modal";
 import { CHORE_ICON, CHORE_INK, TASK_ICON, TASK_INK, inkFor } from "./lib/palette";
 import { choreKey, isChoreKey, isTaskKey, taskIdOf, taskKey, todoSubject } from "./api";
 import { entriesByDay, isActive as isActiveHabit, streakOf } from "./lib/habits";
-import { N_, __, useT } from "./i18n";
+import { N_, __ } from "./i18n";
 
 
 const FEED_TASKS = "feed:tasks"; // the id of the Tasks card in the Feed
@@ -69,7 +69,6 @@ const PEEK_PUSH_MIN = 900; // narrower windows never push: the peek goes over th
  * back to the public page) is never passed to the demo.
  */
 export default function Tracker({ api, demo = false, user, onSignOut, signOutLabel }) {
-  useT();
   const t = useTracker(api);
   const habits = useHabits(api); // from the My Habits backup on Drive; kept apart so it can fail on its own
   const plan = usePlan(api); // the Workspace's "next up" list; also kept apart: without it everything else still works
@@ -1341,7 +1340,6 @@ function useCalendarView() {
 }
 
 function CalendarViews({ value, onChange, className = "mb-4" }) {
-  useT();
   return (
     <div role="radiogroup" aria-label={__("Calendar view")} className={`inline-flex border border-line-strong ${className}`}>
       {CAL_VIEWS.map((v) => (
@@ -1362,7 +1360,6 @@ function CalendarViews({ value, onChange, className = "mb-4" }) {
 }
 
 function Skeleton() {
-  useT();
   return (
     <div className="grid animate-pulse gap-3 sm:grid-cols-3" aria-label={__("Loading")}>
       {[0, 1, 2].map((i) => (
@@ -1378,7 +1375,6 @@ function Skeleton() {
 
 /** Nothing yet: the one thing to do is make the first project. */
 function EmptyBoard({ onCreate }) {
-  useT();
   return (
     <div className="grid h-full min-h-[16rem] place-items-center border border-dashed border-line-strong p-6 text-center">
       <div>
@@ -1393,7 +1389,6 @@ function EmptyBoard({ onCreate }) {
 /** The server can't be reached. The app keeps trying on its own (and again when the network or the tab comes
  *  back), so the button is only there to skip the wait. */
 function ServerDown({ onRetry, connecting, failures, auto }) {
-  useT();
   return (
     <div className="grid min-h-[100dvh] place-items-center p-4">
       <div className="w-full max-w-md border border-line-strong bg-surface p-7" role="status" aria-live="polite">

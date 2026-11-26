@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ArrowRight, Check, X } from "lucide-react";
 import { planChanges, planOrder } from "../lib/aiTasks";
-import { __, __r, _n, useT } from "../i18n";
+import { __, __r, _n } from "../i18n";
 
 /**
  * Where an AI's reply to "Copy for AI" is pasted. It is read, shown as the changes it would make (new text with
@@ -9,7 +9,6 @@ import { __, __r, _n, useT } from "../i18n";
  * `tasks` are the open tasks, `subsOf(task)` a task's sub-tasks.
  */
 export default function TaskAiPanel({ tasks, subsOf, todoOps, onClose }) {
-  useT();
   const [raw, setRaw] = useState("");
   const [changes, setChanges] = useState(null);
   const [order, setOrder] = useState([]);

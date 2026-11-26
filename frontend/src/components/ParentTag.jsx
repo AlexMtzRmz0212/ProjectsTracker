@@ -1,11 +1,10 @@
 import { CornerDownRight } from "lucide-react";
-import { __, useT } from "../i18n";
+import { __ } from "../i18n";
 
 /** A small tag naming the to-do a sub-to-do belongs to, so it reads on its own in a list of
  *  ticked-off to-dos. `todosById` is a Map of every to-do; nothing is drawn for a to-do that
  *  isn't a sub-to-do (or whose parent is gone). */
 export default function ParentTag({ todo, todosById, className = "" }) {
-  useT();
   const parent = todo.parent_id ? todosById.get(todo.parent_id) : null;
   if (!parent) return null;
   return (
