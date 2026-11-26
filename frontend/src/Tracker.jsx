@@ -300,10 +300,18 @@ export default function Tracker({ api, demo = false, user, onSignOut, signOutLab
   };
   const feedTasks = useMemo(() => {
     if (!tasks.some((x) => !x.done)) return null;
-    // No time and no created date to rank by: only its skip counts, and with none it comes before everything
+    // No time and no created date to rank by: only its skip counts, and with none it comes before everything.
+    // Its "last edited" is the latest change to any of its to-dos (added, ticked or cancelled), like a project's.
+    let edited = 0;
+    for (const x of tasks) {
+      for (const at of [x.created_at, x.completed_at, x.cancelled_at]) {
+        const ms = at ? Date.parse(at) : NaN;
+        if (ms > edited) edited = ms;
+      }
+    }
     return {
       id: FEED_TASKS, kind: "tasks", name: __("Tasks"), color: TASK_INK, icon: TASK_ICON, status_id: null, skipped_at: tasksSkippedAt,
-      created_at: "1970-01-01T00:00:00Z", total_seconds: 0,
+      created_at: "1970-01-01T00:00:00Z", updated_at: edited ? new Date(edited).toISOString() : null, total_seconds: 0,
     };
   }, [tasks, tasksSkippedAt]);
   // When a task was last worked on (a timer, one added, one ticked), for the card to say
